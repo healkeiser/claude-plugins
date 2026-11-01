@@ -128,3 +128,16 @@ test('pieces of the row', () => {
   expect(took(1400)).toBe('1.4s')
   expect(took(125_000)).toBe('2m 05s')
 })
+
+test('desktop and VS Code draw the same compact row', async $ => {
+  for (const surface of ['desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'pulse', surface, component: 'ToolUse', requestId: 'b1', viewport: VIEWPORT,
+      props: { ...ROW, isRunning: true },
+    } as never)
+    const all = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    await ui.unmount()
+    expect(all).toContain('Show working tree status')
+    expect(all).toContain('$ git status')
+  }
+})

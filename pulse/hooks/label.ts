@@ -1,3 +1,5 @@
+import { seconds } from './style'
+
 const base = (path: unknown) => String(path ?? '').split(/[\\/]/).pop() || 'file'
 
 // One short phrase per tool call, for the band: on one line, as a multi-line
@@ -55,6 +57,5 @@ export function summarize(calls: readonly { tool: string; isErrored: boolean }[]
   return { text, failed: calls.filter(c => c.isErrored).length }
 }
 
-export function elapsed(seconds: number): string {
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
-}
+/** Whole seconds as the band counts them: `42s`, `2m 05s`, `3h 12m`. */
+export const elapsed = seconds
