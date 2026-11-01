@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: h22-vex-vertexprimuv
+expected_outcome: |
+  wrangle.vfl uses vertexprimuv (new in 22) with a valid signature to set v@primuv and fnv1a_hash on the name string for i@hash; answer.md notes these are new in Houdini 22 and cites houdini22.0 VEX function pages.

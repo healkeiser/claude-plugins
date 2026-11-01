@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: h22-deprecated-dop-pyro
+expected_outcome: |
+  answer.md states these DOP nodes are deprecated in Houdini 22.0 and scheduled for removal, maps Pyro Solver to Pyro Solver (Sparse), Smoke Solver to Smoke Solver (Sparse), Smoke Object and Smoke Configure Object to Smoke Object (Sparse), mentions the new COP Pyro nodes, and cites houdini22.0 docs.
