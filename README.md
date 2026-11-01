@@ -144,9 +144,12 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - Each slash command you run (`/diff`, `/theme`, a skill) draws its output as a purple card headed by the command. The line you typed stays as the engine draws it: mods cannot restyle it, and a command that prints nothing has no card.
 - A fenced code block in a prompt draws as a grey box inside the card, with its language and syntax colours.
 - A prompt sent while Claude is still working draws as a narrow grey `‖ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
-- `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; `1` to `9` reach the nine newest.
+- `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; once the pane has the focus, the arrows and Enter walk the list and `1` to `9` reach the nine newest.
+- The pane opens on a search field: type to keep only the prompts that contain the text (case does not matter), with the match lit in the accent colour; Enter jumps to the newest match.
+- Each row has **edit**, which puts that prompt in the prompt box for you to change and send (it never writes over a draft you have there), and **re-send**, which sends it again as it was. Nothing is sent unless you press re-send.
+- `/prompts prev` and `/prompts next` step to the prompt before or after the one you last jumped to; a new turn starts again from the bottom. The pane's **prev** and **next** buttons do the same, and while the pane is open your keys for Claude Code's `app:diffFileListUp` and `app:diffFileListDown` actions (`ctrl+up` and `ctrl+down` by default, rebindable in `keybindings.json`) press them from the prompt, except while the diff panel is open and uses them. No bare digit or letter does anything from the prompt.
 - It ships a `postcard` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
-- The cards are drawn in the terminal; the desktop app, VS Code and mobile keep their own message bubbles, and `/prompts` works there too.
+- The cards are drawn in the terminal; the desktop app, VS Code and mobile keep their own message bubbles, and `/prompts` works there too (mobile has no search field yet).
 - Option (in `/plugin`, or `pluginConfigs` under `postcard@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins and `+-|` card borders.
 
 > [!NOTE]

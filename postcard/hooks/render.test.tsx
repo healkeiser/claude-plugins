@@ -3,6 +3,9 @@ import { pieces } from './register'
 import { bareEmoji } from './style'
 
 const props = (kind: string, text = 'fix the band') => ({ text, origin: { kind }, isExpanded: false }) as never
+type Found = { findAll: (q: { type: string }) => Promise<{ key: string | undefined; text: string; props: Record<string, unknown> }[]> }
+// The pane's prompt rows (keys p1, p2, ...), past its search field and prev/next.
+const rowTexts = async (pane: Found) => (await pane.findAll({ type: 'Button' })).filter(b => /^p\d/.test(b.key ?? '')).map(b => b.text)
 
 test('a typed prompt draws as a card with a label', async $ => {
   const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', props: props('composer') })
@@ -14,7 +17,7 @@ test('the prompts pane lists drawn prompts newest first', async $ => {
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', 'first ask') })
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: props('composer', 'second ask\nmore') })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 60 } as never })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['#2 second ask', '#1 first ask'])
+  expect(await rowTexts(pane)).toEqual(['#2 second ask', '#1 first ask'])
 })
 
 test('the pane shows a prompt by its first line with words, cut whole', async $ => {
@@ -22,7 +25,7 @@ test('the pane shows a prompt by its first line with words, cut whole', async $ 
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', pasted) })
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: props('composer', '😀'.repeat(20)) })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#2 ${'😀'.repeat(4)}…`, '#1 sudo ls'])
+  expect(await rowTexts(pane)).toEqual([`#2 ${'😀'.repeat(4)}…`, '#1 sudo ls'])
 })
 
 test('a task notification keeps the engine drawing', async ($, on) => {
@@ -110,7 +113,7 @@ test('prompts drawn natively on desktop still fill the /prompts pane there', asy
   })
   await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'UserMessage', requestId: 'd1', props: props('composer', 'from the app') })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 60 } as never })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['#1 from the app'])
+  expect(await rowTexts(pane)).toEqual(['#1 from the app'])
 })
 
 test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyphs: 'text' } }, async $ => {
@@ -119,5 +122,5 @@ test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyp
   expect(((await ui.findAll({ type: 'Box' })) as { props?: Record<string, unknown> }[]).map(b => b.props?.borderStyle)).toEqual(['classic'])
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', 'a'.repeat(40)) })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#1 ${'a'.repeat(9)}~`])
+  expect(await rowTexts(pane)).toEqual([`#1 ${'a'.repeat(9)}~`])
 })
