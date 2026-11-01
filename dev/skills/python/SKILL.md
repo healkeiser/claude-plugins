@@ -1,5 +1,5 @@
 ---
-name: python-development
+name: python
 description: Opinionated Python development conventions. Use when writing, editing, reviewing, or explaining Python code, package structure, type hints, docstrings, imports, comments, formatting, ruff/black configuration, pyproject.toml, or tests in Python repositories.
 ---
 

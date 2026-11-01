@@ -142,29 +142,40 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 
 ### flightdeck
 
-A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: full rounded blocks like postcard's cards, bars and heat colours like the status line, and pulse's `✔ 1.4s` timing. The pane asks for a transparent backdrop, so your terminal's own background shows through.
+A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: full rounded blocks like postcard's cards, a main block that reads like the status line, and pulse's `✓ 1.4s` timing. The pane asks for a transparent backdrop, so your terminal's own background shows through, and keeps a blank row above its first line.
 
 ```
 ╭────────────────────────────────────────────────────────────╮
 │ Opus 5.5 · main                                  ● working │
-│ effort ●●●○ high · mode auto · 12 req                      │
-│ ctx ━━━━━━──── 64% · 640k/1.0M                             │
-│ $12.45 · 5h ━━━━─ 82% ↻2h58m · 7d ━━─── 40% ↻3d22h         │
+│ ctx  ━━━━━━────   64%   640k/1.0M                          │
+│ 5h   ━━━━━━━━──   82%   ↻ 4h 51m   21:05                   │
+│ 7d   ━━━━──────   40%   ↻ 3d 22h   Thu 14:41               │
+│ effort high · mode auto · 12 req · $12.45 · ttft 1.2s      │
 ╰────────────────────────────────────────────────────────────╯
-agents · 2 running · 3 total                        1-3 expand
-──────────┬────────────────────┬────────────────────┬─────────
-╭──────────────────╮ ╭──────────────────╮ ╭──────────────────╮
-│ 1: Write the     │ │ 2: Map every     │ │ 3: Review the    │
-│ loader tests     │ │ call site        │ │ migration path   │
-│ general-purpose  │ │ Explore          │ │ general-purpose  │
-│ ctx 124k · out 9 │ │ ctx 40k · out 2k │ │ starting…        │
-│ ● 0:42           │ │ ✔ 0:30           │ │ ● 0:12           │
-╰──────────────────╯ ╰──────────────────╯ ╰──────────────────╯
-──────────┴────────────────────┴────────────────────┴─────────
+──────────────────────────────────────────────────────────────
+╭────────────────────────────────────────────────────────────╮
+│ GATE · permissions                              141 checks │
+│ all  ━━━━━━━━━━   141                                      │
+│ 115 allowed · 0 you · 26 pending · 0 denied                │
+│ file 40  shell 80  other 21                                │
+╰────────────────────────────────────────────────────────────╯
+
+╭────────────────────────────────────────────────────────────╮
+│ agents · 1 running · 2 total                    1-2 expand │
+│ ──────────────┬────────────────────────────┬────────────── │
+│ ╭──────────────────────────╮ ╭──────────────────────────╮  │
+│ │ 1: Write the loader      │ │ 2: Map every call site   │  │
+│ │ tests                    │ │                          │  │
+│ │ general-purpose          │ │ Explore                  │  │
+│ │ ctx 124k · out 900 · 6…  │ │ ctx 40k · out 2k · 3 st  │  │
+│ │ ● running 0:42           │ │ ✓ done 0:30              │  │
+│ ╰──────────────────────────╯ ╰──────────────────────────╯  │
+╰────────────────────────────────────────────────────────────╯
 ```
 
-- **Blocks**: main (model, effort, mode, context gauge, compactions, cost, rate limits with their reset times, time to first token), architect (consult timeline, inferred moment, last advice), gate (one `▪` per permission check, `○` pending, `✕` denied, a drill-down per file, shell and other), agents (cards, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
-- While work flows, packets run along the connectors between blocks and fan out to the cards and back; `motion: off` keeps them still.
+- **Blocks**: main (the status line's meters for context and each rate limit, with the time to each reset and its wall-clock time, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
+- Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off` keeps them still.
+- Status glyphs are plain text (`✓ ✕ ● ○ ■`), never ones a terminal such as Warp draws as colour emoji, and each takes the colour of the words it marks.
 - Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
 - `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card and `f`, `s`, `o` open the gate's rows.
 - Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels`, `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `openOnStart`, `statusLine`.
@@ -236,7 +247,7 @@ The `dev` plugin holds coding-convention skills, shown as `dev:<skill>`.
 
 | Skill | What it covers |
 |-------|----------------|
-| `dev:python-development` | Python conventions: package layout, type hints, docstrings, imports, comments, formatting (ruff/black), `pyproject.toml`, tests |
+| `dev:python` | Python conventions: package layout, type hints, docstrings, imports, comments, formatting (ruff/black), `pyproject.toml`, tests |
 
 ``` shell
 claude plugin install dev@healkeiser --scope user
