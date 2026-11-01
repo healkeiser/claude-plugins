@@ -1,18 +1,27 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Activity } from '../types'
+import type { Activity, Call } from '../types'
+import { afterTool, afterTurn, registerBand } from './band'
 import { clip, commandLine, preview, took } from './bash'
+import { cacheLeft, cacheTtl } from './glance'
 import { describe, elapsed, summarize } from './label'
-import { FRAME_MS, GLYPH, ROLE, isFading, motionOn, plural, remember, spin } from './style'
+import { FRAME_MS, GLYPH, ROLE, motionOn, plural, remember, spin } from './style'
 
 const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
 const durations = atom({ plugin: 'pulse', key: 'durations' } as const, null)
+const calls = atom({ plugin: 'pulse', key: 'calls' } as const, [])
+const last = atom({ plugin: 'pulse', key: 'last' } as const, null)
+const cache = atom({ plugin: 'pulse', key: 'cache' } as const, null)
+const second = atom({ plugin: 'pulse', key: 'second' } as const, 0)
+
 // Tool rows are the terminal's: desktop, VS Code and mobile draw them well
-// already, so they stay native (DESIGN.md). The band, which no surface has,
-// draws on the terminal and desktop, the two that raise AbovePrompt.
+// already, so they stay native (DESIGN.md).
 const ROWS = new Set(['terminal'])
-const BAND = new Set(['terminal', 'desktop'])
+const EDITS = /^(Edit|MultiEdit|Write|NotebookEdit)$/
+
+const costNow = ($: EngineInterface) =>
+  $.session.usage().then(u => u.cost?.usd ?? null, () => null)
 
 type TurnStats = { tools: number; files: Set<string> }
 
@@ -27,13 +36,19 @@ export const register: Register = (on, options) => {
   let turn: TurnStats = { tools: 0, files: new Set() }
   let finished: TurnStats | null = null
   const footers = new Map<string, TurnStats>()
+  // The session's cost when the main turn started, for the turn's own cost.
+  let costAtStart: number | null = null
+
+  registerBand(on, options, () => isMoving)
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     turn = { tools: 0, files: new Set() }
     tick?.cancel()
     isMoving = motionOn(options.motion, await Promise.resolve().then(() => $.config.list()).catch(() => []))
+    costAtStart = await costNow($)
     const startedAt = await $.clock.now()
+    await update($, calls, () => [])
     await update($, activity, (): Activity => ({ label: 'thinking', tools: 0, frames: 0, startedAt, labelAt: startedAt }))
     // One tick for the whole mod: the band's spinner and the Bash rows' share it.
     tick = $.clock.every(isMoving ? FRAME_MS : 1000, () => {
@@ -42,17 +57,34 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Never awaited: a failed band update must not hold up the tool call.
-  on('tool.call', ($, e, next) => {
+  // The band's writes are never awaited: a failed one must not hold up the
+  // call. Chained, so a call's end never lands before its start.
+  on('tool.call', async ($, e, next) => {
     turn.tools += 1
     const path = (e as { file_path?: unknown }).file_path
-    if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(e.tool) && typeof path === 'string') turn.files.add(path)
+    const file = EDITS.test(e.tool) && typeof path === 'string' ? path : undefined
+    if (file) turn.files.add(file)
     const label = describe(e)
-    $.clock
+    const id = e.tool_use_id
+    const started = $.clock
       .now()
-      .then(at => update($, activity, a => (a ? { ...a, label, tools: a.tools + 1, ...(a.label === label ? {} : { labelAt: at }) } : a)))
+      .then(async at => {
+        await update($, activity, a => (a ? { ...a, label, tools: a.tools + 1, ...(a.label === label ? {} : { labelAt: at }) } : a))
+        const call: Call = { id, tool: e.tool, label, state: 'running', startedAt: at, ...(file ? { file } : {}) }
+        await update($, calls, list => [...(list ?? []), call].slice(-200))
+        return at
+      })
+      .catch(() => 0)
+    const ran = await next(e)
+    afterTool($, e.tool)
+    const state: Call['state'] = ran.deny !== undefined || ran.isError ? 'fail' : 'ok'
+    void started
+      .then(async at => {
+        const end = await $.clock.now()
+        await update($, calls, list => (list ?? []).map(c => (c.id === id ? { ...c, state, ms: end - at } : c)))
+      })
       .catch(() => {})
-    return next(e)
+    return ran
   }).catch(($, e, next) => next(e))
 
   // A Bash call's wall time, for its row. shortcut: it includes any wait on a
@@ -74,10 +106,64 @@ export const register: Register = (on, options) => {
       finished = turn
       tick?.cancel()
       tick = undefined
+      const [now, cost, usage] = await Promise.all([$.clock.now(), costNow($), $.session.usage().catch(() => null)])
+      const tools = turn.tools
+      await update($, last, () => ({
+        durationMs: e.durationMs,
+        tools,
+        isAborted: e.isAborted,
+        costUsd: cost !== null && costAtStart !== null && cost >= costAtStart ? cost - costAtStart : null,
+        endedAt: now,
+      }))
       await update($, activity, () => null)
+      afterTurn($)
+      // The turn's last request used the cache, which keeps the prefix a TTL
+      // from then. shortcut: timed from the turn's end, so it runs late by the
+      // last response's length; time each request from turn.step if that shows.
+      const used = e.usage ? e.usage.cache_read_input_tokens + e.usage.cache_creation_input_tokens > 0 : true
+      const [disable, force5m, enable1h] = await Promise.all([
+        $.env.get('DISABLE_PROMPT_CACHING').catch(() => undefined),
+        $.env.get('FORCE_PROMPT_CACHING_5M').catch(() => undefined),
+        $.env.get('ENABLE_PROMPT_CACHING_1H').catch(() => undefined),
+      ])
+      const ttlMs = used
+        ? cacheTtl({ disable: disable ?? undefined, force5m: force5m ?? undefined, enable1h: enable1h ?? undefined }, (usage?.rateLimits.length ?? 0) > 0)
+        : null
+      const kept = ttlMs === null ? null : { at: now, ttlMs }
+      await update($, cache, () => kept)
+      // The countdown redraws once a second until the prefix lapses; nothing
+      // else moves while idle. It is the mod's one timer: a turn cancels it.
+      if (kept) {
+        await update($, second, () => now)
+        const timer = $.clock.every(1000, () => {
+          void $.clock
+            .now()
+            .then(async t => {
+              await update($, second, () => t)
+              if (cacheLeft(kept, t) === 0 && tick === timer) {
+                timer.cancel()
+                tick = undefined
+              }
+            })
+            .catch(() => {})
+        })
+        tick = timer
+      }
     }
     return next(e)
   })
+
+  // /clear starts a new conversation: no cached prefix, no last turn.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      tick?.cancel()
+      tick = undefined
+      await update($, cache, () => null)
+      await update($, last, () => null)
+      await update($, calls, () => [])
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   // `✻ Baked for 29s · 6 tools · 2 files edited`
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
@@ -175,38 +261,5 @@ export const register: Register = (on, options) => {
     if (!ROWS.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
-  })
-
-  // The band is shared: other mods' rows come from `next(e)` and stay under
-  // ours, in a column Box given no width, height or position of its own.
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!BAND.has(e.surface)) return next(e)
-    const a = await read($, activity)
-    if (e.props.hasSurvey || !e.props.isWorking || a === null) return next(e)
-
-    const { Box, Text } = $.ui.resolve(e)
-    // From the clock, not the frame count: each tick lands a little late, so
-    // frames fall behind the real time over a long turn. A value stored before
-    // startedAt existed falls back to frames.
-    const now = await $.clock.now()
-    const ms = a.startedAt ? now - a.startedAt : a.frames * FRAME_MS
-    // A new action draws dim for its first moment, then normal: it fades in.
-    const isNew = isMoving && a.labelAt !== undefined && isFading(now - a.labelAt)
-
-    const mine = (
-      <Box flexDirection="row">
-        <Text color={ROLE.accent}>{isMoving ? spin(a.frames) : GLYPH.live} </Text>
-        <Text wrap="truncate-end">
-          <Text dimColor={isNew}>{a.label}</Text>
-          <Text dimColor>{`  ${GLYPH.dot}  ${plural(a.tools, 'tool')}  ${GLYPH.dot}  ${elapsed(Math.floor(ms / 1000))}`}</Text>
-        </Text>
-      </Box>
-    )
-    return (
-      <Box flexDirection="column">
-        {mine}
-        {await next(e)}
-      </Box>
-    )
   })
 }

@@ -2,8 +2,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  GLYPH, ROLE, SPINNER, bareEmoji, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  packets, padCells, percent, remember, span, spin, sweep, usd,
+  ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
+  heatHex, heatRuns, meterShare, packets, padCells, percent, remember, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -59,7 +59,7 @@ test('meters heat at 60 and 80 percent', () => {
   expect(heat(59)).toBe('claude')
   expect(heat(60)).toBe('warning')
   expect(heat(80)).toBe('error')
-  expect(meter(64, 10)).toEqual({ fill: '━━━━━━', track: '────' })
+  expect(meter(64, 10)).toEqual({ fill: '━━━━━━╸', track: '───' })
   expect(meter(150, 4)).toEqual({ fill: '━━━━', track: '' })
 })
 
@@ -84,4 +84,62 @@ test('remember keeps the newest entries only', () => {
   const m = new Map<number, number>()
   for (let i = 0; i < 10; i++) remember(m, i, i, 3)
   expect([...m.keys()]).toEqual([7, 8, 9])
+})
+
+test('glyphs: text draws every glyph as one ASCII cell', () => {
+  const all = [...Object.values(GLYPH).flat(), ...SPINNER, '╭╮╰╯┬┴├┼┤┃▾▴▸⧉⌕⌘⇣→—'].join('')
+  const out = ascii(all)
+  expect(/^[ -~]*$/.test(out)).toBe(true)
+  expect(out.length).toBe([...all.replace(/︎/g, '')].length)
+  expect(Object.values(ASCII).every(v => v.length === 1)).toBe(true)
+  expect(ascii('✓ done · ↗︎')).toBe('v done - ^')
+  const tree = asciiTree({ type: 'Box', props: { borderStyle: 'round' }, children: [
+    { type: 'Text', children: ['● working'] },
+    { type: 'Code', props: { source: '✓' } },
+    { type: 'Button', props: { label: '▾ more' } },
+  ] })
+  expect(tree).toEqual({ type: 'Box', props: { borderStyle: 'classic' }, children: [
+    { type: 'Text', children: ['* working'] },
+    { type: 'Code', props: { source: '✓' } },
+    { type: 'Button', props: { label: 'v more' } },
+  ] })
+})
+
+test('the heat ramp: one step per 10%, each lit cell its own step', () => {
+  expect(heatHex(0)).toBe(HEAT_RAMP[0])
+  expect(heatHex(64)).toBe(HEAT_RAMP[6])
+  expect(heatHex(100)).toBe(HEAT_RAMP[9])
+  expect(heatRuns(40, 10)).toEqual([
+    ...HEAT_RAMP.slice(0, 4).map(color => ({ text: '━', color })),
+    { text: '──────', color: HEAT_UNLIT },
+  ])
+  expect(heatRuns(100, 5).map(r => r.color)).toEqual([HEAT_RAMP[0], HEAT_RAMP[2], HEAT_RAMP[4], HEAT_RAMP[6], HEAT_RAMP[8]])
+  expect(canRamp({ COLORTERM: 'truecolor' })).toBe(true)
+  expect(canRamp({ TERM: 'xterm-256color' })).toBe(true)
+  expect(canRamp({ TERM: 'xterm' })).toBe(false)
+})
+
+test('meters and percentages follow the status line: half cells, nothing above zero drawn empty', () => {
+  // [reading, shown, ten-cell bar], as statusline.sh draws them.
+  const cases: [number, string, string][] = [
+    [0, '0%', '──────────'],
+    [0.4, '0%', '╸─────────'],
+    [3, '3%', '╸─────────'],
+    [9, '9%', '━─────────'],
+    [36, '36%', '━━━╸──────'],
+    [37.5, '38%', '━━━━──────'],
+    [99.6, '100%', '━━━━━━━━━━'],
+    [100, '100%', '━━━━━━━━━━'],
+  ]
+  for (const [pct, shown, bar] of cases) {
+    const m = meter(pct, 10)
+    expect([percent(pct), m.fill + m.track]).toEqual([shown, bar])
+  }
+  expect(heatRuns(36, 10).map(r => r.text).join('')).toBe('━━━╸──────')
+  expect(heatRuns(3, 10)[0]).toEqual({ text: '╸', color: HEAT_RAMP[0] })
+  expect(meterShare(0, 10)).toBe(0)
+  expect(meterShare(0.4, 10)).toBe(0.05)
+  expect(meterShare(37.5, 10)).toBe(0.375)
+  expect(meterShare(120, 10)).toBe(1)
+  expect(heatHex(59.6)).toBe(HEAT_RAMP[6])
 })

@@ -38,12 +38,51 @@ export const GLYPH = {
   more: '…',
   dot: '·',
   fill: '━',
+  half: '╸',
   track: '─',
   bar: '│',
   external: '↗︎',
   warn: '⚠︎',
   info: 'ℹ︎',
 } as const
+
+/**
+ * ASCII stand-ins for the `glyphs: text` option, one cell each so every width
+ * holds: each glyph DESIGN.md names, the folds, the box corners and the spinner.
+ */
+export const ASCII: Readonly<Record<string, string>> = Object.fromEntries(
+  // Pairs: a glyph, then its stand-in. Keys only, never drawn as they stand.
+  [...'✓v✕x✗x●*○o■#•*◦-‖|↻@⟲<◆+◇-»>…~·-━=╸:─-│|┃|╭+╮+╰+╯+┬+┴+├+┼+┤+↗^⚠!ℹi→>—-⧉+▾v▴^▸>⌕?⌘/⇣v⠋|⠙/⠹-⠸\\⠼|⠴/⠦-⠧\\⠇|⠏/'].flatMap((c, i, all) => (i % 2 ? [] : [[c, all[i + 1]!]])), // glyph-lint-ignore
+)
+
+/** `s` with every glyph in `ASCII` swapped for its stand-in, variation selectors dropped. */
+export const ascii = (s: string): string => [...s.replace(/[︎️]/g, '')].map(c => ASCII[c] ?? c).join('')
+
+/** The `glyphs` option: `text` draws ASCII; `auto` and `plain` draw the Unicode set (these mods have no Nerd Font set). */
+export const isAsciiGlyphs = (option: unknown): boolean => option === 'text'
+
+// Elements whose text is content or a picture, never a glyph of ours.
+const KEEP_TEXT = new Set(['Code', 'Markdown', 'Svg', 'Client', 'Raster', 'Image', 'Input', 'Select'])
+
+/**
+ * A drawn tree for `glyphs: text`: every text and label through `ascii`, and
+ * rounded or bold borders drawn `classic` (`+`, `-`, `|`). Code, Markdown,
+ * pictures and fields keep what they hold.
+ */
+export function asciiTree<T>(node: T): T {
+  if (typeof node === 'string') return ascii(node) as T
+  if (Array.isArray(node)) return node.map(asciiTree) as T
+  if (node === null || typeof node !== 'object') return node
+  const el = node as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+  if (typeof el.type === 'string' && KEEP_TEXT.has(el.type)) return node
+  const props = el.props && {
+    ...el.props,
+    ...(typeof el.props.label === 'string' ? { label: ascii(el.props.label) } : {}),
+    ...(el.props.borderStyle === 'round' || el.props.borderStyle === 'bold' ? { borderStyle: 'classic' } : {}),
+    ...(el.props.children !== undefined ? { children: asciiTree(el.props.children) } : {}),
+  }
+  return { ...el, ...(props ? { props } : {}), ...(el.children !== undefined ? { children: asciiTree(el.children) } : {}) } as T
+}
 
 /** ` · `, the separator inside cards and headers; bands use two spaces a side. */
 export const SEP = ` ${GLYPH.dot} `
@@ -152,8 +191,14 @@ export function count(n: number): string {
   return String(Math.round(n))
 }
 
+/**
+ * A reading as shown, as the status line rounds it: to tenths, then to the
+ * nearest whole, so `37.5` is `38` and the two never disagree.
+ */
+export const wholePct = (pct: number): number => Math.floor((Math.round(pct * 10) + 5) / 10)
+
 /** `64%`. */
-export const percent = (pct: number) => `${Math.round(pct)}%`
+export const percent = (pct: number) => `${wholePct(pct)}%`
 
 /** `$12.45`, `$140`. */
 export const usd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`)
@@ -162,13 +207,63 @@ export const usd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixe
 export const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`
 
 /** A meter's colour by how full it is: accent, then warning from 60%, error from 80%. */
-export const heat = (pct: number): 'claude' | 'warning' | 'error' => (pct >= 80 ? ROLE.error : pct >= 60 ? ROLE.warning : ROLE.accent)
-
-/** A meter of `cells`: the filled run and the track, `━` and `─`. */
-export function meter(pct: number, cells: number): { fill: string; track: string } {
-  const full = Math.max(0, Math.min(cells, Math.round((pct / 100) * cells)))
-  return { fill: GLYPH.fill.repeat(full), track: GLYPH.track.repeat(cells - full) }
+export const heat = (pct: number): 'claude' | 'warning' | 'error' => {
+  const shown = wholePct(pct)
+  return shown >= 80 ? ROLE.error : shown >= 60 ? ROLE.warning : ROLE.accent
 }
+
+/**
+ * The status line's 256-colour heat ramp (xterm 46 82 118 154 190 226 220 214
+ * 208 196, green to yellow to red, one step per 10%) as those entries' hex, so
+ * a 256-colour terminal draws them exactly.
+ */
+export const HEAT_RAMP = ['#00ff00', '#5fff00', '#87ff00', '#afff00', '#d7ff00', '#ffff00', '#ffd700', '#ffaf00', '#ff8700', '#ff0000'] as const
+/** The ramp's unlit track, xterm 239. */
+export const HEAT_UNLIT = '#4e4e4e'
+
+/** The ramp step a reading takes, as the status line colours its percentage: its tens, 90% and up the last. */
+export const heatHex = (pct: number): string => HEAT_RAMP[Math.max(0, Math.min(9, Math.floor(wholePct(pct) / 10)))]!
+
+/**
+ * A meter of `cells` as coloured runs: each lit cell the ramp step of where it
+ * sits along the bar (so the last lit cell is the severity), the rest unlit.
+ */
+export function heatRuns(pct: number, cells: number): { text: string; color: string }[] {
+  const { fill, track } = meter(pct, cells)
+  const runs: { text: string; color: string }[] = []
+  ;[...fill].forEach((ch, k) => {
+    const color = HEAT_RAMP[Math.min(9, Math.floor((k * 10) / cells))]!
+    const last = runs[runs.length - 1]
+    if (last?.color === color) last.text += ch
+    else runs.push({ text: ch, color })
+  })
+  return track ? [...runs, { text: track, color: HEAT_UNLIT }] : runs
+}
+
+/**
+ * Whether a terminal draws the ramp: 24-bit colour (`COLORTERM`, Windows
+ * Terminal's `WT_SESSION`) or 256 colours (`TERM`). Otherwise meters take
+ * `heat`'s three role colours.
+ */
+export const canRamp = (env: { COLORTERM?: string; TERM?: string; WT_SESSION?: string }): boolean =>
+  /truecolor|24bit/i.test(env.COLORTERM ?? '') || /256col|direct/i.test(env.TERM ?? '') || !!env.WT_SESSION
+
+/**
+ * A meter of `cells` as the status line steps it: the filled run (`━`, a last
+ * `╸` for half a cell) and the track `─`. Half-cell steps, rounded from the
+ * reading in tenths; any reading above zero lights at least half a cell.
+ */
+export function meter(pct: number, cells: number): { fill: string; track: string } {
+  const tenths = Math.round(pct * 10)
+  const halves = Math.max(tenths > 0 ? 1 : 0, Math.min(cells * 2, Math.floor((tenths * cells * 2 + 500) / 1000)))
+  const full = halves >> 1
+  const half = halves & 1
+  return { fill: GLYPH.fill.repeat(full) + (half ? GLYPH.half : ''), track: GLYPH.track.repeat(cells - full - half) }
+}
+
+/** The share of a graphical meter a reading fills, 0 to 1: proportional, and above zero at least half a cell of `cells`. */
+export const meterShare = (pct: number, cells: number): number =>
+  Math.round(pct * 10) > 0 ? Math.min(1, Math.max(0.5 / cells, pct / 100)) : 0
 
 // ---------------------------------------------------------------- motion
 
