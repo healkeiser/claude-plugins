@@ -57,7 +57,7 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 
 | Mod | What it changes |
 |-----|-----------------|
-| **pretty-markdown** | Claude's replies: bordered code blocks with a copy button, inline-code chips, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
+| **pretty-markdown** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
 | **working-band** | The line above the prompt while Claude works, the folded tool rows, and the footer that closes each turn |
 | **prompt-cards** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 
@@ -93,8 +93,12 @@ Run `/reload-plugins` in a session that is already open; new sessions load them 
 
 Redraws each block of Claude's reply that has something to gain; plain prose keeps Claude Code's own look.
 
-- **Code blocks** draw in a rounded border with their language and a `⧉ copy` button. Past 10 lines they get line numbers; past 20 they fold to 12 with a `▾ show all N lines` button.
-- **Inline code** becomes a tinted chip.
+- **Code blocks** draw between a top rule, carrying their language and a `⧉ copy` button, and a bottom rule, with no side border, so a mouse selection copies the code alone. Past 20 lines they fold to 12 with a `▾ show all N lines` button.
+- **Inline code** becomes a chip in the theme's own colours (the prompt tint behind the warning colour), so it reads on light and dark themes alike, `auto` included.
+- **Lists** change bullet by depth (`•`, `◦`, `▪`, each in its own colour) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✔`.
+- **Quotes** that are not callouts draw with a dim `│` bar on every line, one per nesting level, rather than a box.
+- **Rules** (`---`, `***`, `___` alone on a line) draw as a dim line across the window.
+- **Strikethrough** (`~~text~~`) draws struck through.
 - **Diff fences** (` ```diff `) draw in red and green, a hunk header added when the fence has none.
 - **Tables** draw in a rounded border with a bold header row; a table too wide for the window narrows its widest column and wraps it.
 - **Headings** (`##` lines and bold-only lines such as `**What changed:**`) draw in the accent colour with a rule under them.
