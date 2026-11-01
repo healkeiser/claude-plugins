@@ -122,5 +122,5 @@ test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyp
   expect(((await ui.findAll({ type: 'Box' })) as { props?: Record<string, unknown> }[]).map(b => b.props?.borderStyle)).toEqual(['classic'])
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', 'a'.repeat(40)) })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
-  expect(await rowTexts(pane)).toEqual([`#1 ${'a'.repeat(9)}~`])
+  expect(await rowTexts(pane)).toEqual([`#1 ${'a'.repeat(8)}~`])
 })

@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PromptsQuery, PromptsSent, PromptsVersion } from '../types'
-import { GLYPH, ROLE, SEP, asciiTree, clip, isAsciiGlyphs, remember } from './style'
+import type { PromptsCursor, PromptsQuery, PromptsSent, PromptsSentAt, PromptsVersion } from '../types'
+import { GLYPH, ROLE, SEP, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
 const CARD = ROLE.you
@@ -18,8 +18,14 @@ const SURFACES = new Set(['terminal'])
 const version = atom({ plugin: 'postcard', key: 'version' } as const, 0 as PromptsVersion)
 const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
 const query = atom({ plugin: 'postcard', key: 'query' } as const, '' as PromptsQuery)
+const sentAt = atom({ plugin: 'postcard', key: 'sentAt' } as const, {} as PromptsSentAt)
+const cursor = atom({ plugin: 'postcard', key: 'cursor' } as const, null as PromptsCursor)
 // Cells a pane row gives its ` edit re-send` buttons.
 const ACTIONS = 13
+// Cells a pane row keeps for the prompt's words before it drops its age, then its actions.
+const MIN_TEXT = 16
+// The header's meta: the prev and next buttons with their separator.
+const META = `prev${SEP}next`
 // The engine's paste wrapper, a line of its own: the person never typed it.
 const PASTE_TAG = /^\s*<\/?pasted_content\b[^>]*>\s*$/
 
@@ -63,6 +69,17 @@ async function stepTo($: EngineInterface, ids: readonly string[], from: string |
   const id = step(ids, from, dir)
   if (id === undefined) $.ui.toast(dir < 0 ? 'No earlier prompt.' : 'No later prompt.')
   return id !== undefined && (await jump($, id)) ? id : from
+}
+
+/** Marks where the last jump landed (the `cursor` atom, so the pane marks it);
+ * undefined is the bottom, where a new turn leaves the transcript. */
+async function land($: EngineInterface, id: string | undefined) {
+  await update($, cursor, () => id ?? null)
+}
+
+/** Jumps one prompt from the cursor, and moves the cursor there. */
+async function walk($: EngineInterface, ids: readonly string[], dir: -1 | 1) {
+  await land($, await stepTo($, ids, (await read($, cursor)) ?? undefined, dir))
 }
 
 /** Puts an old prompt in the prompt box to change and send. A draft already
@@ -123,14 +140,11 @@ export const register: Register = (on, options) => {
   // The turn each prompt row was first drawn in: a row first drawn while a turn
   // runs, and not yet stored, is one the person queued.
   const firstSeen = new Map<string, string | null>()
-  // The prompt the last jump landed on; undefined is the bottom, where a new
-  // turn leaves the transcript.
-  let at: string | undefined
   const ids = () => [...prompts.keys()]
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      at = undefined
+      await land($, undefined)
       await update($, sent, s => ({ ...s, turnId: e.turnId, opener: e.text.trim() }))
     }
     return next(e)
@@ -143,7 +157,12 @@ export const register: Register = (on, options) => {
   on('session.append', async ($, e, next) => {
     const isSent = e.agentId === undefined && e.message.role === 'user' &&
       (e.door === 'prompt' || e.door === 'delivery')
-    if (isSent) await update($, sent, s => ({ ...s, ids: [...s.ids, e.uuid].slice(-500) }))
+    if (isSent) {
+      await update($, sent, s => ({ ...s, ids: [...s.ids, e.uuid].slice(-KEEP) }))
+      // When it was sent, for the pane's age column: a row carries no time of its own.
+      const now = await $.clock.now()
+      await update($, sentAt, m => Object.fromEntries([...Object.entries(m), [e.uuid, now] as const].slice(-KEEP)))
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -159,12 +178,12 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'prompts' }, async ($, e) => {
     const arg = e.args.trim()
     if (arg === 'prev' || arg === 'next') {
-      at = await stepTo($, ids(), at, arg === 'prev' ? -1 : 1)
+      await walk($, ids(), arg === 'prev' ? -1 : 1)
       return {}
     }
     if (arg) return { text: 'Usage: /prompts, /prompts prev, /prompts next' }
     await update($, query, () => '')
-    const { isPlaced } = await $.ui.open({ id: PANE, backgroundColor: 'transparent', title: 'Your prompts', focus: true })
+    const { isPlaced } = await $.ui.open({ id: PANE, backgroundColor: 'transparent', title: 'Prompts', focus: true })
     return { text: isPlaced ? 'Prompts pane opened.' : 'The prompts pane needs a wider window.' }
   })
 
@@ -244,63 +263,110 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     await read($, version)
     const q = await read($, query)
+    const times = await read($, sentAt)
+    const cur = await read($, cursor)
+    // shortcut: ages are as of the last redraw (a turn, a search, a jump); tick them if they need to be live.
+    const now = Object.keys(times).length ? await $.clock.now() : 0
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    const width = Math.max(10, e.props.bodyColumns - 8 - ACTIONS)
-    const all = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1 }))
+    // Graphical surfaces draw no box-character rule: the meta sits right by layout (DESIGN.md).
+    const isTerminal = e.surface === 'terminal'
+    const all = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1, age: id in times ? span(Math.max(1, now - times[id]!)) : '' }))
     // Newest first, so the hotkeys 1 to 9 reach the recent ones.
     const list = all.filter(p => matches(p.text, q)).reverse()
     const search = (v: string) => update($, query, () => v)
+
+    // Inside the list card's border and padding.
+    const inner = Math.max(8, e.props.bodyColumns - 4)
+    // Header grammar, label · detail ──── meta: the meta goes first when it does not fit.
+    const detail = q ? `${list.length} of ${all.length}` : `${all.length}`
+    const headW = cellWidth(PANE) + cellWidth(SEP) + cellWidth(detail)
+    const hasMeta = inner >= headW + 3 + cellWidth(META)
+    const rule = Math.max(0, inner - headW - 2 - (hasMeta ? cellWidth(META) : 0))
+    // Row columns: cursor mark, number, words, age, actions. Narrow, the age goes, then the actions, then words.
+    const numW = cellWidth(`#${all.length}`)
+    const ageW = Math.max(0, ...list.map(p => cellWidth(p.age)))
+    const room = inner - 2 - numW - 1
+    const hasActions = room - ACTIONS >= MIN_TEXT
+    const hasAge = ageW > 0 && room - ACTIONS - ageW - 1 >= MIN_TEXT
+    const textW = Math.max(1, room - (hasActions ? ACTIONS : 0) - (hasAge ? ageW + 1 : 0))
 
     return drawn(
       <Box flexDirection="column" paddingTop={1}>
         {/* Mobile draws no Input yet: the list stands there unfiltered. */}
         {'Input' in els && (
-          <els.Input
-            key="search"
-            placeholder="search your prompts"
-            value={q}
-            submitLabel="jump"
-            autoFocus
-            onInput={v => void search(v)}
-            onSubmit={async v => {
-              await search(v)
-              const first = all.filter(p => matches(p.text, v)).at(-1)
-              if (first) {
-                if (await jump($, first.id)) at = first.id
-              } else $.ui.toast('No prompt matches.')
-            }}
-          />
-        )}
-        {/* The person's chord for each action (ctrl+up, ctrl+down by default) presses it from the prompt while the pane is open. */}
-        <Box flexDirection="row" marginBottom={1}>
-          <Button key="prev" plain dimColor action="app:diffFileListUp" onPress={async () => { at = await stepTo($, ids(), at, -1) }}>prev</Button>
-          <Text dimColor>{SEP}</Text>
-          <Button key="next" plain dimColor action="app:diffFileListDown" onPress={async () => { at = await stepTo($, ids(), at, 1) }}>next</Button>
-        </Box>
-        {all.length === 0 && <Text dimColor>No prompts yet.</Text>}
-        {all.length > 0 && list.length === 0 && <Text dimColor>No prompt matches.</Text>}
-        {list.map((p, row) => {
-          // The first line with words, or the first with the match while
-          // searching; cut in cells by grapheme, so an emoji is never split.
-          // shortcut: a match past the cut is not lit; show more of the line if it matters.
-          const lines = untagged(p.text).split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-          const line = (q && lines.find(l => matches(l, q))) || lines[0] || ''
-          return (
-            <Box key={`r${p.n}`} flexDirection="row">
-              <Box flexGrow={1}>
-                <Button key={`p${p.n}`} plain hotkey={row < 9 ? String(row + 1) : undefined} onPress={async () => { if (await jump($, p.id)) at = p.id }}>
-                  <Text color={CARD}>{`#${p.n} `}</Text>
-                  {marks(clip(line, width), q).map(m => (m.isMatch ? <Text color={ROLE.accent}>{m.text}</Text> : m.text))}
-                </Button>
-              </Box>
-              <Text> </Text>
-              <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>edit</Button>
-              <Text> </Text>
-              <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>re-send</Button>
+          <Box key="find" flexDirection="row" borderStyle="round" borderColor={q ? ROLE.accent : ROLE.chrome} paddingX={1} marginBottom={1}>
+            {isAscii ? null : <Text dimColor>{'⌕ '}</Text>}
+            <Box flexGrow={1}>
+              <els.Input
+                key="search"
+                placeholder="search your prompts"
+                value={q}
+                submitLabel="jump"
+                autoFocus
+                onInput={v => void search(v)}
+                onSubmit={async v => {
+                  await search(v)
+                  const first = all.filter(p => matches(p.text, v)).at(-1)
+                  if (first) {
+                    if (await jump($, first.id)) await land($, first.id)
+                  } else $.ui.toast('No prompt matches.')
+                }}
+              />
             </Box>
-          )
-        })}
+          </Box>
+        )}
+        <Box key="list" flexDirection="column" borderStyle="round" borderColor={CARD} paddingX={1}>
+          <Box flexDirection="row">
+            <Text color={CARD} weight="bold">{PANE}</Text>
+            <Text color={ROLE.chrome}>{SEP}</Text>
+            <Text>{detail}</Text>
+            {isTerminal ? <Text color={ROLE.chrome}>{` ${GLYPH.track.repeat(rule)} `}</Text> : <Box flexGrow={1} />}
+            {/* The person's chord for each action (ctrl+up, ctrl+down by default) presses it from the prompt while the pane is open. */}
+            {hasMeta && (
+              <Box flexDirection="row" flexShrink={0}>
+                <Button key="prev" plain dimColor action="app:diffFileListUp" onPress={() => walk($, ids(), -1)}>prev</Button>
+                <Text color={ROLE.chrome}>{SEP}</Text>
+                <Button key="next" plain dimColor action="app:diffFileListDown" onPress={() => walk($, ids(), 1)}>next</Button>
+              </Box>
+            )}
+          </Box>
+          {all.length === 0 && <Text dimColor>No prompts yet.</Text>}
+          {all.length > 0 && list.length === 0 && <Text dimColor>No prompt matches.</Text>}
+          {list.map((p, row) => {
+            // The first line with words, or the first with the match while
+            // searching; cut in cells by grapheme, so an emoji is never split.
+            // shortcut: a match past the cut is not lit; show more of the line if it matters.
+            const lines = untagged(p.text).split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+            const line = (q && lines.find(l => matches(l, q))) || lines[0] || ''
+            // Never colour alone: the row last jumped to carries a mark as well as the accent.
+            const isAt = p.id === cur
+            return (
+              <Box key={`r${p.n}`} flexDirection="row">
+                <Text {...(isAt ? { color: ROLE.accent } : {})}>{isAt ? `${GLYPH.live} ` : '  '}</Text>
+                <Box width={numW + 1 + textW} flexShrink={0}>
+                  <Button key={`p${p.n}`} plain hotkey={row < 9 ? String(row + 1) : undefined} onPress={async () => { if (await jump($, p.id)) await land($, p.id) }}>
+                    <Text tabular {...(isAt ? { color: ROLE.accent } : { dimColor: true })}>{padCells(`#${p.n}`, numW, 'right')}</Text>
+                    {' '}
+                    {marks(clip(line, textW), q).map(m => (m.isMatch ? <Text color={ROLE.accent}>{m.text}</Text> : m.text))}
+                  </Button>
+                </Box>
+                {hasAge && (
+                  <Box width={ageW} marginLeft={1} flexShrink={0} justifyContent="flex-end">
+                    <Text dimColor tabular>{p.age}</Text>
+                  </Box>
+                )}
+                {hasActions && (
+                  <Box flexDirection="row" marginLeft={1} flexShrink={0}>
+                    <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>edit</Button>
+                    <Text> </Text>
+                    <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>re-send</Button>
+                  </Box>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
       </Box>
     )
   })
