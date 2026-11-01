@@ -51,3 +51,50 @@ test('a message redrawn with new text is parsed again', async $ => {
   const ui = await draw('Edit `b.ts`')
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain(' b.ts ')
 })
+
+const mountAt = ($: Parameters<Parameters<typeof test>[1]>[0], text: string, columns = 100) =>
+  $.ui.mount({
+    plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage',
+    props: { text, isFirstOfReply: true }, viewport: { columns, rows: 40 },
+  } as never)
+
+type Drawn = { text?: string; props?: Record<string, unknown> }
+const texts = async (ui: { findAll: (q: { type: string }) => Promise<unknown[]> }) =>
+  (await ui.findAll({ type: 'Text' })) as Drawn[]
+
+test('the inline-code chip takes theme colours, so a light theme gets a light chip', async $ => {
+  const chip = (await texts(await mountAt($, 'Edit `a.ts` now'))).find(t => t.text === ' a.ts ')
+  expect(chip?.props?.backgroundColor).toBe('userMessageBackground')
+  expect(chip?.props?.color).toBe('warning')
+})
+
+test('a list draws depth glyphs and task marks, done in the success colour', async $ => {
+  const all = await texts(await mountAt($, '- top\n  - inner\n- [x] done\n- [ ] open'))
+  const mark = (s: string) => all.find(t => t.text === s)
+  expect(mark('• ')?.props?.color).toBe('claude')
+  expect(mark('  ◦ ')?.props?.color).toBe('suggestion')
+  expect(mark('✔ ')?.props?.color).toBe('success')
+  expect(mark('○ ')).toBeDefined()
+})
+
+test('a quote draws a dim bar on every wrapped row, and no box', async $ => {
+  const ui = await mountAt($, '> ' + 'word '.repeat(30).trim(), 40)
+  const all = await texts(ui)
+  const bars = all.filter(t => t.text === '│ ')
+  expect(bars.length).toBeGreaterThan(1)
+  expect(bars.every(b => b.props?.dimColor)).toBe(true)
+  const boxes = (await ui.findAll({ type: 'Box' })) as Drawn[]
+  expect(boxes.some(b => b.props?.borderStyle)).toBe(false)
+})
+
+test('a rule draws a dim line across the viewport', async $ => {
+  const all = await texts(await mountAt($, 'a\n\n---\n\nb', 60))
+  const rule = all.find(t => t.text?.startsWith('─'))
+  expect(rule?.text).toBe('─'.repeat(56))
+  expect(rule?.props?.dimColor).toBe(true)
+})
+
+test('strikethrough text is drawn struck', async $ => {
+  const all = await texts(await mountAt($, 'was ~~old~~ new'))
+  expect(all.find(t => t.text === 'old')?.props?.strikethrough).toBe(true)
+})

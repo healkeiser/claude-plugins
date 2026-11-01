@@ -3,10 +3,15 @@ import type { Register } from 'claude-code'
 
 import type { FoldId } from '../types'
 import { asHunk, parse, spanWidth, wrapSpans } from './parse'
+import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
 
-const CHIP_BG = '#2f3440'
-const CHIP_FG = '#e5c07b'
+// Theme keys, not hex: they follow the person's theme, `auto` included, which
+// `$.config.list` only reports as "auto" and so cannot tell light from dark.
+// `userMessageBackground` is the engine's own tint for the person's prompts.
+const CHIP_BG = 'userMessageBackground'
+const CHIP_FG = 'warning'
+const BULLET_COLORS = ['claude', 'suggestion', 'subtle'] as const
 const FOLD_OVER = 20
 const FOLD_TO = 12
 
@@ -63,22 +68,66 @@ export const register: Register = on => {
         ) : s.kind === 'link' ? (
           <Link key={`${at}.${k}`} href={s.href} label={s.label} />
         ) : (
-          <Text key={`${at}.${k}`} weight={s.bold ? 'bold' : undefined} italic={s.italic}>{s.text}</Text>
+          <Text key={`${at}.${k}`} weight={s.bold ? 'bold' : undefined} italic={s.italic} strikethrough={s.strike}>
+            {s.text}
+          </Text>
         ),
       )
 
+    const markerColor = (line: Line) =>
+      line.marker === 'done' ? 'success'
+        : line.marker === 'open' ? 'subtle'
+        : line.marker ? BULLET_COLORS[(line.depth ?? 0) % BULLET_COLORS.length]
+        : undefined
+
+    // The prefix sits in its own fixed column, so a wrapped item hangs under its
+    // text rather than under its bullet.
     const lines = (list: Line[], at: string) =>
-      list.map((line, j) => (
-        <Text key={`${at}.${j}`} weight={line.isHeading ? 'bold' : undefined}>
-          {line.prefix}
-          {spans(line.spans, `${at}.${j}`)}
-        </Text>
-      ))
+      list.map((line, j) =>
+        line.prefix ? (
+          <Box key={`${at}.${j}`} flexDirection="row">
+            <Box width={line.prefix.length} flexShrink={0}>
+              <Text color={markerColor(line)}>{line.prefix}</Text>
+            </Box>
+            <Box flexShrink={1}>
+              <Text weight={line.isHeading ? 'bold' : undefined}>{spans(line.spans, `${at}.${j}`)}</Text>
+            </Box>
+          </Box>
+        ) : (
+          <Text key={`${at}.${j}`} weight={line.isHeading ? 'bold' : undefined}>
+            {spans(line.spans, `${at}.${j}`)}
+          </Text>
+        ),
+      )
+
+    // Wrapped by hand at the viewport width, so every row carries its bars.
+    const quote = (list: QuoteLine[], at: string) =>
+      list.flatMap((line, j) => {
+        const bars = '│ '.repeat(line.level)
+        const rows = wrapSpans(line.spans, Math.max(8, room - bars.length - line.prefix.length))
+        return rows.map((row, k) => (
+          <Text key={`${at}.${j}.${k}`}>
+            <Text dimColor>{bars}</Text>
+            <Text color={k === 0 ? markerColor(line) : undefined}>{k === 0 ? line.prefix : ' '.repeat(line.prefix.length)}</Text>
+            {spans(row, `${at}.${j}.${k}`)}
+          </Text>
+        ))
+      })
 
     const draw = (part: Indexed) => {
       const i = part.i
 
       if (part.kind === 'markdown') return <Markdown key={`m${i}`} text={part.text} />
+
+      if (part.kind === 'rule') return <Text key={`r${i}`} dimColor>{'─'.repeat(Math.max(1, room))}</Text>
+
+      if (part.kind === 'quote') {
+        return (
+          <Box key={`q${i}`} flexDirection="column">
+            {quote(part.lines, `q${i}`)}
+          </Box>
+        )
+      }
 
       if (part.kind === 'heading') {
         return (

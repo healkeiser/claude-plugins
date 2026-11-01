@@ -3,6 +3,8 @@ export type Part =
   | { kind: 'markdown'; text: string }
   | { kind: 'lines'; lines: Line[] }
   | { kind: 'callout'; type: CalloutType; lines: Line[] }
+  | { kind: 'quote'; lines: QuoteLine[] }
+  | { kind: 'rule' }
   | { kind: 'next'; spans: Span[] }
   | { kind: 'heading'; spans: Span[] }
   | { kind: 'table'; header: Span[][]; rows: Span[][][]; align: Align[]; source: string }
@@ -11,10 +13,16 @@ export type Align = 'left' | 'center' | 'right'
 
 export type CalloutType = 'note' | 'tip' | 'important' | 'warning' | 'caution'
 
-export type Line = { prefix: string; isHeading: boolean; spans: Span[] }
+// `marker` says what the prefix holds, `depth` how deep the list item nests.
+export type Line = { prefix: string; isHeading: boolean; spans: Span[]; marker?: Marker; depth?: number }
+
+export type Marker = 'bullet' | 'number' | 'open' | 'done'
+
+// A quoted line and how many `>` stand before it.
+export type QuoteLine = Line & { level: number }
 
 export type Span =
-  | { kind: 'text'; text: string; bold?: boolean; italic?: boolean }
+  | { kind: 'text'; text: string; bold?: boolean; italic?: boolean; strike?: boolean }
   | { kind: 'code'; text: string }
   | { kind: 'link'; label: string; href: string }
 
@@ -59,6 +67,10 @@ const HEADING = /^\s*(?:#{1,6}\s+(.+?)\s*#*|\*\*([^*\n]+)\*\*)\s*$/
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 const TABLE_RULE = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*(:?-{2,}:?\s*)?\|?\s*$/
 
+// A thematic break: three or more of one of - * _ alone on a line.
+const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
+const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
+
 const cells = (row: string) => row.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.trim())
 
 function parseTable(blockLines: string[]): Part | null {
@@ -81,6 +93,13 @@ function parseProse(text: string): Part[] {
 // are read again as a block of their own.
 function parseBlock(block: string): Part[] {
   const blockLines = block.split('\n')
+  // A `---` under a text line is a setext heading, not a rule: the engine's.
+  const r = blockLines.findIndex((l, k) => RULE.test(l) && (k === 0 || !l.trim().startsWith('-')))
+  if (r >= 0) {
+    const before = blockLines.slice(0, r).join('\n')
+    const after = blockLines.slice(r + 1).join('\n')
+    return [...(before.trim() ? parseBlock(before) : []), { kind: 'rule' }, ...(after.trim() ? parseBlock(after) : [])]
+  }
   const heading = HEADING.exec(blockLines[0]!)
   if (heading) {
     const rest = blockLines.slice(1).join('\n')
@@ -95,17 +114,26 @@ function parseOther(block: string, blockLines: string[]): Part {
     const callout = /^\s*>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i.exec(blockLines[0]!)
     if (callout && blockLines.every(l => /^\s*>/.test(l))) {
       const body = blockLines.slice(1).map(l => l.replace(/^\s*>\s?/, ''))
-      return { kind: 'callout', type: callout[1]!.toLowerCase() as CalloutType, lines: body.map(parseLine) }
+      return { kind: 'callout', type: callout[1]!.toLowerCase() as CalloutType, lines: parseLines(body) }
+    }
+
+    // A plain quote, every line marked; a fence inside one stays the engine's.
+    if (blockLines.every(l => /^\s*>/.test(l)) && !blockLines.some(l => /^[\s>]*(```|~~~)/.test(l))) {
+      const levels = blockLines.map(l => /^[\s>]*/.exec(l)![0].split('>').length - 1)
+      const body = parseLines(blockLines.map(l => l.replace(/^\s*>(?:\s*>)*\s?/, '')))
+      return { kind: 'quote', lines: body.map((line, k) => ({ ...line, level: levels[k]! })) }
     }
 
     const nextLine = /^\s*(?:\*\*)?Next:(?:\*\*)?\s*(.*)$/s.exec(block)
     if (nextLine) return { kind: 'next', spans: parseInline(nextLine[1]!.replace(/\s*\n\s*/g, ' ')) }
 
-    // Tables, quotes and indented blocks are the engine's to draw.
-    const isSimple = block.includes('`') &&
-      blockLines.every(l => !/^\s*(\||>)/.test(l) && !/^ {4,}\S/.test(l) && !/^\s*([-*_])\s*\1\s*\1/.test(l))
-    return isSimple
-      ? { kind: 'lines', lines: blockLines.map(parseLine) }
+    // Lists, and prose holding inline code or a strikethrough, are ours; tables,
+    // mixed quotes and indented code blocks stay the engine's to draw.
+    const isList = ITEM.test(blockLines[0]!)
+    const isOurs = (isList || block.includes('`') || block.includes('~~')) &&
+      blockLines.every(l => !/^\s*(\||>)/.test(l) && (isList || !/^ {4,}\S/.test(l)) && !/^\s*([-*_])\s*\1\s*\1/.test(l))
+    return isOurs
+      ? { kind: 'lines', lines: parseLines(blockLines) }
       : { kind: 'markdown', text: block }
 }
 
@@ -120,18 +148,33 @@ function merge(parts: Part[]): Part[] {
   return out
 }
 
-function parseLine(line: string): Line {
-  const heading = /^\s*#{1,6}\s+(.*)$/.exec(line)
-  if (heading) return { prefix: '', isHeading: true, spans: parseInline(heading[1]!) }
-  const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line)
-  if (item) {
-    const marker = /\d/.test(item[2]!) ? item[2]! : '•'
-    return { prefix: `${item[1]}${marker} `, isHeading: false, spans: parseInline(item[3]!) }
-  }
-  return { prefix: '', isHeading: false, spans: parseInline(line) }
+const BULLETS = ['•', '◦', '▪']
+
+// Reads lines that may hold list items: an item's depth comes from its indent
+// against the items above it, and a line under an item hangs under its text.
+export function parseLines(lines: string[]): Line[] {
+  const indents: number[] = []
+  let hang = ''
+  return lines.map((line): Line => {
+    const heading = /^\s*#{1,6}\s+(.*)$/.exec(line)
+    if (heading) return { prefix: '', isHeading: true, spans: parseInline(heading[1]!) }
+    const item = ITEM.exec(line)
+    if (!item) return { prefix: line.trim() ? hang : '', isHeading: false, spans: parseInline(hang ? line.trim() : line) }
+    const indent = item[1]!.length
+    while (indents.length && indent < indents[indents.length - 1]!) indents.pop()
+    if (!indents.length || indent > indents[indents.length - 1]!) indents.push(indent)
+    const depth = indents.length - 1
+    const task = /^\[([ xX])\]\s+(.*)$/.exec(item[3]!)
+    const isNumber = /\d/.test(item[2]!)
+    const marker: Marker = task ? (task[1] === ' ' ? 'open' : 'done') : isNumber ? 'number' : 'bullet'
+    const glyph = marker === 'open' ? '○' : marker === 'done' ? '✔' : isNumber ? item[2]! : BULLETS[depth % BULLETS.length]!
+    const prefix = `${'  '.repeat(depth)}${glyph} `
+    hang = ' '.repeat(prefix.length)
+    return { prefix, isHeading: false, spans: parseInline(task ? task[2]! : item[3]!), marker, depth }
+  })
 }
 
-const INLINE = /(`+)([^`]|[^`].*?[^`])\1(?!`)|\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:[^)\s]+|file:[^)\s]+)\)|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)/g
+const INLINE = /(`+)([^`]|[^`].*?[^`])\1(?!`)|\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:[^)\s]+|file:[^)\s]+)\)|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)|~~(?!\s)(.+?)(?<!\s)~~/g
 
 export function parseInline(text: string): Span[] {
   const spans: Span[] = []
@@ -141,6 +184,7 @@ export function parseInline(text: string): Span[] {
     if (m[1]) spans.push({ kind: 'code', text: m[2]!.trim() || m[2]! })
     else if (m[3]) spans.push({ kind: 'text', text: m[3], bold: true })
     else if (m[4]) spans.push({ kind: 'link', label: m[4], href: m[5]! })
+    else if (m[8]) spans.push({ kind: 'text', text: m[8], strike: true })
     else spans.push({ kind: 'text', text: m[6] ?? m[7] ?? '', italic: true })
     at = m.index! + m[0].length
   }
