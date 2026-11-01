@@ -195,6 +195,54 @@ export const PALETTES: Record<Palette, Colors> = {
 /** SVG cannot name theme keys: mid-tone colours that read on light and dark backgrounds. */
 export const SVG_COLORS = { running: '#3b82f6', done: '#16a34a', failed: '#dc2626', other: '#8b5cf6', label: '#6b7280' }
 
+/** Each role's theme key as a mid-tone hex for SVG, which cannot name theme keys; a hex passes through. */
+const SVG_ROLE: Record<string, string> = {
+  claude: '#d97757',
+  suggestion: '#6b7bd6',
+  merged: '#8b5cf6',
+  planMode: '#14917f',
+  ide: '#3b82f6',
+  success: '#16a34a',
+  warning: '#d97706',
+  error: '#dc2626',
+  subtle: '#9ca3af',
+  inactive: '#9ca3af',
+  text: '#6b7280',
+}
+export const svgColor = (color: string | undefined) => (color?.startsWith('#') ? color : SVG_ROLE[color ?? ''] ?? SVG_ROLE.subtle!)
+
+/**
+ * A meter as SVG for a graphical surface: a rounded track, then each lit run in its colour. A run whose
+ * width changed since the last drawing (`before`, in pixels) glides to the new width on an ease-out over
+ * 400 ms (SMIL, so no tick); `isStill` drops the glide.
+ */
+export const svgMeter = (runs: readonly { cells: number; color?: string; isTrack?: boolean }[], cells: number, before: readonly number[], isStill: boolean) => {
+  const CELL = 7
+  const w = cells * CELL
+  let x = 0
+  const widths: number[] = []
+  const rects = runs
+    .filter(r => !r.isTrack && r.cells > 0)
+    .map((r, i) => {
+      const rw = r.cells * CELL
+      const from = before[i]
+      const glide =
+        !isStill && from !== undefined && from !== rw
+          ? `<animate attributeName="width" from="${from}" to="${rw}" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>`
+          : ''
+      const rect = `<rect x="${x}" y="0" width="${rw}" height="6" fill="${svgColor(r.color)}">${glide}</rect>`
+      widths.push(rw)
+      x += rw
+      return rect
+    })
+    .join('')
+  const source =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="6" viewBox="0 0 ${w} 6">` +
+    `<clipPath id="m"><rect width="${w}" height="6" rx="3"/></clipPath>` +
+    `<g clip-path="url(#m)"><rect width="${w}" height="6" fill="${SVG_ROLE.subtle}" fill-opacity="0.35"/>${rects}</g></svg>`
+  return { source, widths }
+}
+
 // ---------------------------------------------------------------- formatting
 
 /** `claude-opus-5-5` → `Opus 5.5`; anything else is shown as given. */

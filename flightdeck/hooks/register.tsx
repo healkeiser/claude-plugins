@@ -64,6 +64,7 @@ import {
   noteTool,
   PALETTES,
   SVG_COLORS,
+  svgMeter,
   parseConfig,
   prettyModel,
   promptLine,
@@ -285,6 +286,8 @@ function readRepoSoon($: EngineInterface) {
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
   const C = PALETTES[cfg.palette]
+  // Each graphical meter's lit widths as last drawn, so a change glides from there.
+  const meterWidths = new Map<string, number[]>()
   // tool.check carries no loop id; the tool.call around it does, keyed by the call's id.
   const callLoop = new Map<string, string | null>()
 
@@ -839,7 +842,7 @@ export const register: Register = (on, options) => {
             <Text dimColor>{x.label}</Text>
           </Box>
           <Box width={barWOf(iw)} marginLeft={gap} flexShrink={0}>
-            {spanText(x.bar.filter(b => b.text))}
+            {e.surface !== 'terminal' ? svgBar(x.key, x.bar, barWOf(iw), `${x.label} ${x.value.text}`) : spanText(x.bar.filter(b => b.text))}
           </Box>
           <Box width={4} marginLeft={gap} flexShrink={0} justifyContent="flex-end">
             <Text {...styleOf(x.value)} wrap="truncate">
@@ -858,6 +861,15 @@ export const register: Register = (on, options) => {
           {x.d2 && d2Room >= 4 ? <Box marginLeft={hasD1 ? 2 : isFull ? 3 : 2}>{line(x.d2, d2Room)}</Box> : null}
         </Box>
       ))
+    }
+    // On a graphical surface a meter is SVG, not box-drawing: a rounded track and fill in the role colours
+    // that glides to a new reading (DESIGN.md, Graphical surfaces). The number beside it still says it.
+    const svgBar = (key: string, bar: Span[], cells: number, alt: string) => {
+      if (e.surface === 'terminal') return null
+      const runs = bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: b.color === C.faint }))
+      const drawn = svgMeter(runs, cells, meterWidths.get(key) ?? [], !motion)
+      meterWidths.set(key, drawn.widths)
+      return <els.Svg source={drawn.source} alt={alt} />
     }
     // A fill drawn as the statusline draws it: ━ in its heat, ─ for the rest.
     const fillBar = (pct: number, cells: number): Span[] => {

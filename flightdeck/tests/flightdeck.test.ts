@@ -4,6 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 import { bareEmoji } from '../hooks/style'
 
 import {
+  svgMeter,
   DEFAULT_ARCHITECT,
   DEFAULT_GATE,
   DEFAULT_TURN,
@@ -572,10 +573,19 @@ test('on a graphical surface, rows of marks hold fewer marks and clip at their b
     for (const cols of [40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       // The gate is a meter, not a row of marks: 29 allowed and 1 denied fill it, the denied cell last.
-      const bar = textsIn(keyed(await ui.drawn(), 'meter-gate'))[1]
       const cells = cols === 40 ? 5 : 10
-      expect(textOf(bar)).toBe('━'.repeat(cells))
-      expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
+      if (surface === 'terminal') {
+        const bar = textsIn(keyed(await ui.drawn(), 'meter-gate'))[1]
+        expect(textOf(bar)).toBe('━'.repeat(cells))
+        expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
+      } else {
+        // A graphical surface draws it as SVG in the roles' hex: success, then the denied run in error.
+        const svg = (await ui.findAll({ type: 'Svg' })).find(x => /^all /.test(String((x as Drawn).props?.alt))) as Drawn | undefined
+        const source = String(svg?.props?.source ?? '')
+        expect(source.indexOf('#16a34a')).toBeGreaterThan(-1)
+        expect(source.indexOf('#dc2626')).toBeGreaterThan(source.indexOf('#16a34a'))
+        expect(source).toContain(`width="${cells * 7}"`)
+      }
       expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
       expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
       expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBe(surface === 'terminal' ? 0 : 1)
@@ -1482,4 +1492,16 @@ test("Claude Code's Reduce motion stills the connectors, as motion: off does", a
   expect((await ui.findAll({ type: 'Client' })).filter(c => (c as Drawn).props?.module === './rail.tsx')).toEqual([])
   expect(bareEmoji((await ui.findAll({ type: 'Text' })).map(t => (t as Drawn).text ?? '').join(''))).toEqual([])
   await ui.unmount()
+})
+
+test('a graphical meter glides to a new reading on an ease-out, and stands still when motion is off', () => {
+  const runs = (on: number) => [{ cells: on, color: 'claude' }, { cells: 10 - on, color: 'subtle', isTrack: true }]
+  const first = svgMeter(runs(4), 10, [], false)
+  expect(first.source).not.toContain('<animate')
+  expect(first.widths).toEqual([28])
+  const next = svgMeter(runs(7), 10, first.widths, false)
+  expect(next.source).toContain('from="28" to="49"')
+  expect(next.source).toContain('keySplines="0.33 1 0.68 1"')
+  expect(svgMeter(runs(7), 10, first.widths, true).source).not.toContain('<animate')
+  expect(svgMeter(runs(7), 10, next.widths, false).source).not.toContain('<animate')
 })
