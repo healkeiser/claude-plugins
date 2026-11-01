@@ -2,12 +2,17 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { PromptsSent, PromptsVersion } from '../types'
+import { GLYPH, ROLE, clip, remember } from './style'
 
-// Blue, so a prompt card never reads as one of gloss's grey code blocks.
-const CARD = 'suggestion'
-// Purple: a slash command, typed or as the row its output prints, apart from a prompt.
-const COMMAND = 'merged'
+// The you role: a prompt card never reads as one of gloss's grey code blocks.
+const CARD = ROLE.you
+// The command role: a slash command, typed or as the row its output prints, apart from a prompt.
+const COMMAND = ROLE.command
 const PANE = 'prompts'
+// Prompts the pane lists, and rows seen, kept per session: the newest 500.
+const KEEP = 500
+// Drawn on the terminal, desktop and VS Code; mobile keeps the engine's look.
+const SURFACES = new Set(['terminal', 'desktop', 'vscode'])
 
 const version = atom({ plugin: 'postcard', key: 'version' } as const, 0 as PromptsVersion)
 const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
@@ -88,15 +93,16 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    // Drawn for a fixed-width terminal; other surfaces keep their own look.
-    if (e.surface !== 'terminal') return next(e)
+    if (!SURFACES.has(e.surface)) return next(e)
     // Only the person's own prompts: typed here, or sent from another device.
     const kind = e.props.origin.kind
     if (kind !== 'composer' && kind !== 'bridge') return next(e)
-    prompts.set(e.requestId, e.props.text)
+    // A redraw keeps the prompt's place in transcript order.
+    if (prompts.has(e.requestId)) prompts.set(e.requestId, e.props.text)
+    else remember(prompts, e.requestId, e.props.text, KEEP)
 
     const s = await read($, sent)
-    if (!firstSeen.has(e.requestId)) firstSeen.set(e.requestId, s.turnId)
+    if (!firstSeen.has(e.requestId)) remember(firstSeen, e.requestId, s.turnId, KEEP)
     // shortcut: the row carries no queued flag, so a row new in this turn is
     // queued until a sent id names it. A queued command stays queued until the
     // turn ends, when the engine runs it.
@@ -111,8 +117,8 @@ export const register: Register = on => {
     // reads as a sent prompt.
     if (isQueued) {
       return (
-        <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} marginLeft={4} alignSelf="flex-start">
-          <Text dimColor italic>‖ queued</Text>
+        <Box flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1} marginLeft={4} alignSelf="flex-start">
+          <Text dimColor italic>{`${GLYPH.stop} queued`}</Text>
           <Text dimColor>{e.props.text}</Text>
         </Box>
       )
@@ -125,7 +131,7 @@ export const register: Register = on => {
           p.language === undefined ? (
             <Text key={`t${k}`}>{p.text}</Text>
           ) : (
-            <Box key={`c${k}`} flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+            <Box key={`c${k}`} flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1}>
               {p.language ? <Text dimColor italic>{p.language}</Text> : null}
               <Code source={p.text} language={p.language || undefined} />
             </Box>
@@ -139,14 +145,14 @@ export const register: Register = on => {
   // card headed by the command, so commands read apart from prompts. The engine
   // draws the typed line itself; a command that prints nothing has no row.
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
+    if (!SURFACES.has(e.surface)) return next(e)
     const { Box, Text, Markdown } = $.ui.resolve(e)
     const head = `/${e.props.command}${e.props.args ? ` ${e.props.args}` : ''}`
     const body = e.props.text.trim()
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={e.props.isErrored ? 'error' : COMMAND} paddingX={1}>
-        <Text color={COMMAND} weight="bold">{head}</Text>
-        {body ? (e.props.isErrored ? <Text color="error">{body}</Text> : <Markdown text={body} />) : null}
+      <Box flexDirection="column" borderStyle="round" borderColor={e.props.isErrored ? ROLE.error : COMMAND} paddingX={1}>
+        <Text color={COMMAND} weight="bold">{e.props.isErrored ? `${GLYPH.fail} ${head}` : head}</Text>
+        {body ? (e.props.isErrored ? <Text color={ROLE.error}>{body}</Text> : <Markdown text={body} />) : null}
       </Box>
     )
   })
@@ -162,10 +168,10 @@ export const register: Register = on => {
       <Box flexDirection="column" paddingTop={1}>
         {list.length === 0 && <Text dimColor>No prompts yet.</Text>}
         {list.map((p, row) => {
-          // The first line with words, past a leading blank or paste tag; cut by
-          // code point so an emoji is never split in half.
-          const line = [...(p.text.split(/\r?\n/).map(l => l.trim())
-            .find(l => l && !/^<\/?pasted_content\b/.test(l)) ?? '')]
+          // The first line with words, past a leading blank or paste tag; cut in
+          // cells by grapheme, so an emoji is never split in half.
+          const line = p.text.split(/\r?\n/).map(l => l.trim())
+            .find(l => l && !/^<\/?pasted_content\b/.test(l)) ?? ''
           return (
             <Button
               key={`p${p.n}`}
@@ -177,7 +183,7 @@ export const register: Register = on => {
               }}
             >
               <Text color={CARD}>{`#${p.n} `}</Text>
-              {line.length > width ? `${line.slice(0, width - 1).join('')}…` : line.join('')}
+              {clip(line, width)}
             </Button>
           )
         })}

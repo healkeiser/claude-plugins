@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { pieces } from './register'
+import { bareEmoji } from './style'
 
 const props = (kind: string, text = 'fix the band') => ({ text, origin: { kind }, isExpanded: false }) as never
 
@@ -21,7 +22,7 @@ test('the pane shows a prompt by its first line with words, cut whole', async $ 
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', pasted) })
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: props('composer', '😀'.repeat(20)) })
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#2 ${'😀'.repeat(9)}…`, '#1 sudo ls'])
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#2 ${'😀'.repeat(4)}…`, '#1 sudo ls'])
 })
 
 test('a task notification keeps the engine drawing', async ($, on) => {
@@ -67,4 +68,22 @@ test('a typed slash command prompt is labelled as a command, without a fill', as
   expect(texts).toContain('command')
   const boxes = await ui.findAll({ type: 'Box' })
   expect(boxes.some(b => (b as { props?: { backgroundColor?: string } }).props?.backgroundColor)).toBe(false)
+})
+
+test('desktop and VS Code draw the same cards, in the you and command roles', async $ => {
+  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({ plugin: 'postcard', surface, component: 'UserMessage', props: props('composer') })
+    const card = (await ui.findAll({ type: 'Box' }))[0] as { props?: Record<string, unknown> }
+    expect(card.props?.borderStyle).toBe('round')
+    expect(card.props?.borderColor).toBe('suggestion')
+    await ui.unmount()
+    const out = await $.ui.mount({
+      plugin: 'postcard', surface, component: 'CommandOutput',
+      props: { command: 'cost', args: '', text: 'Total: $1.20', isErrored: false } as never,
+    })
+    const texts = (await out.findAll({ type: 'Text' })).map(t => t.text ?? '')
+    expect(texts).toContain('/cost')
+    expect(bareEmoji(texts.join(''))).toEqual([])
+    await out.unmount()
+  }
 })
