@@ -316,8 +316,45 @@ export const fmtResetIn = (resetsAt: number | null | undefined, now: number) => 
   const m = Math.max(1, Math.floor((resetsAt - now) / 60_000))
   const d = Math.floor(m / 1440)
   const h = Math.floor((m % 1440) / 60)
-  if (d > 0) return `${d}d${h}h`
-  return h > 0 ? `${h}h${String(m % 60).padStart(2, '0')}m` : `${m}m`
+  if (d > 0) return `${d}d ${h}h`
+  return h > 0 ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** The wall-clock time a window resets, as the statusline shows it: `14:32`, or `Thu 09:15` a day or more out. */
+export const fmtResetAt = (resetsAt: number | null | undefined, now: number) => {
+  if (resetsAt === null || resetsAt === undefined || resetsAt <= now) return ''
+  const d = new Date(resetsAt)
+  const hm = d.toTimeString().slice(0, 5)
+  return resetsAt - now >= 86_400_000 ? `${DAYS[d.getDay()]} ${hm}` : hm
+}
+
+/**
+ * How `width` cells of a bar split between `counts`: in proportion, every non-zero count keeping at least
+ * one cell while the width allows, the cells left over going to the counts furthest below their share. All zeros: none.
+ */
+export const segments = (counts: readonly number[], width: number): number[] => {
+  const total = counts.reduce((a, b) => a + b, 0)
+  if (total <= 0 || width <= 0) return counts.map(() => 0)
+  const raw = counts.map(n => (n * width) / total)
+  const out = raw.map((x, i) => ((counts[i] ?? 0) > 0 ? Math.max(1, Math.floor(x)) : 0))
+  let left = width - out.reduce((a, b) => a + b, 0)
+  const order = raw
+    .map((x, i) => ({ rem: x - (out[i] ?? 0), i }))
+    .filter(o => (counts[o.i] ?? 0) > 0)
+    .sort((a, b) => b.rem - a.rem)
+  for (let k = 0; left > 0; k = (k + 1) % order.length, left -= 1) {
+    const i = order[k]?.i ?? 0
+    out[i] = (out[i] ?? 0) + 1
+  }
+  // More non-zero counts than cells: the largest give theirs back.
+  while (left < 0) {
+    const i = out.indexOf(Math.max(...out))
+    out[i] = (out[i] ?? 0) - 1
+    left += 1
+  }
+  return out
 }
 
 /** A rate-limit window's short name: `five_hour` → `5h`, `seven_day_opus` → `7d opus`. */
@@ -575,7 +612,7 @@ export const piecesThatFit = (pieces: readonly { width: number; lead?: number }[
 }
 
 /**
- * How many marks (▪ ✕ ● ○ ✔) a row of `cells` columns holds. A terminal draws each mark in one
+ * How many marks (● ✓ ○) a row of `cells` columns holds. A terminal draws each mark in one
  * cell; a graphical surface draws them wider (■ measured about 1.4 cells on the desktop app), so
  * there a row holds fewer and its newest marks still show.
  */

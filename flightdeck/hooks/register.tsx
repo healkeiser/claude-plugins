@@ -32,6 +32,7 @@ import {
   fitLegend,
   heatOf,
   headFit,
+  segments,
   ruleLine,
   fmtClock,
   fmtDuration,
@@ -46,8 +47,8 @@ import {
   lanes,
   limitLabel,
   limitOf,
+  fmtResetAt,
   fmtResetIn,
-  fmtSpeed,
   listOf,
   logRows,
   marksIn,
@@ -761,71 +762,113 @@ export const register: Register = (on, options) => {
     const heat = (pct: number) => ({ calm: C.main, warm: C.amber, hot: C.warn })[heatOf(pct)]
     const sep: Span = { text: '· ', color: C.faint }
 
-    // ---- main
-    const effortN = { low: 1, medium: 2, high: 3, xhigh: 4, max: 4 }[m.effort] ?? 0
+    // Status-line rows, as statusline.sh draws them: a dim label column, the bar, the value right-aligned,
+    // then a detail column and the rest. Below 40 inner columns the bar takes 5 cells and the gaps one, and
+    // what does not fit is left out.
+    type Meter = { key: string; label: string; bar: Span[]; value: Span; d1?: Span; d2?: (Piece | null)[] }
+    const barWOf = (iw: number) => (iw >= 40 ? 10 : 5)
+    const meterRoom = (iw: number, labelW: number) => (iw >= 40 ? iw - (labelW + 2 + 10 + 2 + 4) - 3 : iw - (labelW + 1 + 5 + 1 + 4) - 2)
+    const meters = (rows: Meter[], iw: number) => {
+      const labelW = Math.max(3, ...rows.map(x => cellWidth(x.label)))
+      const isFull = iw >= 40
+      const gap = isFull ? 2 : 1
+      const room = meterRoom(iw, labelW)
+      const hasD1 = rows.some(x => x.d1)
+      const d2Room = hasD1 ? room - 9 - 2 : room
+      return rows.map(x => (
+        <Box key={x.key} width={iw}>
+          <Box width={labelW} flexShrink={0}>
+            <Text dimColor>{x.label}</Text>
+          </Box>
+          <Box width={barWOf(iw)} marginLeft={gap} flexShrink={0}>
+            {spanText(x.bar.filter(b => b.text))}
+          </Box>
+          <Box width={4} marginLeft={gap} flexShrink={0} justifyContent="flex-end">
+            <Text {...styleOf(x.value)} wrap="truncate">
+              {x.value.text}
+            </Text>
+          </Box>
+          {hasD1 && room >= 9 ? (
+            <Box width={9} marginLeft={isFull ? 3 : 2} flexShrink={0}>
+              {x.d1 ? (
+                <Text {...styleOf(x.d1)} wrap="truncate">
+                  {x.d1.text}
+                </Text>
+              ) : null}
+            </Box>
+          ) : null}
+          {x.d2 && d2Room >= 4 ? <Box marginLeft={hasD1 ? 2 : isFull ? 3 : 2}>{line(x.d2, d2Room)}</Box> : null}
+        </Box>
+      ))
+    }
+    // A fill drawn as the statusline draws it: ━ in its heat, ─ for the rest.
+    const fillBar = (pct: number, cells: number): Span[] => {
+      const gg = gauge(pct, cells)
+      return [
+        { text: gg.on, color: heat(pct) },
+        { text: gg.off, color: C.faint },
+      ]
+    }
+    const pctOf = (pct: number): Span => ({ text: `${Math.round(pct)}%`, color: heat(pct) })
+
+    // ---- main: the statusline's card, with the session's own figures folded in below its meters
     const ctxFill = contextFill(u)
-    const ctxGauge = ctxFill.pct !== null ? gauge(ctxFill.pct, 10) : null
     const mainState = m.isRunning ? right([{ text: '● working', color: C.main }]) : right([{ text: '○ idle', color: C.dim }])
-    const mainPanel = (w: number) => (
-      <Box {...block(w, C.main)}>
-        {head(w - 4, `${modelName} · main`, C.main, mainState)}
-        {line(
-          [
+    const mainRows = (iw: number): Meter[] => [
+      ...(ctxFill.pct !== null
+        ? [
             {
-              spans: [
-                { text: 'effort ', dim: true },
-                { text: `${'●'.repeat(effortN) + '○'.repeat(4 - effortN)} `, color: C.main },
-                { text: m.effort || '—', color: C.main, bold: true },
-              ],
+              key: 'meter-ctx',
+              label: 'ctx',
+              bar: fillBar(ctxFill.pct, barWOf(iw)),
+              value: pctOf(ctxFill.pct),
+              ...(u.tokens !== null ? { d1: { text: `${kTokens(u.tokens)}/${kTokens(ctxFill.window)}`, dim: true } } : {}),
+              d2: [u.compactions > 0 ? { spans: [{ text: `⟲ ${u.compactions}`, color: C.amber }] } : null],
             },
-            m.mode ? { spans: [sep, { text: `mode ${m.mode}`, dim: true }] } : null,
-            { spans: [sep, { text: `${m.steps} req`, dim: true }] },
-          ],
-          w - 4,
-        )}
-        {ctxGauge
-          ? line(
+          ]
+        : []),
+      ...u.limits.slice(0, 2).map((l): Meter => {
+        const resetIn = fmtResetIn(l.resetsAt, now)
+        const resetAt = fmtResetAt(l.resetsAt, now)
+        return {
+          key: `meter-${l.kind}`,
+          label: limitLabel(l.kind),
+          bar: fillBar(l.pct, barWOf(iw)),
+          value: pctOf(l.pct),
+          ...(resetIn ? { d1: { text: `↻ ${resetIn}`, dim: true } } : {}),
+          d2: [resetAt ? { spans: [{ text: resetAt, dim: true }] } : null],
+        }
+      }),
+    ]
+    const mainPanel = (w: number) => {
+      const iw = w - 4
+      const fit = headFit(iw, cellWidth(`${modelName} · main`), mainState.width)
+      return (
+        <Box {...block(w, C.main)}>
+          <Box key="main-head" width={iw} justifyContent="space-between" overflow="hidden">
+            {line(
               [
-                {
-                  spans: [
-                    { text: 'ctx ', dim: true },
-                    { text: ctxGauge.on, color: heat(ctxFill.pct ?? 0) },
-                    { text: ctxGauge.off, color: C.faint },
-                    { text: ` ${Math.round(ctxFill.pct ?? 0)}%`, color: heat(ctxFill.pct ?? 0), bold: true },
-                  ],
-                },
-                u.tokens !== null ? { spans: [sep, { text: `${kTokens(u.tokens)}/${kTokens(ctxFill.window)}`, dim: true }] } : null,
-                u.compactions > 0 ? { spans: [{ text: `⟲${u.compactions}`, color: C.amber }] } : null,
+                { spans: [{ text: modelName, color: C.main, bold: true }] },
+                { spans: [sep, { text: 'main', dim: true }] },
               ],
-              w - 4,
-            )
-          : null}
-        {u.costUsd !== null || u.limits.length > 0
-          ? line(
-              [
-                u.costUsd !== null ? { spans: [{ text: fmtUsd(u.costUsd), color: C.text }] } : null,
-                ...u.limits.slice(0, 2).map((l, i): Piece => {
-                  const lg = gauge(l.pct, 5)
-                  // The time to each reset where the line has room for it: both windows fit from 56 columns,
-                  // so a wide pane's half column (59 at 120) has them; a window that doesn't fit is left out.
-                  const resetIn = w >= 56 ? fmtResetIn(l.resetsAt, now) : ''
-                  return {
-                    spans: [
-                      ...(i > 0 || u.costUsd !== null ? [sep] : []),
-                      { text: `${limitLabel(l.kind)} `, dim: true },
-                      { text: lg.on, color: heat(l.pct) },
-                      { text: lg.off, color: C.faint },
-                      { text: ` ${Math.round(l.pct)}%${resetIn ? ` ↻${resetIn}` : ''}`, dim: true },
-                    ],
-                  }
-                }),
-              ],
-              w - 4,
-            )
-          : null}
-        {m.speed ? <Text dimColor wrap="truncate">{`last req · ${fmtSpeed(m.speed)}`}</Text> : null}
-      </Box>
-    )
+              fit.showRight ? iw - 1 - mainState.width : iw,
+            )}
+            {fit.showRight ? <Box flexShrink={0}>{mainState.node}</Box> : null}
+          </Box>
+          {meters(mainRows(iw), iw)}
+          {line(
+            [
+              { spans: [{ text: 'effort ', dim: true }, { text: m.effort || '—', color: C.main }] },
+              m.mode ? { spans: [sep, { text: 'mode ', dim: true }, { text: m.mode }] } : null,
+              { spans: [sep, { text: String(m.steps) }, { text: ' req', dim: true }] },
+              u.costUsd !== null ? { spans: [sep, { text: fmtUsd(u.costUsd) }] } : null,
+              m.speed ? { spans: [sep, { text: 'ttft ', dim: true }, { text: `${(m.speed.ttftMs / 1000).toFixed(1)}s` }] } : null,
+            ],
+            iw,
+          )}
+        </Box>
+      )
+    }
 
     // ---- architect
     const lastConsult = a.consults[a.consults.length - 1]
@@ -881,35 +924,52 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // ---- gate
+    // ---- gate: one status-line meter split by verdict, the counts beside it, then a row per family
     const s = gateSummary(g)
     const verdictColor = (c: Check) =>
       c.verdict === 'rule' ? C.gate : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
-    // ▪ ran (by a rule, or once you or the classifier cleared it), ○ waiting on the decider, ✕ refused.
-    const markOf = (c: Check) => (c.verdict === 'deny' ? '✕' : c.verdict === 'ask' ? '○' : '▪')
-    const checkMark = (c: Check) => (
-      <Text color={verdictColor(c)} dimColor={c.inSubagent}>
-        {markOf(c)}
-      </Text>
-    )
+    // ■ ran (by a rule, or once you or the classifier cleared it), ○ waiting on the decider, ✕ refused.
+    const markOf = (c: Check) => (c.verdict === 'deny' ? '✕' : c.verdict === 'ask' ? '○' : '■')
+    const verdicts = [
+      { n: s.rule, color: C.gate, word: 'allowed' },
+      { n: s.cleared, color: C.cleared, word: decider },
+      { n: s.ask, color: C.amber, word: 'pending' },
+      { n: s.deny, color: C.warn, word: 'denied' },
+    ]
+    const gateBar = (cells: number): Span[] => {
+      const seg = segments(
+        verdicts.map(x => x.n),
+        cells,
+      )
+      const lit = verdicts.map((x, i) => ({ text: '━'.repeat(seg[i] ?? 0), color: x.color }))
+      const rest = cells - seg.reduce((a, b) => a + b, 0)
+      return [...lit, { text: '─'.repeat(Math.max(0, rest)), color: C.faint }].filter(x => x.text)
+    }
+    // The counts in words where they fit, in numbers alone where they don't: the colours say which is which.
+    // Pending shows only while something waits; denied always, in the error colour once there is one.
+    const gateCounts = (isShort: boolean): Piece[] =>
+      verdicts
+        .filter(x => x.word !== 'pending' || x.n > 0)
+        .map((x, i) => ({
+          spans: [
+            ...(i > 0 ? [sep] : []),
+            { text: String(x.n), color: x.word === 'denied' && x.n === 0 ? C.dim : x.color },
+            ...(isShort ? [] : [{ text: ` ${x.word}`, dim: true }]),
+          ],
+        }))
     const gatePanel = (w: number) => {
-      const strip = g.recent.slice(-Math.max(8, marksIn(w - 4, isTerminal)))
+      const iw = w - 4
       const open = v.gateOpen
-      // The totals in words where they all fit, in numbers alone where they don't: the colours say which is which.
-      const totalsOf = (isShort: boolean): Piece[] => [
-        { spans: [{ text: '▪', color: C.gate }, { text: isShort ? ` ${s.rule}` : ` ${s.rule} allowed`, dim: true }] },
-        { spans: [{ text: '▪', color: C.cleared }, { text: isShort ? ` ${s.cleared}` : ` ${s.cleared} ${decider}`, dim: true }] },
-        ...(s.ask > 0 ? [{ spans: [{ text: isShort ? `○ ${s.ask}` : `○ ${s.ask} pending`, color: C.amber }] }] : []),
-        { spans: [{ text: isShort ? `✕ ${s.deny}` : `✕ ${s.deny} denied`, color: s.deny > 0 ? C.warn : C.dim }] },
-      ]
-      const words = totalsOf(false)
-      const isShort = piecesThatFit(words.map(p => ({ width: widthOf(p) })), w - 4, 2) < words.length
-      const totals = isShort ? totalsOf(true) : words
+      const fits = (ps: Piece[], room: number) => piecesThatFit(ps.map(x => ({ width: widthOf(x) })), room, 1) === ps.length
+      const room = meterRoom(iw, 3)
+      // In words beside the meter, else in words on a row of their own, else in numbers alone.
+      const beside = fits(gateCounts(false), room) ? gateCounts(false) : null
+      const below = beside ? null : fits(gateCounts(false), iw) ? gateCounts(false) : gateCounts(true)
       return (
         <Box {...block(w, C.gate)}>
-          {head(w - 4, `${cfg.gateLabel} · permissions`, C.gate, right([{ text: `${s.total} checks`, dim: true }]))}
-          {strip.length === 0 ? <Text color={C.faint}>no checks yet</Text> : markRow(strip.map(checkMark))}
-          {line([...totals, !isShort && w >= 80 && g.recent.some(c => c.inSubagent) ? { spans: [{ text: 'dim: in subagents', color: C.faint }] } : null], w - 4, 2)}
+          {head(iw, `${cfg.gateLabel} · permissions`, C.gate, right([{ text: `${s.total} checks`, dim: true }]))}
+          {meters([{ key: 'meter-gate', label: 'all', bar: gateBar(barWOf(iw)), value: { text: String(s.total), bold: true }, ...(beside ? { d2: beside } : {}) }], iw)}
+          {below ? line(below, iw) : null}
           {/* Below about 44 columns the three rows' buttons take two lines rather than run past the block. */}
           <Box columnGap={2} flexWrap="wrap">
             {(['file', 'shell', 'other'] as const).map((b: Bucket) => {
@@ -933,7 +993,7 @@ export const register: Register = (on, options) => {
                 .slice(-5)
                 .map(c => (
                   // The verdict sits in a box of its own width, not padded with spaces, which a graphical surface collapses.
-                  <Box width={w - 4} columnGap={1} overflow="hidden">
+                  <Box width={iw} columnGap={1} overflow="hidden">
                     <Box width={12} flexShrink={0}>
                       <Text>
                         <Text color={verdictColor(c)}>{`${markOf(c)} `}</Text>
@@ -941,7 +1001,7 @@ export const register: Register = (on, options) => {
                       </Text>
                     </Box>
                     <Text dimColor={c.inSubagent} wrap="truncate">
-                      {shorten(c.detail, Math.max(10, w - 18))}
+                      {shorten(c.detail, Math.max(10, iw - 14))}
                     </Text>
                   </Box>
                 ))
@@ -952,21 +1012,23 @@ export const register: Register = (on, options) => {
 
     // ---- agents: cards up to the limit, swimlanes beyond it
     const statusColor = (c: AgentCard) => (c.status === 'failed' ? C.warn : c.status === 'done' ? C.ok : c.status === 'running' ? C.agent : C.amber)
-    const glyph = (c: AgentCard) => (c.status === 'running' ? '●' : c.status === 'done' ? '✔' : c.status === 'failed' ? '✕' : '■')
+    const glyph = (c: AgentCard) => (c.status === 'running' ? '●' : c.status === 'done' ? '✓' : c.status === 'failed' ? '✕' : '■')
     const expandOnPress = (id: string) => () =>
       update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), expanded: normalize(DEFAULT_VIEW, x).expanded === id ? null : id }))
 
     const agentsPanel = (w: number) => {
-      // Cards need 20 columns each; when the pane can't hold the limit, lanes take over.
-      const fit = Math.max(1, Math.min(cfg.maxCards, Math.floor((w + 1) / 21)))
+      const iw = w - 4
+      // Cards need 26 columns each inside the block, room for their status in words; when the block can't
+      // hold them all, lanes take over. A lone card takes what there is, from 20 columns.
+      const fit = Math.max(1, Math.min(cfg.maxCards, Math.floor((iw + 1) / 27)))
       const useLanes = cards.length > fit
       const isNarrow = w < 40
       const label = isNarrow ? `agents · ${running.length}/${cards.length}` : `agents · ${running.length} running · ${cards.length} total`
       const hint = cards.length > 0 ? right([{ text: `1-${Math.min(cards.length, useLanes ? 6 : fit)}${isNarrow ? '' : ' expand'}`, color: C.faint }]) : null
       if (cards.length === 0) {
         return (
-          <Box flexDirection="column" width={w}>
-            {head(w, label, C.agent)}
+          <Box {...block(w, C.agent)}>
+            {head(iw, label, C.agent)}
             <Text color={C.faint}>no subagents yet</Text>
           </Box>
         )
@@ -974,13 +1036,13 @@ export const register: Register = (on, options) => {
       if (useLanes) {
         const shown = cards.slice(-6)
         // A lane is its glyph, a label, the bar and a clock: below 34 columns the label narrows, below
-        // 36 the bar, so a 24-column pane still holds it. From 40 they are as they always were.
-        const labelW = Math.min(17, Math.max(7, w - 17))
-        const barW = Math.max(4, w - 11 - labelW)
+        // 36 the bar, so a 24-column pane still holds it.
+        const labelW = Math.min(17, Math.max(7, iw - 17))
+        const barW = Math.max(4, iw - 11 - labelW)
         const geo = lanes(shown, now, barW)
         return (
-          <Box flexDirection="column" width={w}>
-            {head(w, label, C.agent, hint)}
+          <Box {...block(w, C.agent)}>
+            {head(iw, label, C.agent, hint)}
             {cards.length > shown.length ? <Text color={C.faint}>{`+${cards.length - shown.length} earlier`}</Text> : null}
             {shown.map((c, i) => {
               const gm = geo[i]
@@ -988,7 +1050,7 @@ export const register: Register = (on, options) => {
               return (
                 <Box columnGap={1}>
                   <Text color={statusColor(c)} bold={isViewed}>
-                    {isViewed ? '▶' : glyph(c)}
+                    {isViewed ? '▸' : glyph(c)}
                   </Text>
                   <Box width={labelW} flexShrink={0}>
                     <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), labelW - 3)} onPress={expandOnPress(c.id)} />
@@ -1007,14 +1069,14 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-      // Each card is a rounded box; connectors fan out to the cards and merge back below them.
+      // Each card is a rounded box inside the block; a connector fans out to them from the label row.
       const shown = cards.slice(-fit)
-      const cardW = Math.max(20, Math.floor((w - (shown.length - 1)) / shown.length))
+      const cardW = Math.floor((iw - (shown.length - 1)) / shown.length)
       const centers = shown.map((_, i) => i * (cardW + 1) + Math.floor(cardW / 2))
       return (
-        <Box flexDirection="column" width={w}>
-          {head(w, label, C.agent, hint)}
-          {rail('fan-out', running.length > 0, C.agent, w, centers)}
+        <Box {...block(w, C.agent)}>
+          {head(iw, label, C.agent, hint)}
+          {rail('fan-out', running.length > 0, C.agent, iw, centers)}
           <Box columnGap={1}>
             {shown.map((c, i) => {
               const isViewed = viewed === c.id
@@ -1048,7 +1110,6 @@ export const register: Register = (on, options) => {
               )
             })}
           </Box>
-          {rail('merge', running.length > 0, C.agent, w, centers, true)}
         </Box>
       )
     }
@@ -1081,20 +1142,17 @@ export const register: Register = (on, options) => {
     // ---- other loops (workflow agents, forks): ids that match no card
     const loopsPanel = (w: number) => {
       if (lp.length === 0) return null
+      const iw = w - 4
       const active = lp.filter(l => isLoopActive(l, now)).length
-      const dots = lp.slice(-Math.max(4, marksIn(w - 38, isTerminal)))
+      const dots = lp.slice(-Math.max(4, marksIn(iw, isTerminal)))
       const isNarrow = w < 40
       return (
-        <Box width={w} columnGap={1}>
-          <Text color={C.agent} bold>
-            {isNarrow ? 'loops' : 'other loops'}
-          </Text>
-          <Text dimColor>{isNarrow ? `${lp.length} · ${active} active` : `${lp.length} seen · ${active} active`}</Text>
+        <Box {...block(w, C.agent)}>
+          {head(iw, isNarrow ? 'loops' : 'other loops', C.agent, right([{ text: isNarrow ? `${lp.length} · ${active} active` : `${lp.length} seen · ${active} active`, dim: true }]))}
           {markRow(
             dots.map(l => (
-              <Text color={isLoopActive(l, now) ? C.agent : l.isDone ? C.ok : C.faint}>{isLoopActive(l, now) ? '●' : l.isDone ? '✔' : '○'}</Text>
+              <Text color={isLoopActive(l, now) ? C.agent : l.isDone ? C.ok : C.faint}>{isLoopActive(l, now) ? '●' : l.isDone ? '✓' : '○'}</Text>
             )),
-            1,
           )}
         </Box>
       )
@@ -1115,7 +1173,7 @@ export const register: Register = (on, options) => {
             width: 2 + Math.max(5, cellWidth(fmtTimer(Math.max(0, now - t.startedAt))) + 1),
           }
         : r
-          ? right([{ text: `${r.reason === 'answer' ? '✔' : '✕'} ${fmtDuration(r.durationMs)}`, color: r.reason === 'answer' ? C.ok : C.warn }])
+          ? right([{ text: `${r.reason === 'answer' ? '✓' : '✕'} ${fmtDuration(r.durationMs)}`, color: r.reason === 'answer' ? C.ok : C.warn }])
           : null
       return (
         <Box {...block(w, C.main, !m.isRunning && !isReview)}>
@@ -1143,8 +1201,20 @@ export const register: Register = (on, options) => {
     }
 
     // ---- log: whatever rows the other panels leave, 4 to 8
-    // The main box's speed line, the legend's gap and the gap above the log are a row each.
-    const used = 2 + legendGap + 5 + (m.speed ? 1 : 0) + 1 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3
+    // Rows each block takes, its border included, and one row of gap between blocks.
+    const used =
+      3 +
+      legendGap +
+      (4 + (ctxFill.pct !== null ? 1 : 0) + Math.min(2, u.limits.length)) +
+      (showArchitect ? 6 : 0) +
+      5 +
+      (v.gateOpen ? 5 : 0) +
+      (cards.length > cfg.maxCards ? 4 + Math.min(6, cards.length) : 11) +
+      (expandedCard ? 8 : 0) +
+      (lp.length ? 4 : 0) +
+      4 +
+      panels.length +
+      2
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)
@@ -1152,7 +1222,7 @@ export const register: Register = (on, options) => {
       l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'gate' ? C.gate : l.who === 'you' ? C.text : C.agent
     // Below 40 columns a line keeps its minute, not its second, and a shorter name.
     const logPanel = (w: number) => (
-      <Box {...block(w, C.dim)} marginTop={1}>
+      <Box {...block(w, C.dim)}>
         {head(w - 4, viewed ? 'session log · this agent' : 'session log', C.dim)}
         {shownLines.length === 0 ? <Text color={C.faint}>nothing yet</Text> : null}
         {shownLines.map(l => (
@@ -1188,25 +1258,28 @@ export const register: Register = (on, options) => {
                   ? receiptPanel(w)
                   : logPanel(w)
 
-    // Blocks with the flow between them; the agents panel draws its own connectors.
-    const column = (ps: Panel[], w: number) => (
-      <Box flexDirection="column" width={w}>
-        {ps.map((p, i) => {
-          const prev = ps[i - 1]
-          const link =
-            i === 0 || p === 'agents' || prev === 'agents' || p === 'log' || p === 'loops' || prev === 'loops'
-              ? null
-              : rail(`link-${p}`, p === 'architect' ? advising : m.isRunning, p === 'architect' ? C.arch : C.main, w)
-          return (
-            <Box flexDirection="column">
-              {link}
-              {draw(p, w)}
-              {p === 'agents' ? expandedPanel(w) : null}
-            </Box>
-          )
-        })}
-      </Box>
-    )
+    // Blocks one row apart, every gap alike: a connector where work flows from one block to the next (main to
+    // architect, gate and the receipt), an empty row elsewhere. Hidden blocks take no gap.
+    type Item = Panel | 'expanded'
+    const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops')
+    const gapRow = (a: Item, b: Item, w: number) =>
+      flows(a, b) ? rail(`link-${b}`, b === 'architect' ? advising : m.isRunning, b === 'architect' ? C.arch : C.main, w) : <Box key={`gap-${b}`} height={1} />
+    const column = (ps: Panel[], w: number) => {
+      const items: Item[] = ps.flatMap((p): Item[] => (p === 'agents' && expandedCard ? [p, 'expanded'] : [p]))
+      return (
+        <Box flexDirection="column" width={w}>
+          {items.flatMap((p, i) => {
+            const prev = items[i - 1]
+            const drawn = (
+              <Box key={`block-${p}`} flexDirection="column">
+                {p === 'expanded' ? expandedPanel(w) : draw(p, w)}
+              </Box>
+            )
+            return prev ? [gapRow(prev, p, w), drawn] : [drawn]
+          })}
+        </Box>
+      )
+    }
 
     // Desktop draws the agents' time axis as SVG under the panels.
     const svgLanes =
@@ -1244,7 +1317,6 @@ export const register: Register = (on, options) => {
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = `${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
-      const strip = g.recent.slice(-Math.max(4, marksIn(W - cfg.gateLabel.length - 2 - counts.length, isTerminal)))
       const mg = ctxFill.pct !== null ? gauge(ctxFill.pct, 6) : null
       return (
         <Box flexDirection="column" width={W}>
@@ -1275,10 +1347,10 @@ export const register: Register = (on, options) => {
             ],
             W,
           )}
-          {strip.length > 0 ? (
+          {s.total > 0 ? (
             <Box columnGap={1}>
               <Text color={C.gate}>{cfg.gateLabel.toLowerCase()}</Text>
-              {markRow(strip.map(checkMark))}
+              <Box flexShrink={0}>{spanText(gateBar(10))}</Box>
               <Text color={s.deny > 0 ? C.warn : s.ask > 0 ? C.amber : C.dim} wrap="truncate">
                 {counts}
               </Text>
@@ -1300,7 +1372,7 @@ export const register: Register = (on, options) => {
           {lp.length > 0 ? <Text dimColor wrap="truncate">{`other loops ${lp.length} · ${lp.filter(l => isLoopActive(l, now)).length} active`}</Text> : null}
           {!m.isRunning && r ? (
             <Text dimColor wrap="truncate">
-              {`${r.reason === 'answer' ? '✔' : '✕'} last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
+              {`${r.reason === 'answer' ? '✓' : '✕'} last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
             </Text>
           ) : null}
         </Box>
@@ -1319,18 +1391,24 @@ export const register: Register = (on, options) => {
 
     const body = isWide ? (
       <Box flexDirection="column">
-        <Box columnGap={2}>
+        <Box key="block-columns" columnGap={2}>
           {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate'), colW)}
           {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt'), colW)}
         </Box>
-        {panels.includes('log') ? logPanel(W) : null}
+        {panels.includes('log') ? <Box key="gap-log" height={1} /> : null}
+        {panels.includes('log') ? (
+          <Box key="block-log" flexDirection="column">
+            {logPanel(W)}
+          </Box>
+        ) : null}
       </Box>
     ) : (
       column(panels, W)
     )
 
+    // One blank row above the header, so the pane does not sit flush against its tab.
     return (
-      <Box flexDirection="column" width={W}>
+      <Box flexDirection="column" width={W} paddingTop={1}>
         {/* One compact row, left-aligned like the statusline's header. Below 40 columns the frame's own title names the pane. */}
         {line(
           [
@@ -1354,7 +1432,7 @@ export const register: Register = (on, options) => {
           {legend.map(l => (
             <Box flexShrink={0}>
               <Text>
-                <Text color={l.color}>▪</Text>
+                <Text color={l.color}>■</Text>
                 <Text color={C.faint}>{` ${l.label}`}</Text>
               </Text>
             </Box>

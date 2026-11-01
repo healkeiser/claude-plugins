@@ -27,7 +27,9 @@ import {
   gauge,
   heatOf,
   headFit,
+  segments,
   ruleLine,
+  fmtResetAt,
   fmtResetIn,
   fmtSpeed,
   gateSummary,
@@ -231,7 +233,7 @@ test('a window keeps its reset time, drawn as the time left', () => {
   expect(limitOf({ kind: 'five_hour', percentUsed: 19, resetsAt: '1970-01-01T03:10:00.000Z' })).toEqual({ kind: 'five_hour', pct: 19, resetsAt: 11_400_000 })
   expect(limitOf({ kind: 'seven_day', percentUsed: 3 }).resetsAt).toBe(null)
   expect(limitOf({ kind: 'spend_limit', percentUsed: 1, resetsAt: 'soon' }).resetsAt).toBe(null)
-  expect([fmtResetIn(11_400_000, 0), fmtResetIn(25 * 60_000 + 5_000, 0), fmtResetIn(4 * 86_400_000 + 2 * 3_600_000, 0)]).toEqual(['3h10m', '25m', '4d2h'])
+  expect([fmtResetIn(11_400_000, 0), fmtResetIn(25 * 60_000 + 5_000, 0), fmtResetIn(4 * 86_400_000 + 2 * 3_600_000, 0)]).toEqual(['3h 10m', '25m', '4d 2h'])
   expect([fmtResetIn(null, 0), fmtResetIn(undefined, 0), fmtResetIn(5, 10)]).toEqual(['', '', ''])
 })
 
@@ -319,15 +321,15 @@ test('/clear starts the pane fresh', async ($, on) => {
 test('colours come from the theme by default, raw hex only when asked', async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  const title = await ui.find({ type: 'Text', text: /· main$/ })
-  expect(title?.props.color).toBe('claude')
+  const title = textsIn(keyed(await ui.drawn(), 'main-head'))[0]
+  expect([title?.props?.color, title?.props?.bold]).toEqual(['claude', true])
   await ui.unmount()
 })
 
 test('pastel keeps the fixed dark-terminal colours', { options: { palette: 'pastel' } }, async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /· main$/ }))?.props.color).toBe('#7dd3fc')
+  expect(textsIn(keyed(await ui.drawn(), 'main-head'))[0]?.props?.color).toBe('#7dd3fc')
   await ui.unmount()
 })
 
@@ -381,7 +383,7 @@ test('the server-side advisor is read from assistant rows: consulting, then on c
   await after.unmount()
 })
 
-test('the gate strip fills from checks and a row opens its redacted drill-down', async ($, on) => {
+test('the gate meter fills from checks and a row opens its redacted drill-down', async ($, on) => {
   engine(on)
   on('tool.check', (_$, e) => ({ decision: e.tool === 'Read' ? 'allow' : 'ask' }))
   await $.tool.check({ tool: 'Read', input: { file_path: '/a/b.ts' }, tool_use_id: 'k1' })
@@ -453,8 +455,8 @@ test('cards that cannot fit the pane fall back to lanes', async ($, on) => {
   const narrow = await $.ui.mount({ ...pane(40), surface: 'terminal' })
   expect(await narrow.find({ text: /━/ })).toBeDefined() // lanes
   await narrow.unmount()
-  const wide = await $.ui.mount({ ...pane(70), surface: 'terminal' })
-  expect(await wide.find({ text: /━/ })).toBeUndefined() // three cards fit in 70
+  const wide = await $.ui.mount({ ...pane(84), surface: 'terminal' })
+  expect(await wide.find({ text: /━/ })).toBeUndefined() // three cards of 26 columns fit in an 84-column pane's block
   expect(await wide.find({ text: /task gamma/ })).toBeDefined()
   await wide.unmount()
 })
@@ -488,13 +490,15 @@ test('each rate-limit window shows the time to its reset where the main panel ha
   })
   for (const cols of [64, 120]) {
     const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
-    expect(await ui.find({ text: /19% ↻3h10m/ })).toBeDefined()
-    expect(await ui.find({ text: /3% ↻4d2h/ })).toBeDefined()
+    const five = textsIn(keyed(await ui.drawn(), 'meter-five_hour')).map(textOf)
+    expect([five[0], five[4], five[5]]).toEqual(['5h', '19%', '↻ 3h 10m'])
+    expect(five[6]).toMatch(/^\d\d:\d\d$/)
+    expect(textsIn(keyed(await ui.drawn(), 'meter-seven_day')).map(textOf)).toContain('↻ 4d 2h')
     await ui.unmount()
   }
-  const narrow = await $.ui.mount({ ...pane(40), surface: 'terminal' })
-  expect(await narrow.find({ text: /19%/ })).toBeDefined()
-  expect(await narrow.find({ text: /↻/ })).toBeUndefined() // no room: the gauges stay whole
+  const narrow = await $.ui.mount({ ...pane(24), surface: 'terminal' })
+  expect(await narrow.find({ text: /^19%$/ })).toBeDefined()
+  expect(await narrow.find({ text: /↻/ })).toBeUndefined() // no room: the meters stay whole
   await narrow.unmount()
 })
 
@@ -529,7 +533,7 @@ test("the main box shows the last request's time to first token, and no tokens p
   }
 })
 
-test('on a graphical surface, rows of marks hold fewer marks, keep the newest and clip at their box', async ($, on) => {
+test('on a graphical surface, rows of marks hold fewer marks and clip at their box; the gate is a meter', async ($, on) => {
   engine(on)
   // The newest check is the one refused: its ✕ must stay in sight.
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'g29' ? 'deny' : 'allow' }))
@@ -553,12 +557,11 @@ test('on a graphical surface, rows of marks hold fewer marks, keep the newest an
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     for (const cols of [40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
-      // A terminal draws all 30 marks; a graphical surface draws fewer where 30 would not fit
-      // (24 in the 36 cells of a 40-column pane), always ending on the newest.
-      const strip = await ui.find({ type: 'Text', text: /^[▪○✕]{2,}$/ })
-      expect(strip?.props.wrap).toBe('truncate-start')
-      expect(strip?.text.length).toBe(surface !== 'terminal' && cols === 40 ? 24 : 30)
-      expect(strip?.text.endsWith('✕')).toBe(true)
+      // The gate is a meter, not a row of marks: 29 allowed and 1 denied fill it, the denied cell last.
+      const bar = textsIn(keyed(await ui.drawn(), 'meter-gate'))[1]
+      const cells = cols === 40 ? 5 : 10
+      expect(textOf(bar)).toBe('━'.repeat(cells))
+      expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
       expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
       expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
       expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBe(surface === 'terminal' ? 0 : 1)
@@ -567,18 +570,16 @@ test('on a graphical surface, rows of marks hold fewer marks, keep the newest an
   }
 })
 
-test("the inline summary's strip holds fewer marks on a graphical surface and keeps the newest", async ($, on) => {
+test("the inline summary's gate is the meter, with its counts", async ($, on) => {
   engine(on)
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'n59' ? 'deny' : 'allow' }))
   for (let i = 0; i < 60; i += 1) await $.tool.check({ tool: 'Bash', input: { command: `ls ${i}` }, tool_use_id: `n${i}` })
   for (const surface of ['terminal', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...pane(80), props: { ...pane(80).props, placement: 'inline' as const }, surface })
-    // 80 columns less "gate " and " 59 allowed · 0 you · 1 denied" leave 45: 45 marks in a terminal, 30 elsewhere.
-    const strip = await ui.find({ type: 'Text', text: /^[▪○✕]{2,}$/ })
-    expect(strip?.props.wrap).toBe('truncate-start')
-    expect(strip?.text.length).toBe(surface === 'terminal' ? 45 : 30)
-    expect(strip?.text.endsWith('✕')).toBe(true)
+    const bar = (await ui.find({ type: 'Text', text: /^━{10}$/ })) as unknown as Drawn
+    expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
     expect(await ui.find({ text: /59 allowed/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /[▪■○]{2,}/ })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -621,7 +622,7 @@ test('a finished agent that takes another step (resumed by SendMessage) runs aga
   expect(status[status.length - 1]).toMatch(/agents 1\/1/)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /● running/ })).toBeDefined()
-  expect(await ui.find({ text: /✔ done/ })).toBeUndefined()
+  expect(await ui.find({ text: /✓ done/ })).toBeUndefined()
   expect(await ui.find({ text: /^resumed$/ })).toBeDefined()
   expect(await ui.find({ text: /ctx 10 · out 10 · 2 st/ })).toBeDefined()
   await ui.unmount()
@@ -702,18 +703,18 @@ test('the gauge, status and inline summary measure against the compaction window
   for (const cols of [40, 64, 120]) {
     const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
     expect(await ui.find({ text: /200k\/400k/ })).toBeDefined()
-    expect(await ui.find({ text: / 50%/ })).toBeDefined()
+    expect(await ui.find({ text: /(^| )50%/ })).toBeDefined()
     expect(await ui.find({ text: /1\.0M/ })).toBeUndefined()
     await ui.unmount()
     const mini = await $.ui.mount({ ...pane(cols), props: { ...pane(cols).props, placement: 'inline' as const }, surface: 'terminal' })
-    expect(await mini.find({ text: / 50%/ })).toBeDefined()
+    expect(await mini.find({ text: /(^| )50%/ })).toBeDefined()
     await mini.unmount()
   }
   // Past 80% of the compaction window the gauge warns, though the model's window has room.
   await measure(340_000)
   const warn = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect((await warn.find({ type: 'Text', text: /^━+$/ }))?.props.color).toBe('error')
-  expect(await warn.find({ text: / 85%/ })).toBeDefined()
+  expect(await warn.find({ text: /(^| )85%/ })).toBeDefined()
   await warn.unmount()
   // A model with a smaller window: read again, and a compaction window above it no longer counts.
   window = 200_000
@@ -738,7 +739,7 @@ const keepsModelWindow = (name: string, host: { compact: number | null; isEnable
     for (const cols of [40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
       expect(await ui.find({ text: /300k\/1\.0M/ })).toBeDefined()
-      expect(await ui.find({ text: / 30%/ })).toBeDefined()
+      expect(await ui.find({ text: /(^| )30%/ })).toBeDefined()
       await ui.unmount()
     }
   })
@@ -760,7 +761,7 @@ test('a resumed session reads its compaction window at start, and /clear leaves 
   expect(asked).toEqual([undefined, 'summary'])
   const resumed = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await resumed.find({ text: /200k\/400k/ })).toBeDefined()
-  expect(await resumed.find({ text: / 50%/ })).toBeDefined()
+  expect(await resumed.find({ text: /(^| )50%/ })).toBeDefined()
   await resumed.unmount()
   // The gauge waits for the next measurement after a /clear; the compaction window is not asked again.
   await $.session.end({ reason: 'clear', sessionId: 's' } as never)
@@ -768,7 +769,7 @@ test('a resumed session reads its compaction window at start, and /clear leaves 
   expect(asked).toEqual([undefined, 'summary'])
   const cleared = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await cleared.find({ text: /100k\/400k/ })).toBeDefined()
-  expect(await cleared.find({ text: / 25%/ })).toBeDefined()
+  expect(await cleared.find({ text: /(^| )25%/ })).toBeDefined()
   await cleared.unmount()
 })
 
@@ -793,7 +794,7 @@ test('a compaction-window read that fails is asked again at the next measurement
   expect(reads).toBe(2) // the failed read once more, then not again
   const read = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await read.find({ text: /300k\/400k/ })).toBeDefined()
-  expect(await read.find({ text: / 75%/ })).toBeDefined()
+  expect(await read.find({ text: /(^| )75%/ })).toBeDefined()
   await read.unmount()
 })
 
@@ -862,7 +863,7 @@ test('switching to another model with the same window reads its compaction windo
   expect(reads).toBe(2)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /360k\/700k/ })).toBeDefined()
-  expect(await ui.find({ text: / 51%/ })).toBeDefined()
+  expect(await ui.find({ text: /(^| )51%/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1154,6 +1155,16 @@ test('a running connector keeps its length every frame: one face, clipped at its
 
 // ---------------------------------------------------------------- the look shared with gloss, pulse and postcard
 
+test('a meter splits by count, every non-zero count keeping a cell, and resets read as wall-clock times', () => {
+  expect(segments([115, 12, 26, 0], 10)).toEqual([7, 1, 2, 0])
+  expect(segments([29, 0, 0, 1], 5)).toEqual([4, 0, 0, 1])
+  expect(segments([0, 0], 10)).toEqual([0, 0])
+  expect(segments([1, 1, 1, 1], 3).reduce((a, b) => a + b, 0)).toBe(3)
+  expect(fmtResetAt(null, 0)).toBe('')
+  expect(fmtResetAt(3_600_000, 0)).toMatch(/^\d\d:\d\d$/)
+  expect(fmtResetAt(3 * 86_400_000, 0)).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
+})
+
 test("a block's label row gives the label its room first, the status only where the label keeps 6 cells", () => {
   expect(headFit(62, 15, 9)).toEqual({ label: 15, showRight: true })
   expect(headFit(20, 15, 9)).toEqual({ label: 10, showRight: true })
@@ -1177,7 +1188,7 @@ const boxesIn = (n: unknown, out: Drawn[] = []): Drawn[] => {
   return out
 }
 
-test('panels are full rounded blocks in theme colours, cards are rounded boxes between connectors', { options: { motion: 'off' } }, async ($, on) => {
+test('panels are full rounded blocks in theme colours, cards are rounded boxes in the agents block', { options: { motion: 'off' } }, async ($, on) => {
   engine(on)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'd1' ? 'deny' : e.tool_use_id === 'a1' ? 'ask' : 'allow' }))
@@ -1198,42 +1209,50 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes b
   const tree = await ui.drawn()
   const texts = textsIn(tree)
   const first = (re: RegExp) => texts.find(t => re.test(textOf(t)))
-  // Every block is a full round border with one cell of padding, no fill: main, gate, the running turn and
-  // the log in their panel colours, then the two cards, the finished one dimmed.
+  // Every block is a full round border with one cell of padding, no fill: main, gate, agents with its two
+  // cards inside (the finished one dimmed), the running turn and the log, each in its panel colour.
   const framed = boxesIn(tree).filter(b => b.props?.borderStyle)
   expect(framed.map(b => [b.props?.borderStyle, b.props?.borderColor, b.props?.paddingX, b.props?.borderDimColor === true])).toEqual([
     ['round', 'claude', 1, false],
     ['round', 'success', 1, false],
+    ['round', 'suggestion', 1, false],
     ['round', 'suggestion', 1, false],
     ['round', 'suggestion', 1, true],
     ['round', 'claude', 1, false],
     ['round', 'inactive', 1, false],
   ])
   expect(boxesIn(tree).some(b => b.props?.backgroundColor !== undefined)).toBe(false)
-  // No open-sided rules are left: the label is the block's bold first row, in the block's colour.
   expect(texts.some(t => /^[╭╰]/.test(textOf(t)))).toBe(false)
-  expect([first(/· main$/)?.props?.color, first(/· main$/)?.props?.bold]).toEqual(['claude', true])
+  // The main block reads as the statusline: the model bold in the accent, then a meter per row.
+  const model = textsIn(keyed(tree, 'main-head'))[0]
+  expect([model?.props?.color, model?.props?.bold]).toEqual(['claude', true])
   expect(first(/^● working$/)?.props?.color).toBe('claude')
-  // Fills heat up as the statusline's bars do: 64% in the warning colour, 82% in the error colour.
-  expect(texts.filter(t => /^━+$/.test(textOf(t))).map(t => t.props?.color)).toEqual(['warning', 'error'])
-  // The gate strip: ▪ ran, ○ pending, ✕ refused, newest last.
-  expect(textOf(first(/^[▪○✕]{2,}$/))).toBe('▪○✕')
-  // Still connectors in the subtle colour: main to gate, then a fan-out to the two 32-column cards' centres and a merge back.
-  const rails = texts.filter(t => /^[─┬┴]{66}$/.test(textOf(t)))
-  expect(rails.map(textOf)).toEqual(['─'.repeat(66), `${'─'.repeat(16)}┬${'─'.repeat(32)}┬${'─'.repeat(16)}`, `${'─'.repeat(16)}┴${'─'.repeat(32)}┴${'─'.repeat(16)}`])
-  expect(rails.every(t => t.props?.color === 'subtle')).toBe(true)
+  // Fills heat up as the statusline's bars do: 64% in the warning colour, 82% in the error colour, value alike.
+  const meter = (key: string) => textsIn(keyed(tree, key)).map(t => [textOf(t), t.props?.color])
+  expect(meter('meter-ctx')).toEqual([['ctx', undefined], ['━━━━━━────', undefined], ['━━━━━━', 'warning'], ['────', 'subtle'], ['64%', 'warning'], ['128k/200k', undefined]])
+  expect(meter('meter-five_hour').slice(4, 5)).toEqual([['82%', 'error']])
+  // The gate meter: allowed, pending and denied in their colours, no row of marks.
+  expect(meter('meter-gate').slice(2, 5)).toEqual([['━━━━', 'success'], ['━━━', 'warning'], ['━━━', 'error']])
+  expect(texts.some(t => /^[▪■○✕]{2,}$/.test(textOf(t)))).toBe(false)
+  expect(first(/^· 1 pending$/)).toBeDefined()
+  // Effort is a word in the statusline's grammar, no dots.
+  expect(texts.some(t => /[●○]{2,}/.test(textOf(t)))).toBe(false)
+  // A still connector fans out from the agents' label row to the two 30-column cards' centres.
+  const fan = texts.filter(t => /^[─┬]+$/.test(textOf(t)) && textOf(t).includes('┬'))
+  expect(fan.map(textOf)).toEqual([`${'─'.repeat(15)}┬${'─'.repeat(30)}┬${'─'.repeat(15)}`])
+  expect(fan.every(t => t.props?.color === 'subtle')).toBe(true)
   expect(first(/^● running$/)?.props?.color).toBe('suggestion')
-  expect(first(/^✔ done$/)?.props?.color).toBe('success')
+  expect(first(/^✓ done$/)?.props?.color).toBe('success')
   expect(first(/^turn$/)?.props?.color).toBe('claude')
   await ui.unmount()
 
-  // The finished turn: its time on the right of the label, ✔ in the success colour, the block dimmed.
+  // The finished turn: its time on the right of the label, ✓ in the success colour, the block dimmed.
   await $.turn.complete({ answer: 'ok', durationMs: 95_000, isAborted: false, turnId: 'L1', reason: 'answer' })
   const done = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const drawn = await done.drawn()
   const after = textsIn(drawn)
   expect(after.find(t => textOf(t) === 'last turn')?.props?.dimColor).toBe(true)
-  expect(after.find(t => textOf(t) === '✔ 1m35s')?.props?.color).toBe('success')
+  expect(after.find(t => textOf(t) === '✓ 1m35s')?.props?.color).toBe('success')
   expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true])
   await done.unmount()
 })
@@ -1246,15 +1265,90 @@ test('the viewed card is drawn bold, the others round', async ($, on) => {
   await $.agent.spawn(spawn('Explore', 'Map the code'))
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal', props: { ...pane(66).props, view: { agentId: 'v2' } } } as never)
   const cards = boxesIn(await ui.drawn()).filter(b => b.props?.borderColor === 'suggestion')
-  expect(cards.map(b => b.props?.borderStyle)).toEqual(['round', 'bold'])
+  expect(cards.map(b => b.props?.borderStyle)).toEqual(['round', 'round', 'bold']) // the block, then its two cards
   await ui.unmount()
 })
 
-test('the header is one compact row and the legend uses ▪ swatches', async ($, on) => {
+test('a status glyph and the words it marks share one colour, in glyphs no terminal draws as emoji', async ($, on) => {
+  const clock = engine(on)
+  await clock.advance(3_600_000)
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `c${++n}` }))
+  await $.turn.start({ text: 'go', turnId: 'C1' })
+  for (const d of ['one', 'two', 'three', 'four']) await $.agent.spawn(spawn('general-purpose', d))
+  await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 'X', agentId: 'c1', reason: 'answer' })
+  await $.turn.complete({ answer: 'ok', durationMs: 26_000, isAborted: false, turnId: 'C1', reason: 'answer' })
+  for (const cols of [66, 120]) {
+    const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    const texts = textsIn(await ui.drawn())
+    // Every Text drawing ✓ draws it, and whatever follows in the same Text, in the success colour.
+    const ticks = texts.filter(t => textOf(t).includes('✓'))
+    expect(ticks.length > 0).toBe(true)
+    expect(ticks.every(t => t.props?.color === 'success' && (t.children ?? []).filter(isDrawn).every(k => k.props?.color === undefined || k.props?.color === 'success'))).toBe(true)
+    expect(texts.find(t => textOf(t) === '✓ 26s')?.props?.color).toBe('success')
+    // ✔ ▪ ▶ ⏸ draw as colour emoji in some terminals (Warp), whatever colour they are given.
+    expect(texts.some(t => /[✔▪▶⏸]/.test(textOf(t)))).toBe(false)
+    await ui.unmount()
+  }
+})
+
+test('every gap between blocks is one row, whatever is in it', { timeoutMs: 60_000 }, async ($, on) => {
+  await busySession($, on)
+  // One row on top, then the header; blocks one row apart: a connector, or an empty row.
+  const gapsOf = (tree: unknown) => {
+    const out: string[] = []
+    const walk = (n: unknown) => {
+      if (!isDrawn(n)) return
+      const kids = (n.children ?? []).filter(isDrawn)
+      if (kids.some(k => String(k.props?.key ?? '').startsWith('block-'))) {
+        kids.forEach((k, i) => {
+          const key = String(k.props?.key ?? '')
+          const isBlock = key.startsWith('block-')
+          // Blocks and gaps alternate, a block first and last.
+          if (isBlock !== (i % 2 === 0)) out.push(`${i}: ${key || k.type} out of turn`)
+          if (isBlock) {
+            const inner = (k.children ?? []).filter(isDrawn)[0]
+            if (inner?.props?.marginTop || inner?.props?.marginBottom) out.push(`${key}: has a margin`)
+            return
+          }
+          const isRow =
+            (k.type === 'Client' && k.props?.height === 1) ||
+            (k.type === 'Text' && !textOf(k).includes('\n')) ||
+            (k.type === 'Box' && k.props?.height === 1 && (k.children ?? []).filter(isDrawn).length === 0)
+          if (!isRow) out.push(`${i}: ${key || k.type} is not one row`)
+        })
+        if (kids.length % 2 === 0) out.push('ends on a gap')
+      }
+      kids.forEach(walk)
+    }
+    walk(tree)
+    return out
+  }
+  const failures: string[] = []
+  const check = async (label: string) => {
+    for (const cols of [24, 40, 64, 120]) {
+      const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+      const tree = await ui.drawn()
+      for (const f of gapsOf(tree)) failures.push(`${label} ${cols}: ${f}`)
+      if (!JSON.stringify(tree).includes('"block-log"')) failures.push(`${label} ${cols}: no blocks found`)
+      expect((tree as Drawn).props?.paddingTop).toBe(1)
+      await ui.unmount()
+    }
+  }
+  await check('lanes, finished')
+  const opener = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  await opener.press({ key: 'card-b1' })
+  await opener.unmount()
+  await $.turn.start({ text: 'and once more', turnId: 'B2' })
+  await check('expanded, running')
+  expect(failures).toEqual([])
+})
+
+test('the header is one compact row and the legend uses ■ swatches', async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const texts = textsIn(await ui.drawn())
   expect(texts.find(t => textOf(t) === 'flightdeck')?.props?.color).toBe('claude')
-  expect(texts.filter(t => textOf(t) === '▪').map(t => t.props?.color)).toEqual(['claude', 'suggestion', 'success'])
+  expect(texts.filter(t => textOf(t) === '■').map(t => t.props?.color)).toEqual(['claude', 'suggestion', 'success'])
   await ui.unmount()
 })
