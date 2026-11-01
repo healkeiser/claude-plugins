@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
+import { bareEmoji } from '../hooks/style'
 
 import {
   DEFAULT_ARCHITECT,
@@ -335,7 +336,7 @@ test('colours come from the theme by default, raw hex only when asked', async ($
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   const title = textsIn(keyed(await ui.drawn(), 'main-head'))[0]
-  expect([title?.props?.color, title?.props?.bold]).toEqual(['claude', true])
+  expect([title?.props?.color, title?.props?.weight]).toEqual(['claude', 'bold'])
   await ui.unmount()
 })
 
@@ -926,8 +927,8 @@ test('a resume through agent.spawn logs once, whether its spawn or its first ste
   expect(await lines(/^resumed$/)).toBe(2)
   expect(await lines(/^Audit the parser$/)).toBe(0) // one card, the latest task
   // Each run timed on its own, not from the first spawn.
-  expect(await lines(/^done · 1m00s$/)).toBe(1)
-  expect(await lines(/^done · 1m30s$/)).toBe(1)
+  expect(await lines(/^done · 1m 00s$/)).toBe(1)
+  expect(await lines(/^done · 1m 30s$/)).toBe(1)
 })
 
 test("a subagent's turn start is its own: no prompt line, and the main turn keeps its count", async ($, on) => {
@@ -1232,10 +1233,10 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const framed = boxesIn(tree).filter(b => b.props?.borderStyle)
   expect(framed.map(b => [b.props?.borderStyle, b.props?.borderColor, b.props?.paddingX, b.props?.borderDimColor === true])).toEqual([
     ['round', 'claude', 1, false],
-    ['round', 'success', 1, false],
     ['round', 'suggestion', 1, false],
-    ['round', 'suggestion', 1, false],
-    ['round', 'suggestion', 1, true],
+    ['round', 'planMode', 1, false],
+    ['round', 'planMode', 1, false],
+    ['round', 'planMode', 1, true],
     ['round', 'claude', 1, false],
     ['round', 'inactive', 1, false],
   ])
@@ -1243,7 +1244,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   expect(texts.some(t => /^[╭╰]/.test(textOf(t)))).toBe(false)
   // The main block reads as the statusline: the model bold in the accent, then a meter per row.
   const model = textsIn(keyed(tree, 'main-head'))[0]
-  expect([model?.props?.color, model?.props?.bold]).toEqual(['claude', true])
+  expect([model?.props?.color, model?.props?.weight]).toEqual(['claude', 'bold'])
   expect(first(/^● working$/)?.props?.color).toBe('claude')
   // Fills heat up as the statusline's bars do: 64% in the warning colour, 82% in the error colour, value alike.
   const meter = (key: string) => textsIn(keyed(tree, key)).map(t => [textOf(t), t.props?.color])
@@ -1259,7 +1260,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const fan = texts.filter(t => /^[─┬]+$/.test(textOf(t)) && textOf(t).includes('┬'))
   expect(fan.map(textOf)).toEqual([`${'─'.repeat(15)}┬${'─'.repeat(30)}┬${'─'.repeat(15)}`])
   expect(fan.every(t => t.props?.color === 'subtle')).toBe(true)
-  expect(first(/^● running$/)?.props?.color).toBe('suggestion')
+  expect(first(/^● running$/)?.props?.color).toBe('planMode')
   expect(first(/^✓ done$/)?.props?.color).toBe('success')
   expect(first(/^turn$/)?.props?.color).toBe('claude')
   await ui.unmount()
@@ -1270,7 +1271,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const drawn = await done.drawn()
   const after = textsIn(drawn)
   expect(after.find(t => textOf(t) === 'last turn')?.props?.dimColor).toBe(true)
-  expect(after.find(t => textOf(t) === '✓ 1m35s')?.props?.color).toBe('success')
+  expect(after.find(t => textOf(t) === '✓ 1m 35s')?.props?.color).toBe('success')
   expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true])
   await done.unmount()
 })
@@ -1282,7 +1283,7 @@ test('the viewed card is drawn bold, the others round', async ($, on) => {
   await $.agent.spawn(spawn('general-purpose', 'Write the tests'))
   await $.agent.spawn(spawn('Explore', 'Map the code'))
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal', props: { ...pane(66).props, view: { agentId: 'v2' } } } as never)
-  const cards = boxesIn(await ui.drawn()).filter(b => b.props?.borderColor === 'suggestion')
+  const cards = boxesIn(await ui.drawn()).filter(b => b.props?.borderColor === 'planMode')
   expect(cards.map(b => b.props?.borderStyle)).toEqual(['round', 'round', 'bold']) // the block, then its two cards
   await ui.unmount()
 })
@@ -1367,7 +1368,7 @@ test('the header is one compact row and the legend uses ■ swatches', async ($,
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const texts = textsIn(await ui.drawn())
   expect(texts.find(t => textOf(t) === 'flightdeck')?.props?.color).toBe('claude')
-  expect(texts.filter(t => textOf(t) === '■').map(t => t.props?.color)).toEqual(['claude', 'suggestion', 'success'])
+  expect(texts.filter(t => textOf(t) === '■').map(t => t.props?.color)).toEqual(['claude', 'planMode', 'suggestion'])
   await ui.unmount()
 })
 
@@ -1411,7 +1412,7 @@ test('the main block names the folder, its origin, the branch and its changes', 
   expect(await headOf(ui)).toMatch(/· proj ↗\uFE0E· feat\/x \+2 ~1 -1/) // pieces sit a Box gap apart, their texts read back to back
   expect(linksIn(await ui.drawn()).map(l => l.props?.href)).toEqual(['file:///w/proj', 'https://github.com/healkeiser/claude-plugins'])
   const texts = textsIn(keyed(await ui.drawn(), 'main-head'))
-  expect(['feat/x', ' +2', ' ~1', ' -1'].map(x => texts.find(t => textOf(t) === x)?.props?.color)).toEqual(['success', 'success', 'warning', 'error'])
+  expect(['feat/x', ' +2', ' ~1', ' -1'].map(x => texts.find(t => textOf(t) === x)?.props?.color)).toEqual([undefined, 'success', 'warning', 'error'])
   await ui.unmount()
   // Narrower, the link and the changes go first, then the branch.
   const mid = await $.ui.mount({ ...pane(32), surface: 'terminal' })
@@ -1469,4 +1470,16 @@ test('git runs at start, a second after the last call that may change files, and
   await $.turn.start({ text: 'go', turnId: 'G1' })
   await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 'G1', reason: 'answer' })
   expect(gitCalls.length).toBe(6)
+})
+
+test("Claude Code's Reduce motion stills the connectors, as motion: off does", async ($, on) => {
+  engine(on)
+  on('config.list', () => ({ value: [{ key: 'reduceMotion', label: 'Reduce motion', kind: 'boolean', value: true }] as never }))
+  on('tool.check', () => ({ decision: 'allow' }))
+  await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'r1' })
+  await $.turn.start({ text: 'go', turnId: 'R1' })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect((await ui.findAll({ type: 'Client' })).filter(c => (c as Drawn).props?.module === './rail.tsx')).toEqual([])
+  expect(bareEmoji((await ui.findAll({ type: 'Text' })).map(t => (t as Drawn).text ?? '').join(''))).toEqual([])
+  await ui.unmount()
 })

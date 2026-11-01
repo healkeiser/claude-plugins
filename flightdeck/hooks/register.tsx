@@ -78,6 +78,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
+import { GLYPH, motionOn } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -264,6 +265,13 @@ async function readRepo($: EngineInterface) {
   // Unchanged, no write: a write redraws the pane.
   if (JSON.stringify(await read($, repo)) !== JSON.stringify(found)) await update($, repo, () => found)
 }
+// Claude Code's Reduce motion setting, read at session start and at each main turn.
+let isStill = false
+async function readMotion($: EngineInterface) {
+  const rows = await Promise.resolve().then(() => $.config.list()).catch(() => [])
+  isStill = !motionOn('while-active', rows)
+}
+
 // A newer call within the second supersedes an older one.
 let repoTick = 0
 function readRepoSoon($: EngineInterface) {
@@ -287,6 +295,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[open|close|reset|layout auto|compact|wide|mini]',
     })
     await migrate($)
+    await readMotion($)
     // A host without usage (headless, an SDK host, a session not yet bound) just starts without it.
     const u = await $.session.usage().catch(() => null)
     // A resumed session has a fill to draw already: its compaction window is read now, not at its first
@@ -371,6 +380,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     // A subagent's turn (its spawn, or a resume by SendMessage) is its card's, not the main turn's.
     if (e.agentId !== undefined) return next(e)
+    await readMotion($)
     const [now, cost] = await Promise.all([$.clock.now(), costNow($)])
     await update($, turn, () => ({ ...DEFAULT_TURN, startedAt: now, costAtStart: cost }))
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
@@ -545,7 +555,7 @@ export const register: Register = (on, options) => {
     }
     // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
     if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
-    else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ✗`, 'error', e.agentId ?? null)
+    else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ${GLYPH.fail}`, 'error', e.agentId ?? null)
     else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
     if (isSettled || !didRun) await refreshStatus($, cfg)
     return ran
@@ -700,7 +710,7 @@ export const register: Register = (on, options) => {
     const advising = isAdvising(a)
     const running = cards.filter(c => c.status === 'running')
     const showArchitect = a.consults.length > 0 || a.ids.length > 0
-    const motion = cfg.motion && hasRail
+    const motion = cfg.motion && !isStill && hasRail
     // A panel with nothing to show yet takes no room: most sessions never spawn an agent.
     const isEmpty: Record<Panel, boolean> = {
       main: false,
@@ -759,7 +769,7 @@ export const register: Register = (on, options) => {
     // left out from the end; or a piece marked `fill` (one span) truncates to what the others leave.
     type Span = { text: string; color?: string; dim?: boolean; bold?: boolean; href?: string }
     type Piece = { spans: Span[]; lead?: number; fill?: boolean }
-    const styleOf = (s: Span) => ({ ...(s.color ? { color: s.color } : {}), ...(s.dim ? { dimColor: true } : {}), ...(s.bold ? { bold: true } : {}) })
+    const styleOf = (s: Span) => ({ ...(s.color ? { color: s.color } : {}), ...(s.dim ? { dimColor: true } : {}), ...(s.bold ? { weight: 'bold' as const } : {}) })
     const widthOf = (p: Piece) => p.spans.reduce((n, s) => n + cellWidth(s.text), 0)
     // A span is a Text, its text a link where it has an `href`.
     const spanNode = (x: Span) => <Text {...styleOf(x)}>{x.href ? <els.Link href={x.href}>{x.text}</els.Link> : x.text}</Text>
@@ -796,7 +806,7 @@ export const register: Register = (on, options) => {
       const fit = headFit(w, cellWidth(label), r?.width ?? 0)
       return (
         <Box width={w} justifyContent="space-between" columnGap={1} overflow="hidden">
-          <Text color={color} bold wrap="truncate" {...(o.dim ? { dimColor: true } : {})}>
+          <Text color={color} weight="bold" wrap="truncate" {...(o.dim ? { dimColor: true } : {})}>
             {shorten(label, fit.label)}
           </Text>
           {r && fit.showRight ? <Box flexShrink={0}>{r.node}</Box> : null}
@@ -894,14 +904,15 @@ export const register: Register = (on, options) => {
       const model: Piece = { spans: [{ text: modelName, color: C.main, bold: true }] }
       if (!rp) return [[model, { spans: [sep, { text: 'main', dim: true }] }], [model]]
       const folder = (withLink: boolean): Piece => ({
-        spans: [sep, { text: folderOf(rp.dir), href: fileUri(rp.dir) }, ...(withLink && rp.remote ? [{ text: ' ↗\uFE0E', dim: true, href: rp.remote }] : [])],
+        spans: [sep, { text: folderOf(rp.dir), href: fileUri(rp.dir) }, ...(withLink && rp.remote ? [{ text: ` ${GLYPH.external}`, dim: true, href: rp.remote }] : [])],
       })
       const changes: Span[] = [
         ...(rp.added > 0 ? [{ text: ` +${rp.added}`, color: C.ok }] : []),
         ...(rp.modified > 0 ? [{ text: ` ~${rp.modified}`, color: C.amber }] : []),
         ...(rp.deleted > 0 ? [{ text: ` -${rp.deleted}`, color: C.warn }] : []),
       ]
-      const branch = (withChanges: boolean): Piece => ({ spans: [sep, { text: rp.branch, color: C.ok }, ...(withChanges ? changes : [])] })
+      // The branch in plain text: colour is kept for its changes, + ~ - in success, warning, error.
+      const branch = (withChanges: boolean): Piece => ({ spans: [sep, { text: rp.branch }, ...(withChanges ? changes : [])] })
       return rp.isRepo && rp.branch
         ? [[model, folder(true), branch(true)], [model, folder(false), branch(true)], [model, folder(false), branch(false)], [model, folder(false)], [model]]
         : [[model, folder(true)], [model, folder(false)], [model]]
@@ -970,7 +981,7 @@ export const register: Register = (on, options) => {
               {(['before a plan', 'error repeats', 'before done'] as const).map(mo => {
                 const isOn = lastConsult?.moment === mo
                 return (
-                  <Text color={isOn ? C.arch : C.dim} bold={isOn}>
+                  <Text color={isOn ? C.arch : C.dim} weight={isOn ? 'bold' : undefined}>
                     {isOn ? '◆' : '◇'} {mo}
                   </Text>
                 )
@@ -992,11 +1003,11 @@ export const register: Register = (on, options) => {
     // ---- gate: one status-line meter split by verdict, the counts beside it, then a row per family
     const s = gateSummary(g)
     const verdictColor = (c: Check) =>
-      c.verdict === 'rule' ? C.gate : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
+      c.verdict === 'rule' ? C.ok : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
     // ■ ran (by a rule, or once you or the classifier cleared it), ○ waiting on the decider, ✕ refused.
     const markOf = (c: Check) => (c.verdict === 'deny' ? '✕' : c.verdict === 'ask' ? '○' : '■')
     const verdicts = [
-      { n: s.rule, color: C.gate, word: 'allowed' },
+      { n: s.rule, color: C.ok, word: 'allowed' },
       { n: s.cleared, color: C.cleared, word: decider },
       { n: s.ask, color: C.amber, word: 'pending' },
       { n: s.deny, color: C.warn, word: 'denied' },
@@ -1114,7 +1125,7 @@ export const register: Register = (on, options) => {
               const isViewed = viewed === c.id
               return (
                 <Box columnGap={1}>
-                  <Text color={statusColor(c)} bold={isViewed}>
+                  <Text color={statusColor(c)} weight={isViewed ? 'bold' : undefined}>
                     {isViewed ? '▸' : glyph(c)}
                   </Text>
                   <Box width={labelW} flexShrink={0}>
@@ -1158,7 +1169,7 @@ export const register: Register = (on, options) => {
                   paddingX={1}
                 >
                   <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={first} onPress={expandOnPress(c.id)} />
-                  <Text bold wrap="truncate">
+                  <Text weight="bold" wrap="truncate">
                     {rest}
                   </Text>
                   <Text color={C.dim} wrap="truncate">
@@ -1184,7 +1195,7 @@ export const register: Register = (on, options) => {
       expandedCard ? (
         <Box {...block(w, C.agent)}>
           {head(w - 4, `${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${expandedCard.status} · ${plural(expandedCard.steps, 'step')}`, C.agent)}
-          <Text bold wrap="wrap">
+          <Text weight="bold" wrap="wrap">
             {expandedCard.description || expandedCard.type}
           </Text>
           {expandedCard.tools.length === 0 ? <Text color={C.faint}>no tool calls yet</Text> : null}
@@ -1296,7 +1307,7 @@ export const register: Register = (on, options) => {
               <Text color={C.faint}>{w < 40 ? fmtClock(l.at).slice(0, 5) : fmtClock(l.at)}</Text>
             </Box>
             <Box width={w < 40 ? 9 : 13} flexShrink={0}>
-              <Text color={colorOf(l)} bold wrap="truncate">
+              <Text color={colorOf(l)} weight="bold" wrap="truncate">
                 {l.who}
               </Text>
             </Box>
@@ -1512,7 +1523,7 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column" width={Math.max(20, e.props.bodyColumns)}>
-        <Text color={C.main} bold>
+        <Text color={C.main} weight="bold">
           flightdeck
         </Text>
         <Text color={C.warn} wrap="wrap">{`draw failed (${next.error.kind}): ${next.error.message ?? 'no message'}`}</Text>

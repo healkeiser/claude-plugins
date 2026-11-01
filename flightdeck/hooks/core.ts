@@ -20,6 +20,7 @@ import type {
   Usage,
   View,
 } from '../types'
+import { ROLE, cellWidth, clip, count, duration, meter, plural as sharedPlural, span, usd } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -160,17 +161,20 @@ export type Colors = Record<'main' | 'agent' | 'gate' | 'cleared' | 'arch' | 'am
  * `pastel` is fixed hex tuned for dark terminals.
  */
 export const PALETTES: Record<Palette, Colors> = {
+  // The shared roles (style.ts, DESIGN.md): main the accent, agents the agent
+  // role, the architect's advice the info role, the gate and what you cleared
+  // the you role.
   theme: {
-    main: 'claude',
-    agent: 'suggestion',
-    gate: 'success',
-    cleared: 'permission',
-    arch: 'merged',
-    amber: 'warning',
-    warn: 'error',
-    ok: 'success',
-    dim: 'inactive',
-    faint: 'subtle',
+    main: ROLE.accent,
+    agent: ROLE.agent,
+    gate: ROLE.you,
+    cleared: ROLE.you,
+    arch: ROLE.info,
+    amber: ROLE.warning,
+    warn: ROLE.error,
+    ok: ROLE.success,
+    dim: ROLE.muted,
+    faint: ROLE.chrome,
     text: 'text',
   },
   pastel: {
@@ -210,20 +214,14 @@ export const prettyModel = (id: string) => {
   return shorten(id, 22)
 }
 
-export const shorten = (s: string, n: number) => {
-  const one = s.replace(/\s+/g, ' ').trim()
-  return n <= 0 ? '' : one.length > n ? `${one.slice(0, Math.max(0, n - 1)).trimEnd()}…` : one
-}
+/** One line cut to `n` terminal cells, `…` last when cut. */
+export const shorten = (s: string, n: number) => clip(s.replace(/\s+/g, ' ').trim(), n)
 
-export const kTokens = (n: number) =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
+/** `950`, `13.7k`, `640k`, `1.0M`: the shared count format. */
+export const kTokens = count
 
-export const fmtDuration = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  return m < 60 ? `${m}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
-}
+/** `1.4s`, `42s`, `2m 05s`, `3h 12m`: the shared duration format. */
+export const fmtDuration = duration
 
 /** A running clock as the live cards draw it: m:ss, or XhYY past an hour. */
 export const fmtTimer = (ms: number) => {
@@ -235,9 +233,9 @@ export const fmtTimer = (ms: number) => {
 export const fmtClock = (ms: number) => (ms > 0 ? new Date(ms).toTimeString().slice(0, 8) : '--:--:--')
 
 /** `1 error`, `2 errors`. */
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string) => sharedPlural(n, word)
 
-export const fmtUsd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`)
+export const fmtUsd = usd
 
 /**
  * How soon a request began to answer: from when it was sent to its first piece of response; null when
@@ -297,8 +295,8 @@ export const forgetCompactRead = (u: Usage): Usage => ({ ...u, compactWindow: nu
 
 /** A gauge of `width` cells, drawn as the statusline draws its bars: ━ filled, ─ empty. */
 export const gauge = (pct: number, width: number) => {
-  const full = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
-  return { on: '━'.repeat(full), off: '─'.repeat(width - full) }
+  const m = meter(pct, width)
+  return { on: m.fill, off: m.track }
 }
 
 /** Which of `heat`'s three levels a fill reads at: the accent, then the warning colour from 60%, the error colour from 80%. */
@@ -311,14 +309,8 @@ export const limitOf = (r: { kind: string; percentUsed: number; resetsAt?: strin
 }
 
 /** Time left until a window resets, its two largest units: `25m`, `3h10m`, `4d2h`; empty when unknown or past. */
-export const fmtResetIn = (resetsAt: number | null | undefined, now: number) => {
-  if (resetsAt === null || resetsAt === undefined || resetsAt <= now) return ''
-  const m = Math.max(1, Math.floor((resetsAt - now) / 60_000))
-  const d = Math.floor(m / 1440)
-  const h = Math.floor((m % 1440) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  return h > 0 ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`
-}
+export const fmtResetIn = (resetsAt: number | null | undefined, now: number) =>
+  resetsAt === null || resetsAt === undefined ? '' : span(resetsAt - now)
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -634,8 +626,8 @@ export const headFit = (width: number, labelW: number, rightW: number) => {
 export const ruleLine = (width: number, marks: readonly number[] = [], mark = '┴') =>
   Array.from({ length: Math.max(1, width) }, (_, i) => (marks.includes(i) ? mark : '─')).join('')
 
-/** The cells a string takes in a terminal: one per character. */
-export const cellWidth = (s: string) => [...s].length
+/** The cells a string takes in a terminal: CJK and emoji two, combining marks none. */
+export { cellWidth }
 
 /**
  * How many pieces of a line fit in `room` cells, in order from the start: each piece is `lead` extra cells

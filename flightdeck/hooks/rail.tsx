@@ -16,7 +16,8 @@ type Props = {
 type Ref = { phase: number; active: boolean }
 type State = { ref: Ref }
 
-const STEP_MS = 110
+// The shared frame (style.ts FRAME_MS): one cell a tick, ten a second.
+const STEP_MS = 100
 /** Dashes drawn past the line's end and clipped by its box, so the right end is the box's edge. */
 const SPARE = 4
 
@@ -74,7 +75,7 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   })
   return line(
     runs.map(r => (
-      <Text color={r.isLit ? props.color : props.dim} bold={r.isLit} mono>
+      <Text color={r.isLit ? props.color : props.dim} weight={r.isLit ? 'bold' : undefined} mono>
         {r.text}
       </Text>
     )),
