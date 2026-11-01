@@ -173,21 +173,21 @@ claude plugin install dev@healkeiser --scope user
 <!-- SKILLS -->
 ## Documentation skills
 
-Each skill is pinned to one release of one piece of software, and named `<software>-<version>`. It holds a `SKILL.md` that tells Claude how to search and cite the docs, and a `scripts/crawl.py` that builds the local Markdown copy of them.
+The `vfx` plugin holds one skill per release of each piece of software, named `<software>-<version>`, so they all show up as `vfx:<skill>`. Each skill tells Claude how to search and cite that release's official docs, and ships a crawler that builds a local Markdown copy of them.
 
 | Skill | Sources |
 |-------|---------|
-| **openusd-26-11** | openusd.org 26.11 (user docs and API guide pages), the USD Survival Guide |
-| **unreal-5-8** | Unreal Engine 5.8 documentation (without the generated API reference) |
-| **rez-3-4** | rez 3.4.0: user guide, `rez-*` CLI pages, Python API |
-| **deadline-10-4** | Deadline 10.4 User Manual, Scripting Reference, Standalone Python Reference |
-| **blender-5-2** | Blender 5.2 LTS manual and Python API, Blender developer docs |
+| `vfx:openusd-26-11` | openusd.org 26.11 (user docs and API guide pages), the USD Survival Guide |
+| `vfx:unreal-5-8` | Unreal Engine 5.8 documentation (without the generated API reference) |
+| `vfx:rez-3-4` | rez 3.4.0: user guide, `rez-*` CLI pages, Python API |
+| `vfx:deadline-10-4` | Deadline 10.4 User Manual, Scripting Reference, Standalone Python Reference |
+| `vfx:blender-5-2` | Blender 5.2 LTS manual and Python API, Blender developer docs |
 
 ``` shell
-claude plugin install openusd-26-11@healkeiser --scope user
+claude plugin install vfx@healkeiser --scope user
 ```
 
-The docs themselves are not in this repository: they belong to their publishers. The first time a skill finds its `docs/` folder missing, it runs its crawler, which fetches that exact release and refuses any other version. You can also run it yourself from the skill folder with `uv run scripts/crawl.py`. A plugin update replaces the skill folder, so the docs are rebuilt after one.
+The docs themselves are not in this repository: they belong to their publishers. A skill builds its copy the first time it is used, into the plugin's data folder (`~/.claude/plugins/data/`), where it survives plugin updates. Uninstalling the plugin deletes it unless you pass `--keep-data`. Each crawler fetches exactly its release and refuses any other version.
 
 Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also needs `git`, because it builds the docs from the rez release tag.
 
@@ -198,14 +198,14 @@ Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also 
 
 Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These three only draw and count; none of them runs a command, reads your files, or makes a network call. Read `hooks/` before installing, as you would for any plugin.
 
-The documentation skills run no hooks. Their crawlers make network requests to the docs sites listed above and write only inside the skill's own `docs/` folder.
+The `vfx` skills run no hooks. Their crawlers make network requests to the docs sites listed above and write only inside the plugin's data folder.
 
 
 
 <!-- DEVELOPMENT -->
 ## Development
 
-Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, and the hooks module `hooks/register.tsx`, with its tests beside it. Each documentation skill is a plugin folder with `skills/<name>/SKILL.md`, its crawler in `scripts/`, and test cases in `evals/` that `claude plugin eval` can run.
+Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, and the hooks module `hooks/register.tsx`, with its tests beside it. The documentation skills live in `vfx/skills/<name>/`: `SKILL.md`, the crawler in `scripts/`, and test cases in `evals/` that `claude plugin eval` can run.
 
 ``` shell
 git clone https://github.com/healkeiser/claude-plugins

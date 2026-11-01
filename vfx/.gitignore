@@ -1,0 +1,2 @@
+# Docs are built locally into ${CLAUDE_PLUGIN_DATA}; never commit a mirror here.
+skills/*/docs/

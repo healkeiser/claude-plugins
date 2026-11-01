@@ -10,7 +10,7 @@ A local copy of the rez 3.4.0 documentation (122 pages, 1.3 MB, built 2026-11-01
 
 ## Where things are
 
-Paths are relative to this skill's directory.
+The docs live in `${CLAUDE_PLUGIN_DATA}/rez-3-4/docs/`; below, `docs/` means that folder. They are built on this machine, not shipped with the plugin. If `docs/index.tsv` is missing, build it before answering (tell the user it takes a while): `uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/rez-3-4/docs"`.
 
 - `docs/index.tsv`: one line per page: `file`, `title`, `summary` (first paragraph, cut to 240 characters). Search it first.
 - `docs/*.md`: the user guide.
@@ -21,7 +21,7 @@ Paths are relative to this skill's directory.
   - `changelog.md`: release notes for every version up to 3.4.0. Grep it for "what changed in 3.x".
 - `docs/commands/rez-*.md`: one page per CLI tool, generated from argparse: usage, options, choices, defaults. `commands_index.md` lists them.
 - `docs/api/rez.*.md`: the Python API reference, one page per module (`rez.resolved_context`, `rez.solver`, `rez.packages`, `rez.package_maker`, `rez.config`, `rez.rex`, `rez.build_process`, `rez.suite`, `rez.version`, `rez.utils.*`…). Signatures with types; grep the class or method name.
-- `scripts/crawl.py`: builds and refreshes the mirror.
+- `${CLAUDE_SKILL_DIR}/scripts/crawl.py`: builds and refreshes the mirror.
 
 ## How to answer
 
@@ -45,12 +45,12 @@ If nothing in the mirror covers the question, say so plainly rather than filling
 The mirror is a one-time crawl pinned to 3.4. If `docs/` is missing or empty, or the user asks for a refresh:
 
 ```
-uv run scripts/crawl.py              # rebuild from the git tag (default)
-uv run scripts/crawl.py --source web # fetch rez.readthedocs.io instead
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/rez-3-4/docs"              # rebuild from the git tag (default)
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/rez-3-4/docs" --source web # fetch rez.readthedocs.io instead
 ```
 
 By default the crawler shallow-clones github.com/AcademySoftwareFoundation/rez at the release tag (from this folder's name, `rez-3-4` means the latest 3.4.x tag; `--version` overrides), builds the Sphinx docs in a throwaway `uv` venv, checks the built title names that version, converts the HTML and deletes the temp dir. It needs `git` and `uv`. `Source:` lines point at the canonical `https://rez.readthedocs.io/en/<version>/` page. It never uses a branch, `stable` or `latest`, so a refresh never moves to a newer release. `--source web` is slow: readthedocs.io answers request bursts with a Cloudflare challenge, so it uses one worker and backs off.
 
 For another release, copy the skill to `rez-<major>-<minor>` (for example `rez-3-5`), delete its `docs/`, update the version in this file and the description, and run the crawler there.
 
-Run it from this skill's directory. The rez docs are Apache 2.0 (Contributors to the Rez Project): the mirror is a private offline reference.
+The rez docs are Apache 2.0 (Contributors to the Rez Project): the mirror is a private offline reference.

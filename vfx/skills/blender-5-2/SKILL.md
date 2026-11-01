@@ -10,7 +10,7 @@ A local copy of the Blender 5.2 LTS user manual and Python API reference, plus t
 
 ## Where things are
 
-Paths are relative to this skill's directory.
+The docs live in `${CLAUDE_PLUGIN_DATA}/blender-5-2/docs/`; below, `docs/` means that folder. They are built on this machine, not shipped with the plugin. If `docs/index.tsv` is missing, build it before answering (tell the user it takes a while): `uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/blender-5-2/docs"`.
 
 - `docs/index.tsv`: one line per page: `file`, `title`, `summary` (first paragraph, cut to 240 characters). Search it first.
 - `docs/manual/`: docs.blender.org/manual/en/5.2. What each tool, setting and editor does, from the user's side. Same tree as the site: `modeling/modifiers/<category>/<name>.md`, `modeling/geometry_nodes/<category>/<node>.md`, `render/shader_nodes/`, `render/cycles/`, `render/eevee/`, `animation/`, `grease_pencil/`, `physics/`, `compositing/`, `video_editing/`, `files/import_export/` (USD, Alembic, FBX, OBJ, PLY, STL, BVH, SVG; glTF is `addons/scene_gltf2.md`), `advanced/command_line/arguments.md` (every `blender` CLI flag), `advanced/extensions/` (packaging, `blender_manifest.toml`), `editors/preferences/`, `addons/`.
@@ -21,7 +21,7 @@ Paths are relative to this skill's directory.
   - `bpy_types_enum_items/<name>_items.md`: the shared enum tables (`object_modifier_type_items`, `event_type_items`, `icon_items`…) that signatures link to.
   - Guides: `info_quickstart`, `info_overview` (registration, classes), `info_api_reference`, `info_best_practice`, `info_tips_and_tricks`, `info_advanced` and `info_advanced_blender_as_bpy`, `info_gotcha` and `info_gotchas_*` (operators, crashes, meshes, armatures, threading, file paths, internal data). `change_log.md` lists every API addition and removal since the previous release.
 - `docs/dev/`: developer.blender.org/docs, unversioned. `handbook/` (getting started, `building_blender/` per OS, contributing, code review, guidelines, release process), `handbook/extensions/` (add-on guidelines, dev setup), `features/` (module and architecture notes: core, animation, geometry nodes, EEVEE, Cycles, Python; `features/extensions/` has the manifest schema and the extensions platform), `release_notes/<x.y>/` (per-area notes per release, including `python_api`), `programs/`. One page per URL: `dev/<path>/index.md`.
-- `docs/manifest.jsonl`: crawl bookkeeping. `scripts/crawl.py`: builds and refreshes the mirror.
+- `docs/manifest.jsonl`: crawl bookkeeping. `${CLAUDE_SKILL_DIR}/scripts/crawl.py`: builds and refreshes the mirror.
 
 ## Which source to use
 
@@ -56,11 +56,11 @@ If nothing in the mirror covers the question, say so plainly rather than filling
 The mirror is a one-time crawl pinned to 5.2. If `docs/` is missing or empty, or the user asks for a refresh:
 
 ```
-uv run scripts/crawl.py                    # resumes: fetches only pages not in docs/manifest.jsonl
-uv run scripts/crawl.py --refresh          # fetch everything again (about 5,500 pages, roughly half an hour)
-uv run scripts/crawl.py --only dev --refresh   # one source: manual | api | dev
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/blender-5-2/docs"                    # resumes: fetches only pages not in docs/manifest.jsonl
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/blender-5-2/docs" --refresh          # fetch everything again (about 5,500 pages, roughly half an hour)
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/blender-5-2/docs" --only dev --refresh   # one source: manual | api | dev
 ```
 
 The crawler reads the version from this folder's name, only uses URLs pinned to it (never `latest` or `current`), and stops if the site reports another version. For another release, copy the skill to `blender-<major>-<minor>`, delete its `docs/`, update the version in this file and the description, and run the crawler there.
 
-Run it from this skill's directory. The manual is CC-BY-SA and the API docs and developer docs are the Blender project's work: the mirror is a private offline reference. Don't copy it into a repository or publish it.
+The manual is CC-BY-SA and the API docs and developer docs are the Blender project's work: the mirror is a private offline reference. Don't copy it into a repository or publish it.

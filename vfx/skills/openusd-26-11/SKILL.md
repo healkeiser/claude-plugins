@@ -10,7 +10,7 @@ A local copy of the OpenUSD 26.11 documentation (crawled 2026-11-01) plus the US
 
 ## Where things are
 
-Paths are relative to this skill's directory.
+The docs live in `${CLAUDE_PLUGIN_DATA}/openusd-26-11/docs/`; below, `docs/` means that folder. They are built on this machine, not shipped with the plugin. If `docs/index.tsv` is missing, build it before answering (tell the user it takes a while): `uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/openusd-26-11/docs"`.
 
 - `docs/index.tsv`: one line per page: `file`, `title`, `summary` (first paragraph, cut to 240 characters). Search it first.
 - `docs/openusd/`: openusd.org/release. Concepts and reference prose.
@@ -26,7 +26,7 @@ Paths are relative to this skill's directory.
   - `pages/core/plugins/`: asset resolvers, kinds, metadata and schema plugins. `pages/core/profiling/`: debugging and Trace profiling.
   - `pages/production/`: pipeline concepts, composition in production, caches (xform, bbox, attribute, collection, material binding), FAQ.
   - `pages/dcc/houdini/`: Solaris/LOPs approach, HDAs, FX (particles, point instancers, RBD, motion blur, frustum culling), performance.
-- `scripts/crawl.py`: builds and refreshes the mirror.
+- `${CLAUDE_SKILL_DIR}/scripts/crawl.py`: builds and refreshes the mirror.
 
 The generated class reference (thousands of `class_usd_*.html` stubs) is not mirrored. For exact method signatures and overloads, introspect the installed bindings (`python -c "from pxr import Usd; help(Usd.Stage.Open)"`, or `hython` inside Houdini), or give the user the class page URL: `https://openusd.org/release/api/class_<lowercased_name_with_underscores>.html`, e.g. `class_usd_stage.html`, `class_sdf_layer.html`, `class_usd_geom_xformable.html`. Links in the mirrored pages already point there.
 
@@ -54,10 +54,10 @@ If nothing in the mirror covers the question, say so plainly rather than filling
 The mirror is a one-time crawl pinned to 26.11. If `docs/` is missing or empty, or the user asks for a refresh:
 
 ```
-uv run scripts/crawl.py                  # everything again, about two minutes
-uv run scripts/crawl.py --only survival  # one source: openusd | api | survival
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/openusd-26-11/docs"                  # everything again, about two minutes
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/openusd-26-11/docs" --only survival  # one source: openusd | api | survival
 ```
 
 The crawler reads the version from this folder's name and refuses to write docs for any other version, so a refresh never moves to a newer release. For another release, copy the skill to `openusd-<yy>-<mm>` (for example `openusd-25-11`), delete its `docs/`, update the version in this file and the description, and run the crawler there. openusd.org keeps older releases at `/<yy.mm>/`, the current one at `/release/` and the next at `/dev/`; `versions.json` on the site maps them, and the crawler uses it.
 
-Run it from this skill's directory. The OpenUSD docs are under the Pixar-modified Apache 2.0 license and the Survival Guide is its author's work: the mirror is a private offline reference. Don't copy it into a repository or publish it.
+The OpenUSD docs are under the Pixar-modified Apache 2.0 license and the Survival Guide is its author's work: the mirror is a private offline reference. Don't copy it into a repository or publish it.

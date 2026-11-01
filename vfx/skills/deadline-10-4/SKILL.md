@@ -10,7 +10,7 @@ A local copy of the Thinkbox Deadline 10.4 documentation (crawled 2026-11-01; th
 
 ## Where things are
 
-Paths are relative to this skill's directory.
+The docs live in `${CLAUDE_PLUGIN_DATA}/deadline-10-4/docs/`; below, `docs/` means that folder. They are built on this machine, not shipped with the plugin. If `docs/index.tsv` is missing, build it before answering (tell the user it takes a while): `uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/deadline-10-4/docs"`.
 
 - `docs/index.tsv`: one line per page: `file`, `title`, `summary` (first paragraph, cut to 240 characters). Search it first.
 - `docs/manual/manual/` (344 pages): the User Manual, Sphinx. File prefixes group topics:
@@ -23,7 +23,7 @@ Paths are relative to this skill's directory.
   - Admin: `repository-config.md`, `worker-config.md`, `worker.md`, `monitor.md`, `launcher.md`, `pulse*.md`, `remote-connection-server.md`, `power-management.md`, `pools-and-groups.md`, `limits.md`, `db-*.md` (MongoDB auth, replica sets, maintenance), `install-*`, `upgrading-*`, `licensing-*`, `aws-*` (AWS Portal), `release-notes.md`.
 - `docs/scripting/` (102 pages): the **in-app** Scripting Reference (Doxygen, C# signatures). The objects a plugin, event, job script or Monitor script receives: `class_deadline_1_1_plugins_1_1_deadline_plugin.md` (DeadlinePlugin), `class_frantic_x_1_1_processes_1_1_managed_process.md` (ManagedProcess, its base class), `class_deadline_1_1_events_1_1_deadline_event_listener.md` (DeadlineEventListener: every `On*` callback), `class_deadline_1_1_jobs_1_1_job.md` / `_task.md`, `class_deadline_1_1_scripting_1_1_*_utils.md` (RepositoryUtils, ClientUtils, FrameUtils, PathUtils, JobUtils…), `namespace_script_dialog.md` (Monitor script UI), plus `namespace_*.md` overviews.
 - `docs/python/` (17 pages): the **Standalone** Python Reference (Doxygen). `index.md` (setup and usage), `class_deadline_connect_1_1_deadline_con.md` (DeadlineCon), and one page per wrapper: Jobs, Tasks, Slaves, Pools, Groups, Limits (LimitGroups), Repository, Plugins, Pulse, Balancer, JobReports, TaskReports, MappedPaths, MaximumPriority, SlavesRenderingJob.
-- `scripts/crawl.py`: builds and refreshes the mirror.
+- `${CLAUDE_SKILL_DIR}/scripts/crawl.py`: builds and refreshes the mirror.
 
 ## Which source to use
 
@@ -55,8 +55,8 @@ If nothing in the mirror covers the question, say so plainly rather than filling
 The mirror is a one-time crawl pinned to 10.4. If `docs/` is missing or empty, or the user asks for a refresh:
 
 ```
-uv run scripts/crawl.py                   # everything again, about two minutes
-uv run scripts/crawl.py --only scripting  # one source: manual | scripting | python
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/deadline-10-4/docs"                   # everything again, about two minutes
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/deadline-10-4/docs" --only scripting  # one source: manual | scripting | python
 ```
 
 The crawler reads the version from this folder's name and exits if the manual reports another version, so a refresh never moves to a newer release (the patch release may move within 10.4; update it above if it does). For another release, copy the skill to `deadline-<major>-<minor>` (for example `deadline-10-3`), delete its `docs/`, update the version in this file and the description, and run the crawler there. Thinkbox keeps each release at `docs.thinkboxsoftware.com/products/deadline/<major>.<minor>/`.

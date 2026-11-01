@@ -10,14 +10,14 @@ A local copy of the Unreal Engine 5.8 documentation. Answer from it rather than 
 
 ## Where things are
 
-Paths are relative to this skill's directory.
+The docs live in `${CLAUDE_PLUGIN_DATA}/unreal-5-8/docs/`; below, `docs/` means that folder. They are built on this machine, not shipped with the plugin. If `docs/index.tsv` is missing, build it before answering (tell the user it takes a while): `uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/unreal-5-8/docs"`.
 
 - `docs/index.tsv`: one line per page: `file`, `title`, `written_for`, `summary` (the page's own description, cut to 240 characters). Search it first.
 - `docs/pages/<slug>.md`: the page as Markdown. The header gives the title, `Source: <url>` and `Written for: UE x.y (updated date)`. Slugs with `/` are stored with `__`.
 
 Most of the 5.8 doc set (about 2000 of 2300 pages) is text Epic wrote for 5.5 and has not revised since: `Written for: UE 5.5, unchanged through 5.8`. It is what 5.8 users get, but the feature may have moved on, so when an answer hinges on such a page, say which release it was written for and check the engine source for anything version-sensitive. Pages that older pages link to but 5.8 no longer publishes (Screen Space Global Illumination, for one) are not in the mirror; say a page is missing from 5.8 rather than assuming the feature is gone. Code samples hold only the preview the page embeds; a line like "(first 12 of 80 lines)" means the rest is on the web page. Images and videos are dropped, and only their alt text or caption is kept.
 - `docs/manifest.jsonl`: crawl state (slug, title, links); only the crawler needs it.
-- `scripts/crawl.py`: builds and refreshes the mirror.
+- `${CLAUDE_SKILL_DIR}/scripts/crawl.py`: builds and refreshes the mirror.
 
 The API reference (`API/`, Blueprint API, Python API) is not mirrored: tens of thousands of generated stubs. For exact class members, signatures, CVar defaults or anything the text is vague about, read the engine source (`Engine/Source`, `Engine/Plugins`) of the user's engine install or source checkout, if they have one.
 
@@ -36,8 +36,8 @@ If nothing in the mirror covers the question, say so plainly rather than filling
 The mirror is a one-time crawl, so it can go stale when Epic edits pages. If `docs/` is missing or empty, or the user asks for a refresh:
 
 ```
-uv run scripts/crawl.py            # resume: fetches only pages not in the manifest
-uv run scripts/crawl.py --refresh  # fetch everything again (about an hour)
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/unreal-5-8/docs"            # resume: fetches only pages not in the manifest
+uv run "${CLAUDE_SKILL_DIR}/scripts/crawl.py" --out "${CLAUDE_PLUGIN_DATA}/unreal-5-8/docs" --refresh  # fetch everything again (about an hour)
 ```
 
-Run it from this skill's directory. It walks links breadth-first from the 5.8 landing page at three requests at a time with a pause, and backs off when Cloudflare challenges it. Epic's docs are copyrighted: the mirror is a private offline reference. Never copy it into a repository or publish it.
+It walks links breadth-first from the 5.8 landing page at three requests at a time with a pause, and backs off when Cloudflare challenges it. Epic's docs are copyrighted: the mirror is a private offline reference. Never copy it into a repository or publish it.
