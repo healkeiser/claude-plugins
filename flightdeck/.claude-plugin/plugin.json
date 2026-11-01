@@ -1,7 +1,7 @@
 {
   "name": "flightdeck",
-  "version": "1.5.1",
-  "description": "A live agent dashboard pane: main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log. Based on scasella/claude-flightdeck.",
+  "version": "1.6.0",
+  "description": "A live agent dashboard pane: main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt, trend sparklines, an inbox of errors and a session log. Based on scasella/claude-flightdeck.",
   "author": {
     "name": "Valentin Beaumont"
   },
@@ -38,9 +38,9 @@
     },
     "panels": {
       "title": "Panels",
-      "description": "Comma-separated panels in display order: main, architect, gate, agents, loops, receipt, log. Leave one out to hide it.",
+      "description": "Comma-separated panels in display order: main, architect, gate, inbox, agents, loops, receipt, trends, log. Leave one out to hide it.",
       "type": "string",
-      "default": "main,architect,gate,agents,loops,receipt,log"
+      "default": "main,architect,gate,inbox,agents,loops,receipt,trends,log"
     },
     "motion": {
       "title": "Motion",

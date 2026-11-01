@@ -61,8 +61,23 @@ import {
   trimRecent,
   startConsult,
   stepSpeed,
+  INBOX_MAX,
+  SPARK,
+  SPARK_ASCII,
+  TREND_MAX,
+  addInbox,
+  errorLine,
+  inboxNewest,
+  normalizeInbox,
+  normalizeTrend,
+  pushTrend,
+  sparkLevels,
+  splitCells,
+  splitOf,
+  svgSpark,
+  jumpTo,
 } from '../hooks/core'
-import type { Check } from '../types'
+import type { Check, InboxItem, TrendPoint } from '../types'
 
 // ---------------------------------------------------------------- pure behaviour
 
@@ -174,7 +189,7 @@ test('consults open, close by id, and draw on a shared timeline', () => {
 
 test('config is read leniently: bad values fall back to defaults', () => {
   const d = parseConfig({})
-  expect([d.maxCards, d.paneColumns, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 66, 'auto', true, true, 7])
+  expect([d.maxCards, d.paneColumns, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 66, 'auto', true, true, 9])
   expect(d.architect.test('fable-advisor:fable-advisor')).toBe(true)
   expect([d.statusLine, parseConfig({ statusLine: true }).statusLine]).toEqual([false, true]) // off unless asked
   const c = parseConfig({ architectPattern: '([', maxCards: 99, layout: 'diagonal', panels: 'log, gate ,nope,gate', motion: 'off' })
@@ -1032,6 +1047,7 @@ const spillsOf = (tree: unknown, columns: number) => {
 /** A session with every panel busy: a compaction window, limits, consults with advice, checks of every kind, agents, a loop. */
 const busySession = async ($: Parameters<TestBody>[0], on: On) => {
   const clock = engine(on)
+  splitHost(on)
   await clock.advance(3_600_000) // clocks draw as m:ss, as in a session, not as the '—' of an unknown start
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('tool.check', (_$, e) => ({ decision: (e.tool_use_id ?? '').endsWith('7') ? 'deny' : 'allow' }))
@@ -1238,12 +1254,13 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const tree = await ui.drawn()
   const texts = textsIn(tree)
   const first = (re: RegExp) => texts.find(t => re.test(textOf(t)))
-  // Every block is a full round border with one cell of padding, no fill: main, gate, agents with its two
+  // Every block is a full round border with one cell of padding, no fill: main, gate, the inbox (d1 was denied), agents with its two
   // cards inside (the finished one dimmed), the running turn and the log, each in its panel colour.
   const framed = boxesIn(tree).filter(b => b.props?.borderStyle)
   expect(framed.map(b => [b.props?.borderStyle, b.props?.borderColor, b.props?.paddingX, b.props?.borderDimColor === true])).toEqual([
     ['round', 'claude', 1, false],
     ['round', 'suggestion', 1, false],
+    ['round', 'error', 1, false],
     ['round', 'planMode', 1, false],
     ['round', 'planMode', 1, false],
     ['round', 'planMode', 1, true],
@@ -1282,7 +1299,8 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const after = textsIn(drawn)
   expect(after.find(t => textOf(t) === 'last turn')?.props?.dimColor).toBe(true)
   expect(after.find(t => textOf(t) === '✓ 1m 35s')?.props?.color).toBe('success')
-  expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true])
+  // Main, the dimmed last turn, then the trends its finish began.
+  expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true, false])
   await done.unmount()
 })
 
@@ -1609,4 +1627,326 @@ test('no number in the main block is cut, docked at 66 or narrowed to 40 columns
     if (cols === 66) expect(textsIn(keyed(tree, 'meter-ctx')).map(textOf)).toContain('87.7k/1.0M')
     await ui.unmount()
   }
+})
+
+// ---------------------------------------------------------------- trends, context split, inbox
+
+/** A context breakdown as /context gives it: content rows, then free space, the buffer and deferred schemas, which are not content. */
+const BREAKDOWN = {
+  categories: [
+    { name: 'System prompt', tokens: 3_000, color: 'promptBorder', isDeferred: false, kind: 'used' },
+    { name: 'System tools', tokens: 18_000, color: 'inactive', isDeferred: false, kind: 'used' },
+    { name: 'MCP tools', tokens: 9_000, color: 'cyan_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' },
+    { name: 'Memory files', tokens: 4_000, color: 'claude', isDeferred: false, kind: 'used' },
+    { name: 'Skills', tokens: 2_000, color: 'warning', isDeferred: false, kind: 'used' },
+    { name: 'Messages', tokens: 320_000, color: 'purple_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' },
+    { name: 'Empty', tokens: 0, color: 'text', isDeferred: false, kind: 'used' },
+    { name: 'MCP tools (deferred)', tokens: 40_000, color: 'inactive', isDeferred: true, kind: 'deferred' },
+    { name: 'Autocompact buffer', tokens: 45_000, color: 'inactive', isDeferred: false, kind: 'buffer' },
+    { name: 'Free space', tokens: 599_000, color: 'inactive', isDeferred: false, kind: 'free' },
+  ],
+  totalTokens: 356_000,
+  maxTokens: 1_000_000,
+  rawMaxTokens: 1_000_000,
+  percentage: 36,
+  isAutoCompactEnabled: false,
+}
+
+/** A host whose `session.usage` gives the breakdown above to a call that asks for one, and a running cost. */
+const splitHost = (on: On, cost: () => number = () => 1) => {
+  const asked: (string | undefined)[] = []
+  on('session.usage', (_$, e) => {
+    asked.push(e.breakdown)
+    return {
+      value: {
+        startedAt: 0,
+        rateLimits: [],
+        cost: { usd: cost() },
+        context: { window: 1_000_000, tokens: 356_000, percent: 36, ...(e.breakdown ? { breakdown: BREAKDOWN as never } : {}) },
+      },
+    }
+  })
+  return asked
+}
+
+const point = (at: number): TrendPoint => ({ at, ctx: at, cost: null, ms: at, out: null })
+
+test('the trend keeps the last 30 turns, and stored junk reads as points', () => {
+  let l: TrendPoint[] = []
+  for (let i = 0; i < 45; i += 1) l = pushTrend(l, point(i))
+  expect(l.length).toBe(TREND_MAX)
+  expect([l[0]?.at, l[l.length - 1]?.at]).toEqual([15, 44])
+  expect(normalizeTrend([{ at: 1, ctx: 'x', ms: 5, cost: 0.2 }, null, 3, [1]])).toEqual([{ at: 1, ctx: null, cost: 0.2, ms: 5, out: null }])
+  expect(normalizeTrend(Array.from({ length: 50 }, (_, i) => ({ at: i, ms: i }))).length).toBe(TREND_MAX)
+  expect(normalizeTrend('not a list')).toEqual([])
+})
+
+test('sparklines scale from zero: flat, zero, unknown, over the top and the smallest reading above zero', () => {
+  expect(sparkLevels([0, 0, 0])).toEqual([0, 0, 0])
+  expect(sparkLevels([5, 5, 5])).toEqual([7, 7, 7])
+  expect(sparkLevels([0, 1, 100])).toEqual([0, 1, 7]) // 1 of 100 rounds to 0, but a reading above zero shows
+  expect(sparkLevels([null, 50, 100])).toEqual([null, 4, 7])
+  expect(sparkLevels([20, 50, 150], 100)).toEqual([1, 4, 7]) // a percentage against 100, capped
+  expect(sparkLevels([null, null])).toEqual([null, null])
+  expect(sparkLevels([-3, 2])).toEqual([0, 7])
+  expect(sparkLevels([])).toEqual([])
+  // Eight single-cell levels no terminal draws as emoji, and eight ASCII stand-ins for glyphs: text.
+  expect([...SPARK].length).toBe(8)
+  expect([...SPARK].every(c => cellWidth(c) === 1)).toBe(true)
+  expect(bareEmoji(SPARK)).toEqual([])
+  expect(/^[\x20-\x7e]{8}$/.test(SPARK_ASCII)).toBe(true)
+})
+
+test('a graphical sparkline glides each bar to its new height on the meters\' ease-out, still when motion is off', () => {
+  const colors = ['claude', '#ff0000', 'subtle']
+  const a = svgSpark([0, 7, null], colors, 3, [], false)
+  expect(a.heights).toEqual([1, 12, 0]) // zero a one-pixel baseline, unknown nothing
+  expect((a.source.match(/<rect/g) ?? []).length).toBe(2)
+  expect(a.source).toContain('fill="#d97757"') // a theme key as its role's hex
+  expect(a.source).toContain('width="21"')
+  expect(a.source).not.toContain('<animate')
+  const b = svgSpark([7, 7, null], colors, 3, a.heights, false)
+  expect(b.source).toContain('<animate attributeName="height" from="1" to="12" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>')
+  expect(b.source).toContain('attributeName="y" from="11" to="0"')
+  expect((b.source.match(/<animate /g) ?? []).length).toBe(2) // the bar that moved, not the one that did not
+  expect(svgSpark([7, 7, null], colors, 3, a.heights, true).source).not.toContain('<animate')
+})
+
+test('the context split keeps what fills the window, largest first, and its cells add up', () => {
+  const sp = splitOf(BREAKDOWN as never, 5)
+  expect(sp?.rows.map(r => r.name)).toEqual(['Messages', 'System tools', 'MCP tools', 'Memory files', 'System prompt', 'Skills'])
+  expect([sp?.window, sp?.at]).toEqual([1_000_000, 5])
+  if (!sp) return
+  for (const cells of [1, 5, 6, 10, 20, 40]) {
+    const c = splitCells(sp, cells)
+    expect(c.length).toBe(sp.rows.length + 1)
+    expect(c.reduce((a, b) => a + b, 0)).toBe(cells)
+    // The lit cells are the fill's own share, as the ctx meter's: 35.6% of the bar.
+    expect(cells - (c[c.length - 1] ?? 0)).toBe(Math.max(1, Math.round(0.356 * cells)))
+  }
+  expect(splitCells(sp, 10)).toEqual([1, 1, 1, 1, 0, 0, 6]) // four lit cells: the four largest keep one each
+  expect(splitCells(sp, 40)).toEqual([9, 1, 1, 1, 1, 1, 26]) // every category keeps a cell, messages the rest
+  // Past the window, the bar is all lit; nothing in it, all track.
+  expect(splitCells({ rows: [{ name: 'Messages', tokens: 300, color: 'x' }], window: 200, at: 0 }, 10)).toEqual([10, 0])
+  expect(splitCells({ rows: [], window: 200, at: 0 }, 10)).toEqual([10])
+  expect(splitOf(null, 0)).toBeNull()
+  expect(splitOf({ rawMaxTokens: 1000 } as never, 0)).toBeNull() // a host with no categories
+})
+
+test('the inbox lists newest first, keeps each item once, holds the last 40, and reads junk leniently', () => {
+  const it = (id: string, at: number): InboxItem => ({ id, at, source: 'tool', text: id, target: null })
+  let l: InboxItem[] = []
+  for (const [id, at] of [['a', 1], ['b', 3], ['c', 2], ['a', 9], ['d', 3]] as const) l = addInbox(l, it(id, at))
+  expect(l.map(x => x.id)).toEqual(['a', 'b', 'c', 'd'])
+  expect(inboxNewest(l, 10).map(x => x.id)).toEqual(['d', 'b', 'c', 'a']) // same time: the later arrival first
+  expect(inboxNewest(l, 2).map(x => x.id)).toEqual(['d', 'b'])
+  expect(inboxNewest(l, 0)).toEqual([])
+  for (let i = 0; i < 60; i += 1) l = addInbox(l, it(`n${i}`, 10 + i))
+  expect(l.length).toBe(INBOX_MAX)
+  expect(l[l.length - 1]?.id).toBe('n59')
+  expect(normalizeInbox([{ id: 'x', at: 'y', source: 'nope', text: 4, target: 7 }, null])).toEqual([{ id: 'x', at: 0, source: 'tool', text: '4', target: null }])
+  expect(errorLine('\n  Error: boom\n    at x.ts:1')).toBe('Error: boom')
+  expect(errorLine('failed: --token=abcdefghijklmnop')).not.toContain('abcdefgh')
+  expect(errorLine(undefined)).toBe('')
+})
+
+test('the main block splits the context by category, with a legend, and the split is read once a main turn', async ($, on) => {
+  const clock = engine(on)
+  const asked = splitHost(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  // Before any breakdown there is no split: no row, nothing invented.
+  const before = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  expect(keyed(await before.drawn(), 'meter-split')).toBeUndefined()
+  await before.unmount()
+  // The first measurement reads the compaction window, and keeps that breakdown's split; later ones read nothing.
+  await $.session.measure({ context: { window: 1_000_000, tokens: 356_000, percent: 35.6 }, rateLimits: [], changed: ['context'] } as never)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 356_000, percent: 35.6 }, rateLimits: [], changed: ['context'] } as never)
+  expect(asked.filter(Boolean).length).toBe(1)
+  const n = asked.filter(Boolean).length
+  await $.turn.start({ text: 'go', turnId: 'S1' })
+  await clock.advance(1000)
+  await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 'S1', reason: 'answer' })
+  expect(asked.filter(Boolean).length - n).toBe(1)
+  expect(asked.filter(Boolean).every(x => x === 'summary')).toBe(true) // never `full`, which sends requests
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...pane(66), surface })
+    const tree = await ui.drawn()
+    const row = keyed(tree, 'meter-split')
+    expect(row).toBeDefined()
+    const texts = textsIn(row).map(textOf)
+    expect(texts[0]).toBe('mix')
+    expect(texts).toContain('36%')
+    expect(texts).toContain('est.')
+    if (surface === 'terminal') {
+      // Each category in /context's own colour, the free rest as the track: 4 lit cells of 10.
+      expect(textsIn(row).filter(t => /^[━─]+$/.test(textOf(t))).map(t => [textOf(t), t.props?.color])).toEqual([
+        ['━━━━──────', undefined],
+        ['━', 'purple_FOR_SUBAGENTS_ONLY'],
+        ['━', 'inactive'],
+        ['━', 'cyan_FOR_SUBAGENTS_ONLY'],
+        ['━', 'claude'],
+        ['──────', 'subtle'],
+      ])
+    } else {
+      const svg = String((row?.children ?? []).flatMap(c => (isDrawn(c) ? [c] : [])).map(c => JSON.stringify(c)).join(''))
+      expect(svg).toContain('#d97757')
+    }
+    // The legend, largest first, with each category's tokens.
+    const all = textsIn(tree).map(textOf).join('|')
+    expect(all).toContain(' messages 320k')
+    expect(all.indexOf(' messages 320k') < all.indexOf(' system tools ')).toBe(true)
+    expect(all).not.toContain('free space')
+    expect(all).not.toContain('deferred')
+    await ui.unmount()
+  }
+})
+
+test('the trends block draws a sparkline per figure over the last turns, the fill in its heat', async ($, on) => {
+  const clock = engine(on)
+  let cost = 1
+  splitHost(on, () => cost)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  const turn = async (i: number, ctx: number) => {
+    await $.turn.start({ text: `turn ${i}`, turnId: `T${i}` })
+    cost += 0.5
+    await clock.advance(1000 * i)
+    const usage = { input_tokens: 10, output_tokens: 400 * i, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' }
+    await $.turn.complete({ answer: 'ok', durationMs: 1000 * i, isAborted: false, turnId: `T${i}`, reason: 'answer', usage })
+    // The measurement after the turn gives its point the fill it left.
+    await $.session.measure({ context: { window: 200_000, tokens: ctx * 2000, percent: ctx }, rateLimits: [], changed: ['context'] } as never)
+  }
+  const none = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  expect(await none.find({ text: /^trends$/ })).toBeUndefined() // no turn yet: no block, no gap
+  await none.unmount()
+  await turn(1, 20)
+  await turn(2, 50)
+  await turn(3, 90)
+  const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  const tree = await ui.drawn()
+  expect(await ui.find({ text: /^last 3 turns$/ })).toBeDefined()
+  const row = (key: string) => textsIn(keyed(tree, `trend-${key}`)).map(t => [textOf(t), t.props?.color])
+  // The fill against 100: 20% one step up, 50% half way, 90% near the top, each cell in its heat.
+  expect(row('ctx')).toEqual([['ctx', undefined], ['▂▅▇', undefined], ['▂▅', 'claude'], ['▇', 'error'], ['90%', 'error']])
+  // A flat cost draws flat at the top; time and output tokens rise.
+  expect(row('cost').slice(1)).toEqual([['███', 'claude'], ['$0.50', undefined]])
+  expect(row('time').slice(1)).toEqual([['▃▆█', 'claude'], ['3.0s', undefined]])
+  expect(row('out').slice(1)).toEqual([['▃▆█', 'claude'], ['1.2k', undefined]])
+  await ui.unmount()
+
+  // On a graphical surface each is SVG, and the next turn glides from the last drawing.
+  const svgOf = async () => {
+    const d = await $.ui.mount({ ...pane(66), surface: 'desktop' })
+    const svgs = (await d.findAll({ type: 'Svg' })) as Drawn[]
+    // Time scales to its own largest turn, so a longer turn redraws every bar.
+    const src = String(svgs.find(x => /^time over the last/.test(String(x.props?.alt)))?.props?.source ?? '')
+    await d.unmount()
+    return src
+  }
+  expect(await svgOf()).not.toContain('<animate')
+  await turn(4, 30)
+  expect(await svgOf()).toContain('<animate attributeName="height"')
+})
+
+test('glyphs: text draws the sparklines in ASCII', { options: { glyphs: 'text' } }, async ($, on) => {
+  engine(on)
+  splitHost(on)
+  for (const i of [1, 2]) {
+    await $.turn.start({ text: 'go', turnId: `A${i}` })
+    await $.turn.complete({ answer: 'ok', durationMs: 1000 * i, isAborted: false, turnId: `A${i}`, reason: 'answer' })
+  }
+  const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  const all = textsIn(await ui.drawn()).map(textOf).join('')
+  expect(/^[\x20-\x7e\n]*$/.test(all)).toBe(true)
+  expect(textsIn(keyed(await ui.drawn(), 'trend-time')).map(textOf)[1]).toBe('=#')
+  await ui.unmount()
+})
+
+test('the inbox gathers failures, refusals, API errors, interrupts and faults, newest first; a row jumps to its call; clear empties it', async ($, on) => {
+  const clock = engine(on)
+  splitHost(on)
+  on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'd1' ? 'deny' : 'allow' }))
+  on('tool.call', (_$, e) =>
+    e.tool_use_id === 'f1' ? { isError: true as const, result: 'x', text: 'Exit code 1\nnpm ERR! missing script: test' } : { result: {}, text: 'ok' },
+  )
+  // The kit has no transcript to scroll from a press: the press says so in a toast instead of failing.
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => (toasts.push(String((e as { text?: unknown }).text ?? JSON.stringify(e))), { value: undefined }) as never)
+  on('classic.StopFailure', () => ({}) as never)
+  await clock.advance(3_600_000)
+  await $.turn.start({ text: 'go', turnId: 'I1' })
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 'd1' })
+  await clock.advance(1000)
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'f1' } as never)
+  await clock.advance(1000)
+  await $.classic.StopFailure({ error: 'rate_limit', error_details: 'Too many requests' } as never)
+  await clock.advance(1000)
+  // The API error ended the turn too: StopFailure already named it, so no second item.
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'I1', reason: 'error' })
+  await clock.advance(1000)
+  await $.turn.start({ text: 'again', turnId: 'I2' })
+  await $.turn.complete({ answer: '', durationMs: 5, isAborted: true, turnId: 'I2', reason: 'aborted' })
+
+  const rowsOf = async (cols: number) => {
+    const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    const tree = await ui.drawn()
+    const rows = boxesIn(tree).filter(b => String(b.props?.key ?? '').startsWith('inbox-row-'))
+    // A row's words: its Texts and its Button's label, in order.
+    const words = (n: unknown): string[] =>
+      !isDrawn(n) ? [] : n.type === 'Text' ? [textOf(n)] : n.type === 'Button' ? [String(n.props?.label ?? '')] : (n.children ?? []).flatMap(words)
+    return { ui, tree, rows: rows.map(r => words(r).join(' ')) }
+  }
+  const { ui, tree, rows } = await rowsOf(66)
+  // (The kit raises no ui.fault, so a mod fault's item is left to the reducer tests.)
+  expect(rows.length).toBe(4)
+  expect(rows[0]).toMatch(/‖ turn turn interrupted$/)
+  expect(rows[1]).toMatch(/✕ api rate limit · Too many requests$/)
+  expect(rows[2]).toMatch(/✕ tool Bash → npm test · Exit code 1$/)
+  expect(rows[3]).toMatch(/✕ deny denied by rule · Bash → rm -rf build$/)
+  expect(rows[0]?.startsWith(fmtClockOf(3_604_000))).toBe(true)
+  // The count in the pane's header and the block's label; the block in the error colour.
+  expect(await ui.find({ text: /^✕ 4$/ })).toBeDefined()
+  expect(await ui.find({ text: /^inbox · 4$/ })).toBeDefined()
+  expect(boxesIn(tree).some(b => b.props?.borderStyle === 'round' && b.props?.borderColor === 'error')).toBe(true)
+  // A row whose call is in the transcript jumps there; the others are plain text.
+  expect(keyed(tree, 'inbox-f1')?.type).toBe('Button')
+  expect(keyed(tree, 'inbox-d1')?.type).toBe('Button')
+  expect(keyed(tree, 'inbox-turn:I2')).toBeUndefined()
+  await ui.press({ key: 'inbox-f1' })
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toMatch(/^flightdeck: cannot show that row/)
+  expect(jumpTo({ target: 'f1' })).toEqual({ to: { requestId: 'f1' }, block: 'center' })
+  expect(jumpTo({ target: null })).toBeNull()
+  await ui.unmount()
+  // Narrow, the source word goes and its mark stays.
+  const narrow = await rowsOf(32)
+  expect(narrow.rows[0]).toMatch(/^\d\d:\d\d ‖ turn interrupted$/)
+  await narrow.ui.press({ key: 'inbox-clear' })
+  await narrow.ui.unmount()
+  // Cleared: no block, no gap, no badge.
+  const after = await rowsOf(66)
+  expect(after.rows).toEqual([])
+  expect(await after.ui.find({ text: /^inbox/ })).toBeUndefined()
+  expect(await after.ui.find({ text: /^✕ \d+$/ })).toBeUndefined()
+  expect(JSON.stringify(after.tree)).not.toContain('"block-inbox"')
+  await after.ui.unmount()
+})
+
+const fmtClockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
+
+test('the new blocks keep one-row gaps and fit every width, and a busy session shows them all', { timeoutMs: 60_000 }, async ($, on) => {
+  await busySession($, on)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    for (const cols of [24, 40, 64, 120]) {
+      const ui = await $.ui.mount({ ...pane(cols), surface })
+      const json = JSON.stringify(await ui.drawn())
+      for (const key of ['block-inbox', 'block-trends', 'meter-split']) expect(`${surface} ${cols} ${key} ${json.includes(`"${key}"`)}`).toBe(`${surface} ${cols} ${key} true`)
+      await ui.unmount()
+    }
+  }
+  // Inline, the summary stays within 8 rows and carries the inbox's count.
+  const mini = await $.ui.mount({ ...pane(80), props: { ...pane(80).props, placement: 'inline' as const }, surface: 'terminal' })
+  const root = (await mini.drawn()) as { children?: unknown[] }
+  expect((root.children ?? []).filter(Boolean).length <= 8).toBe(true)
+  expect(await mini.find({ text: /^✕ \d+$/ })).toBeDefined()
+  await mini.unmount()
 })

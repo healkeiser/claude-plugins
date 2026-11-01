@@ -120,6 +120,36 @@ export type Repo = {
   deleted: number
 }
 
+/** One finished main turn, for the trend sparklines: null where the figure was not known. */
+export type TrendPoint = {
+  at: number
+  /** The context fill after the turn, 0-100, against the window the gauge measures. */
+  ctx: number | null
+  /** What the turn cost, in US dollars. */
+  cost: number | null
+  ms: number
+  /** Output tokens the turn's requests reported. */
+  out: number | null
+}
+
+/** One row of the context breakdown (`$.session.usage({ breakdown })`), its colour the theme key /context draws it in. */
+export type SplitRow = { name: string; tokens: number; color: string }
+
+/** The context window by category, as /context breaks it down (estimated); `window` is the window it measures against. */
+export type Split = { rows: SplitRow[]; window: number; at: number }
+
+/** What an inbox item came from: a failed tool call, a refused one, an API error, a turn that did not answer, a mod fault. */
+export type InboxSource = 'tool' | 'denied' | 'api' | 'turn' | 'mod'
+
+export type InboxItem = {
+  id: string
+  at: number
+  source: InboxSource
+  text: string
+  /** The transcript row to scroll to (a tool call's tool_use_id), or null when there is none. */
+  target: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'flightdeck': {
@@ -136,6 +166,9 @@ declare module 'claude-code' {
       view: View
       roster: Roster
       repo: Repo | null
+      trend: TrendPoint[]
+      split: Split | null
+      inbox: InboxItem[]
     }
   }
 }

@@ -7,6 +7,7 @@ import type {
   Bucket,
   Check,
   Gate,
+  InboxItem,
   Layout,
   LogLine,
   Loop,
@@ -14,7 +15,9 @@ import type {
   Moment,
   Receipt,
   Roster,
+  Split,
   Tally,
+  TrendPoint,
   ToolNote,
   Turn,
   Usage,
@@ -95,8 +98,8 @@ export const normalizeLog = (stored: unknown): LogLine[] =>
 
 // ---------------------------------------------------------------- config
 
-export type Panel = 'main' | 'architect' | 'gate' | 'agents' | 'loops' | 'receipt' | 'log'
-const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'agents', 'loops', 'receipt', 'log']
+export type Panel = 'main' | 'architect' | 'gate' | 'inbox' | 'agents' | 'loops' | 'receipt' | 'trends' | 'log'
+const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'inbox', 'agents', 'loops', 'receipt', 'trends', 'log']
 
 export type Config = {
   architect: RegExp
@@ -761,3 +764,125 @@ export const adviceLine = (report: string) => {
 }
 
 export const elapsedOf = (c: AgentCard, now: number) => (c.endedAt ?? now) - c.spawnedAt
+
+// ---------------------------------------------------------------- trends, context split, inbox
+
+/** Finished main turns the trend sparklines keep. */
+export const TREND_MAX = 30
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+
+export const normalizeTrend = (stored: unknown): TrendPoint[] =>
+  listOf<unknown>(stored)
+    .filter(isObject)
+    .map(p => ({ at: num(p.at) ?? 0, ctx: num(p.ctx), cost: num(p.cost), ms: num(p.ms) ?? 0, out: num(p.out) }))
+    .slice(-TREND_MAX)
+
+export const pushTrend = (list: readonly TrendPoint[], p: TrendPoint): TrendPoint[] => [...list, p].slice(-TREND_MAX)
+
+/** The sparkline's eight levels, low to high, and the ASCII stand-ins `glyphs: text` draws. */
+export const SPARK = '▁▂▃▄▅▆▇█'
+export const SPARK_ASCII = '_.:-=+*#'
+
+/**
+ * Each value's level, 0 to 7, against `max` (a percentage passes 100; else the series' own largest), so the
+ * baseline is always zero. Zero is level 0; above zero at least level 1, as a meter never draws a reading
+ * above zero empty; null (not known) stays null. A flat series draws flat: all 7, or all 0 when zero.
+ */
+export const sparkLevels = (values: readonly (number | null)[], max?: number): (number | null)[] => {
+  const top = max ?? Math.max(0, ...values.map(v => v ?? 0))
+  return values.map(v => (v === null ? null : v <= 0 || top <= 0 ? 0 : Math.min(7, Math.max(1, Math.round((Math.min(v, top) / top) * 7)))))
+}
+
+/**
+ * A sparkline as SVG for a graphical surface: one bar per value, `cells` wide at 7 pixels a cell as the
+ * meters are, each bar's height its level over 7 (level 0 a one-pixel baseline, null none). A bar whose
+ * height changed since the last drawing (`before`) glides there on the meters' 400 ms ease-out; `isStill` drops it.
+ */
+export const svgSpark = (levels: readonly (number | null)[], colors: readonly string[], cells: number, before: readonly number[], isStill: boolean) => {
+  const CELL = 7
+  const H = 12
+  const w = Math.max(1, cells) * CELL
+  const heights: number[] = []
+  const bars = levels
+    .map((lv, i) => {
+      const h = lv === null ? 0 : Math.max(1, Math.round((lv / 7) * H * 100) / 100)
+      heights.push(h)
+      if (lv === null) return ''
+      const from = before[i]
+      const anim = (attr: string, a: number, b: number) =>
+        `<animate attributeName="${attr}" from="${a}" to="${b}" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>`
+      const top = (x: number) => Math.round((H - x) * 100) / 100
+      const glide = !isStill && from !== undefined && from !== h ? anim('height', from, h) + anim('y', top(from), top(h)) : ''
+      return `<rect x="${i * CELL + 0.5}" y="${top(h)}" width="${CELL - 1}" height="${h}" rx="1" fill="${svgColor(colors[i])}">${glide}</rect>`
+    })
+    .join('')
+  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${H}" viewBox="0 0 ${w} ${H}">${bars}</svg>`, heights }
+}
+
+/**
+ * The context window by category from a breakdown: its `used` rows with tokens, largest first, against the
+ * window it measures. Free space, the compaction buffer and deferred tool schemas are not content; null without a breakdown.
+ */
+export const splitOf = (
+  b: { categories: readonly { name: string; tokens: number; color: string; kind: string }[]; rawMaxTokens: number } | null | undefined,
+  at: number,
+): Split | null =>
+  b && Array.isArray(b.categories) && b.rawMaxTokens > 0
+    ? {
+        rows: b.categories
+          .filter(c => c.kind === 'used' && c.tokens > 0)
+          .map(c => ({ name: c.name, tokens: c.tokens, color: c.color }))
+          .sort((x, y) => y.tokens - x.tokens),
+        window: b.rawMaxTokens,
+        at,
+      }
+    : null
+
+/**
+ * How `cells` share between a split's rows and the free rest (the last entry). The lit cells are the fill's
+ * own share of the bar (above zero, at least one), so the bar reads as the ctx meter does; they go to the
+ * rows in proportion, every row keeping a cell while the lit cells allow, the largest first. The cells sum to `cells`.
+ */
+export const splitCells = (sp: Split, cells: number): number[] => {
+  const used = sp.rows.reduce((n, r) => n + r.tokens, 0)
+  const width = Math.max(0, cells)
+  const lit = used <= 0 || width === 0 ? 0 : Math.min(width, Math.max(1, Math.round((used / sp.window) * width)))
+  const seg = segments(sp.rows.slice(0, lit).map(r => r.tokens), lit)
+  return [...sp.rows.map((_, i) => seg[i] ?? 0), width - lit]
+}
+
+/** A category's short name for the legend: `System prompt` → `system prompt`, cut at 14 cells. */
+export const splitLabel = (name: string) => shorten(name.toLowerCase(), 14)
+
+/** Items the inbox keeps. */
+export const INBOX_MAX = 40
+
+export const normalizeInbox = (stored: unknown): InboxItem[] =>
+  listOf<unknown>(stored)
+    .filter(isObject)
+    .map(x => ({
+      id: String(x.id ?? ''),
+      at: num(x.at) ?? 0,
+      source: (['tool', 'denied', 'api', 'turn', 'mod'] as const).find(k => k === x.source) ?? 'tool',
+      text: String(x.text ?? ''),
+      target: typeof x.target === 'string' ? x.target : null,
+    }))
+
+/** An item joins the inbox once: a call refused by a rule and then by its tool.call is one item, the first. */
+export const addInbox = (list: readonly InboxItem[], item: InboxItem): InboxItem[] =>
+  list.some(x => x.id === item.id) ? [...list] : [...list, item].slice(-INBOX_MAX)
+
+/** The `n` newest items, newest first; items of the same time keep their arrival order reversed. */
+export const inboxNewest = (list: readonly InboxItem[], n: number): InboxItem[] =>
+  list
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => b.x.at - a.x.at || b.i - a.i)
+    .slice(0, Math.max(0, n))
+    .map(o => o.x)
+
+/** Where an inbox row jumps: its call's row in the transcript, centred; null when it has none. */
+export const jumpTo = (item: Pick<InboxItem, 'target'>) => (item.target ? { to: { requestId: item.target }, block: 'center' as const } : null)
+
+/** The first line of an error text, redacted and cut to `n` cells. */
+export const errorLine = (text: string | undefined, n = 120) => shorten(redact((text ?? '').split(/\r?\n/).find(l => l.trim()) ?? ''), n)

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Repo, Roster, Turn, Usage, View } from '../types'
+import type { AgentCard, Architect, Bucket, Check, Gate, InboxItem, Layout, LogLine, Loop, Main, Repo, Roster, Split, TrendPoint, Turn, Usage, View } from '../types'
 import {
   DEFAULT_ARCHITECT,
   addCard,
@@ -78,6 +78,20 @@ import {
   startConsult,
   stepSpeed,
   stepLoop,
+  SPARK,
+  SPARK_ASCII,
+  addInbox,
+  errorLine,
+  inboxNewest,
+  normalizeInbox,
+  normalizeTrend,
+  pushTrend,
+  sparkLevels,
+  splitCells,
+  splitLabel,
+  splitOf,
+  svgSpark,
+  jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
 import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, meterShare, motionOn, percent } from './style'
@@ -103,6 +117,9 @@ const receipt = atom({ plugin: 'flightdeck', key: 'receipt' } as const, null)
 const view = atom({ plugin: 'flightdeck', key: 'view' } as const, DEFAULT_VIEW)
 const roster = atom({ plugin: 'flightdeck', key: 'roster' } as const, DEFAULT_ROSTER)
 const repo = atom({ plugin: 'flightdeck', key: 'repo' } as const, null)
+const trend = atom({ plugin: 'flightdeck', key: 'trend' } as const, [])
+const split = atom({ plugin: 'flightdeck', key: 'split' } as const, null)
+const inbox = atom({ plugin: 'flightdeck', key: 'inbox' } as const, [])
 
 type ServerBlock = { type: string; id?: string; name?: string; tool_use_id?: string }
 
@@ -135,6 +152,23 @@ async function getTurn($: EngineInterface): Promise<Turn> {
 async function getView($: EngineInterface): Promise<View> {
   return normalize(DEFAULT_VIEW, await read($, view))
 }
+async function getTrend($: EngineInterface): Promise<TrendPoint[]> {
+  return normalizeTrend(await read($, trend))
+}
+async function getInbox($: EngineInterface): Promise<InboxItem[]> {
+  return normalizeInbox(await read($, inbox))
+}
+async function getSplit($: EngineInterface): Promise<Split | null> {
+  const sp = await read($, split)
+  return sp && Array.isArray(sp.rows) && sp.window > 0 ? sp : null
+}
+
+/** An attention item for the inbox; one already there (by id) is not added twice. */
+async function flag($: EngineInterface, item: Omit<InboxItem, 'at'>) {
+  const at = await $.clock.now()
+  await update($, inbox, list => addInbox(normalizeInbox(list), { ...item, at }))
+}
+
 async function getRoster($: EngineInterface): Promise<Roster> {
   const r = normalize(DEFAULT_ROSTER, await read($, roster))
   return { architectTypes: listOf(r.architectTypes) }
@@ -223,6 +257,9 @@ async function resetAll($: EngineInterface) {
   await update($, turn, () => DEFAULT_TURN)
   await update($, receipt, () => null)
   await update($, view, () => DEFAULT_VIEW)
+  await update($, trend, () => [])
+  await update($, split, () => null)
+  await update($, inbox, () => [])
   // The context gauge waits for the next measurement rather than showing the pre-clear fill.
   await update($, usage, x => ({ ...normalize(DEFAULT_USAGE, x), pct: null, tokens: null }))
 }
@@ -234,6 +271,19 @@ async function resetAll($: EngineInterface) {
 async function readCompactWindow($: EngineInterface, window: number) {
   const r = await $.session.usage({ breakdown: 'summary' }).catch(() => null)
   await update($, usage, x => afterCompactRead(normalize(DEFAULT_USAGE, x), window, r?.context.breakdown))
+  await keepSplit($, r?.context.breakdown)
+}
+
+/** The context split from a breakdown; none (no session bound, a failed read) keeps the last one. */
+async function keepSplit($: EngineInterface, b: Parameters<typeof splitOf>[0]) {
+  const sp = splitOf(b, await $.clock.now())
+  if (sp) await update($, split, () => sp)
+}
+
+/** The context split read afresh: a `summary` breakdown estimates locally and sends no request. */
+async function readSplit($: EngineInterface) {
+  const r = await $.session.usage({ breakdown: 'summary' }).catch(() => null)
+  await keepSplit($, r?.context.breakdown)
 }
 
 /** The session's cost read fresh, not from the last measurement: the receipt subtracts two of these. */
@@ -305,6 +355,8 @@ export const register: Register = (on, options) => {
   const C = PALETTES[cfg.palette]
   // Each graphical meter's lit widths as last drawn, so a change glides from there.
   const meterWidths = new Map<string, number[]>()
+  // Each graphical sparkline's bar heights as last drawn, so a new turn glides from there.
+  const sparkHeights = new Map<string, number[]>()
   // tool.check carries no loop id; the tool.call around it does, keyed by the call's id.
   const callLoop = new Map<string, string | null>()
 
@@ -378,7 +430,7 @@ export const register: Register = (on, options) => {
     }
     const opened = await openPane($, cfg)
     if (!opened.isPlaced) return { text: `Flightdeck is not shown yet: ${opened.reason}` }
-    return { text: 'Flightdeck opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.' }
+    return { text: 'Flightdeck opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows, c clears the inbox.' }
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
@@ -497,6 +549,14 @@ export const register: Register = (on, options) => {
       await readCompactWindow($, e.context.window)
       await refreshStatus($, cfg)
     }
+    // The measurement after a main turn: that turn's trend point takes the fill it left.
+    if (e.changed.includes('context') && !(await getMain($)).isRunning) {
+      const pct = contextFill(await getUsage($)).pct
+      const last = (await getTrend($)).slice(-1)[0]
+      if (last && pct !== null && last.ctx !== pct) {
+        await update($, trend, l => normalizeTrend(l).map((p, i, all) => (i === all.length - 1 ? { ...p, ctx: pct } : p)))
+      }
+    }
     return done
   })
 
@@ -509,6 +569,7 @@ export const register: Register = (on, options) => {
         return { ...u, compactions: u.compactions + 1, lastCompactAt: now }
       })
       await say($, 'main', `context compacted (${e.trigger})`)
+      await readSplit($)
     }
     return done
   })
@@ -529,6 +590,7 @@ export const register: Register = (on, options) => {
       // The status line updates when the call settles; only a refusal ends here.
       if (verdict.decision === 'deny') {
         await say($, 'gate', `denied by rule · ${check.detail}`, 'error')
+        await flag($, { id: e.tool_use_id, source: 'denied', text: `denied by rule · ${check.detail}`, target: check.inSubagent ? null : e.tool_use_id })
         await refreshStatus($, cfg)
       }
     }
@@ -576,6 +638,17 @@ export const register: Register = (on, options) => {
     // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
     if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
     else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ${GLYPH.fail}`, 'error', e.agentId ?? null)
+    // The inbox keeps refusals and failures with their reason; a subagent's call has no row of its own in the transcript.
+    if (ran.deny !== undefined || hasFailed) {
+      const who = e.agentId ? `${await whoIs($, e.agentId)} · ` : ''
+      const why = errorLine(ran.deny ?? ran.text, 80)
+      await flag($, {
+        id: e.tool_use_id,
+        source: hasFailed ? 'tool' : 'denied',
+        text: `${who}${text}${why ? ` · ${why}` : ''}`,
+        target: e.agentId ? null : e.tool_use_id,
+      })
+    }
     else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
     if (isSettled || !didRun) await refreshStatus($, cfg)
     return ran
@@ -658,7 +731,27 @@ export const register: Register = (on, options) => {
         reason: e.reason,
       })
       await update($, receipt, () => r)
+      const u = await getUsage($)
+      await update($, trend, l =>
+        pushTrend(normalizeTrend(l), {
+          at: now,
+          ctx: contextFill(u).pct,
+          cost: cost !== null && t.costAtStart !== null ? Math.max(0, cost - t.costAtStart) : null,
+          ms: e.durationMs,
+          out: e.usage?.output_tokens ?? null,
+        }),
+      )
+      // A turn that did not answer: interrupted, refused, or ended by an API error StopFailure did not already name.
+      if (e.reason === 'aborted') await flag($, { id: `turn:${e.turnId}`, source: 'turn', text: 'turn interrupted', target: null })
+      else if (e.reason === 'refusal') {
+        const why = errorLine(e.refusal.explanation ?? '')
+        await flag($, { id: `turn:${e.turnId}`, source: 'turn', text: `refused${why ? ` · ${why}` : ''}`, target: null })
+      } else if (e.reason === 'error' && !(await getInbox($)).some(x => x.source === 'api' && x.at >= t.startedAt)) {
+        await flag($, { id: `turn:${e.turnId}`, source: 'api', text: 'an API error ended the turn', target: null })
+      }
       await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: false }))
+      // What fills the window, once per main turn rather than at every measurement (a breakdown estimates every category).
+      await readSplit($)
       await readRepo($)
       await refreshStatus($, cfg)
       return done
@@ -690,7 +783,16 @@ export const register: Register = (on, options) => {
   // After a surface module faults on a surface, this load draws it there as plain text; the other
   // module, and other surfaces, keep theirs. Keyed by faultKey: `desktop:rail.tsx`.
   const faulted = new Set<string>()
+  on('classic.StopFailure', async ($, e, next) => {
+    const done = await next(e)
+    const now = await $.clock.now()
+    const details = errorLine(e.error_details)
+    await flag($, { id: `api:${now}`, source: 'api', text: `${e.error.replace(/_/g, ' ')}${details ? ` · ${details}` : ''}`, target: null })
+    return done
+  })
+
   on('ui.fault', async ($, e, next) => {
+    await flag($, { id: `mod:${e.surface}:${e.element}:${e.phase}`, source: 'mod', text: `${e.module} faulted on ${e.surface} (${e.phase}) · ${errorLine(e.reason, 80)}`, target: null })
     const key = faultKey(e.surface, e.module)
     if (e.requestId === PANE && !faulted.has(key)) {
       faulted.add(key)
@@ -706,7 +808,7 @@ export const register: Register = (on, options) => {
     const hasClient = 'Client' in els
     const hasRail = hasClient && !faulted.has(faultKey(e.surface, 'rail.tsx'))
     const hasClock = hasClient && !faulted.has(faultKey(e.surface, 'elapsed.tsx'))
-    const [m, u, a, g, cards, lp, lines, t, r, v, rp, now] = await Promise.all([
+    const [m, u, a, g, cards, lp, lines, t, r, v, rp, tr, sp, ib, now] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -718,6 +820,9 @@ export const register: Register = (on, options) => {
       read($, receipt),
       getView($),
       read($, repo),
+      getTrend($),
+      getSplit($),
+      getInbox($),
       $.clock.now(),
     ])
     const isRamp = e.surface !== 'terminal' || (await readRamp($))
@@ -740,6 +845,8 @@ export const register: Register = (on, options) => {
       agents: cards.length === 0,
       loops: lp.length === 0,
       receipt: !m.isRunning && !r,
+      inbox: ib.length === 0,
+      trends: tr.length === 0,
       log: false,
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
@@ -908,6 +1015,41 @@ export const register: Register = (on, options) => {
     }
     const pctOf = (pct: number): Span => ({ text: percent(pct), color: heat(pct) })
 
+    // ---- context split: what fills the window, by /context's categories (estimated), a cell each at least
+    // A category's colour: /context's own theme key in a terminal; inside SVG, which cannot name theme keys, a fixed categorical hex.
+    const CATEGORY_HEX = ['#d97757', '#3b82f6', '#8b5cf6', '#14917f', '#d97706', '#db2777', '#0891b2', '#65a30d']
+    const catColor = (i: number) => (isTerminal ? sp?.rows[i]?.color : CATEGORY_HEX[i % CATEGORY_HEX.length])
+    const splitUsed = sp ? sp.rows.reduce((n, x) => n + x.tokens, 0) : 0
+    const splitRow = (iw: number): Meter | null => {
+      if (!sp || sp.rows.length === 0) return null
+      const cells = splitCells(sp, barWOf(iw))
+      const pct = (splitUsed / sp.window) * 100
+      return {
+        key: 'meter-split',
+        label: 'mix',
+        bar: [
+          ...sp.rows.map((x, i) => ({ text: GLYPH.fill.repeat(cells[i] ?? 0), color: catColor(i) })),
+          { text: '─'.repeat(cells[cells.length - 1] ?? 0), color: C.faint },
+        ].filter(b => b.text),
+        value: pctOf(pct),
+        d1: { text: 'est.', dim: true },
+      }
+    }
+    // The split's legend, largest first: what does not fit is left out from the end.
+    const splitLegend = (iw: number) =>
+      sp && sp.rows.length > 0
+        ? line(
+            sp.rows.map((x, i) => ({
+              spans: [
+                { text: '■', color: catColor(i) },
+                { text: ` ${splitLabel(x.name)} ${kTokens(x.tokens)}`, dim: true },
+              ],
+            })),
+            iw,
+            2,
+          )
+        : null
+
     // ---- main: the statusline's card, with the session's own figures folded in below its meters
     const ctxFill = contextFill(u)
     const mainState = m.isRunning ? right([{ text: '● working', color: C.main }]) : right([{ text: '○ idle', color: C.dim }])
@@ -925,6 +1067,7 @@ export const register: Register = (on, options) => {
             },
           ]
         : []),
+      ...(splitRow(iw) ? [splitRow(iw)!] : []),
       ...u.limits.slice(0, 2).map((l): Meter => {
         const resetIn = fmtResetIn(l.resetsAt, now)
         const resetAt = fmtResetAt(l.resetsAt, now)
@@ -973,6 +1116,7 @@ export const register: Register = (on, options) => {
             {fit.showRight ? <Box flexShrink={0}>{mainState.node}</Box> : null}
           </Box>
           {meters(mainRows(iw), iw)}
+          {splitLegend(iw)}
           {line(
             [
               { spans: [{ text: 'effort ', dim: true }, { text: m.effort || '—', color: C.main }] },
@@ -1317,6 +1461,113 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // ---- inbox: what needs a look, newest first; a row with a transcript row of its own jumps there
+    const INBOX_ROWS = 5
+    const inboxPanel = (w: number) => {
+      const iw = w - 4
+      const isNarrow = iw < 36
+      const msgW = Math.max(4, iw - 6 - (isNarrow ? 2 : 7))
+      const word = { tool: 'tool', denied: 'deny', api: 'api', turn: 'turn', mod: 'mod' } as const
+      const clear: Right = {
+        node: <Button key="inbox-clear" plain hotkey="c" label="clear" onPress={() => update($, inbox, () => [])} />,
+        width: 8,
+      }
+      const shown = inboxNewest(ib, INBOX_ROWS)
+      return (
+        <Box {...block(w, C.warn)}>
+          {head(iw, `inbox · ${ib.length}`, C.warn, clear)}
+          {shown.map(x => {
+            const isPause = x.text === 'turn interrupted'
+            const color = isPause ? C.amber : C.warn
+            const mark = isPause ? '‖' : '✕'
+            // A row the transcript no longer holds (or a host that cannot scroll) says so rather than failing the press.
+            const jump = (item: InboxItem) => async () => {
+              const args = jumpTo(item)
+              const moved = args ? await $.ui.scroll(args).catch((err: unknown) => ({ deny: String((err as Error)?.message ?? err) })) : null
+              if (moved?.deny) $.ui.toast(`flightdeck: cannot show that row (${shorten(moved.deny, 60)})`)
+            }
+            return (
+              <Box key={`inbox-row-${x.id}`} width={iw} columnGap={1} overflow="hidden">
+                <Box width={5} flexShrink={0}>
+                  <Text color={C.faint}>{fmtClock(x.at).slice(0, 5)}</Text>
+                </Box>
+                <Box width={isNarrow ? 1 : 6} flexShrink={0}>
+                  <Text color={color}>{isNarrow ? mark : `${mark} ${word[x.source]}`}</Text>
+                </Box>
+                {x.target ? (
+                  <Button key={`inbox-${x.id}`} plain label={shorten(x.text, msgW)} onPress={jump(x)} />
+                ) : (
+                  <Text wrap="truncate">{shorten(x.text, msgW)}</Text>
+                )}
+              </Box>
+            )
+          })}
+          {ib.length > shown.length ? <Text color={C.faint}>{`+${ib.length - shown.length} older`}</Text> : null}
+        </Box>
+      )
+    }
+
+    // ---- trends: one sparkline per figure over the last turns, the latest reading on the right
+    type TrendRow = { key: string; label: string; vals: (number | null)[]; max?: number; fmt: (n: number) => string; isHeat?: boolean }
+    const trendPanel = (w: number) => {
+      const iw = w - 4
+      const n = Math.max(1, Math.min(tr.length, iw - 4 - 7 - 2))
+      const pts = tr.slice(-n)
+      const rows: TrendRow[] = [
+        { key: 'ctx', label: 'ctx', vals: pts.map(x => x.ctx), max: 100, fmt: percent, isHeat: true },
+        { key: 'cost', label: 'cost', vals: pts.map(x => x.cost), fmt: fmtUsd },
+        { key: 'time', label: 'time', vals: pts.map(x => x.ms), fmt: fmtDuration },
+        { key: 'out', label: 'out', vals: pts.map(x => x.out), fmt: kTokens },
+      ].filter(x => x.vals.some(y => y !== null))
+      const ramp = cfg.ascii ? SPARK_ASCII : SPARK
+      const sparkline = (x: TrendRow) => {
+        const levels = sparkLevels(x.vals, x.max)
+        const colorAt = (i: number) => {
+          const val = x.vals[i]
+          return val === null || val === undefined ? C.faint : x.isHeat ? heat(val) : C.main
+        }
+        if (!isTerminal) {
+          const { Svg } = $.ui.resolve(e)
+          const drawn = svgSpark(levels, levels.map((_, i) => colorAt(i)), n, sparkHeights.get(x.key) ?? [], !motion)
+          sparkHeights.set(x.key, drawn.heights)
+          return <Svg source={drawn.source} alt={`${x.label} over the last ${plural(pts.length, 'turn')}`} />
+        }
+        // Runs of one colour drawn as one span.
+        const spans: Span[] = []
+        levels.forEach((lv, i) => {
+          const ch = ramp[lv ?? 0] ?? ramp[0]!
+          const color = colorAt(i)
+          const last = spans[spans.length - 1]
+          if (last && last.color === color) last.text += ch
+          else spans.push({ text: ch, color })
+        })
+        return spanText(spans)
+      }
+      return (
+        <Box {...block(w, C.main)}>
+          {head(iw, 'trends', C.main, right([{ text: `last ${plural(pts.length, 'turn')}`, dim: true }]))}
+          {rows.map(x => {
+            const latest = [...x.vals].reverse().find((y): y is number => y !== null)
+            return (
+              <Box key={`trend-${x.key}`} width={iw} columnGap={1}>
+                <Box width={4} flexShrink={0}>
+                  <Text dimColor>{x.label}</Text>
+                </Box>
+                <Box width={n} flexShrink={0}>
+                  {sparkline(x)}
+                </Box>
+                <Box width={7} flexShrink={0} justifyContent="flex-end">
+                  <Text {...(x.isHeat && latest !== undefined ? { color: heat(latest) } : {})} wrap="truncate">
+                    {latest !== undefined ? x.fmt(latest) : '—'}
+                  </Text>
+                </Box>
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
     // ---- log: whatever rows the other panels leave, 4 to 8
     // Rows each block takes, its border included, and one row of gap between blocks.
     const used =
@@ -1329,6 +1580,9 @@ export const register: Register = (on, options) => {
       (cards.length > cfg.maxCards ? 4 + Math.min(6, cards.length) : 11) +
       (expandedCard ? 8 : 0) +
       (lp.length ? 4 : 0) +
+      (sp && sp.rows.length > 0 ? 2 : 0) +
+      (ib.length > 0 ? 3 + Math.min(INBOX_ROWS, ib.length) + (ib.length > INBOX_ROWS ? 1 : 0) : 0) +
+      (tr.length > 0 ? 7 : 0) +
       4 +
       panels.length +
       2
@@ -1373,12 +1627,16 @@ export const register: Register = (on, options) => {
                 ? loopsPanel(w)
                 : p === 'receipt'
                   ? receiptPanel(w)
-                  : logPanel(w)
+                  : p === 'inbox'
+                    ? inboxPanel(w)
+                    : p === 'trends'
+                      ? trendPanel(w)
+                      : logPanel(w)
 
     // Blocks one row apart, every gap alike: a connector where work flows from one block to the next (main to
     // architect, gate and the receipt), an empty row elsewhere. Hidden blocks take no gap.
     type Item = Panel | 'expanded'
-    const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops')
+    const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops' || x === 'inbox' || x === 'trends')
     const gapRow = (a: Item, b: Item, w: number) =>
       flows(a, b) ? rail(`link-${b}`, b === 'architect' ? advising : m.isRunning, b === 'architect' ? C.arch : C.main, w) : <Box key={`gap-${b}`} height={1} />
     const column = (ps: Panel[], w: number) => {
@@ -1429,6 +1687,9 @@ export const register: Register = (on, options) => {
           })()
         : null
 
+    // The inbox's count, beside the model in the header: what needs a look.
+    const inboxBadge: Piece | null = ib.length > 0 ? { spans: [sep, { text: `✕ ${ib.length}`, color: C.warn }] } : null
+
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
     // glyphs: text draws the pane through asciiTree (DESIGN.md, Options).
@@ -1447,6 +1708,7 @@ export const register: Register = (on, options) => {
                   { text: m.isRunning ? ' ● working' : ' ○ idle', color: m.isRunning ? C.main : C.dim },
                 ],
               },
+              inboxBadge,
               mg
                 ? {
                     spans: [
@@ -1510,8 +1772,8 @@ export const register: Register = (on, options) => {
     const body = isWide ? (
       <Box flexDirection="column">
         <Box key="block-columns" columnGap={2}>
-          {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate'), colW)}
-          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt'), colW)}
+          {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate' || p === 'inbox'), colW)}
+          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt' || p === 'trends'), colW)}
         </Box>
         {panels.includes('log') ? <Box key="gap-log" height={1} /> : null}
         {panels.includes('log') ? (
@@ -1538,6 +1800,7 @@ export const register: Register = (on, options) => {
                 { text: m.isRunning ? ' ● working' : ' ○ idle', color: m.isRunning ? C.main : C.dim },
               ],
             },
+            inboxBadge,
             showArchitect
               ? {
                   spans: [sep, { text: cfg.architectLabel, color: C.arch, bold: true }, { text: advising ? ' advising' : ' on call', dim: true }],

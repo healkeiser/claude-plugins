@@ -15,7 +15,7 @@ One meaning per role. Roles name theme keys, never hex, so every mod follows the
 | info | `ide` | notes and advice | `[!NOTE]`, flightdeck's architect |
 | success | `success` | done, passed, added | `✓`, `[!TIP]`, task items done, `+3`, checks allowed by a rule |
 | warning | `warning` | needs attention soon | `‖ interrupted`, pending checks, `~4`, meters from 60% where the heat ramp cannot draw |
-| error | `error` | failed, denied, removed | `✕`, `[!CAUTION]`, `-2`, meters from 80% |
+| error | `error` | failed, denied, removed | `✕`, `[!CAUTION]`, `-2`, meters from 80%, flightdeck's inbox |
 | chrome | `subtle`, or `dimColor` | borders, rules, labels, secondary text | code-block rules, table borders, queued cards |
 | chip | `userMessageBackground` | the inline-code chip's background | `` `parse.ts` `` in a reply |
 
@@ -31,6 +31,7 @@ Where a surface cannot take theme keys, fixed colours are allowed and documented
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
 - flightdeck's SVG meters and swimlanes (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
+- flightdeck's context `mix` meter: in a terminal each category takes the theme key `/context` draws it in (the engine's `color`), so it matches `/context`; inside SVG, which cannot name theme keys, a fixed categorical hex set in order of size (`CATEGORY_HEX` in `register.tsx`). Categories are kinds, not roles.
 - The heat ramp of fill meters (see Formatting): the status line's 256-colour ramp, xterm 46 82 118 154 190 226 220 214 208 196 with 239 unlit, as those entries' hex (`HEAT_RAMP`, `HEAT_UNLIT` in `style.ts`). A ramp needs ten fixed steps; a theme has three.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
@@ -56,6 +57,7 @@ All single-cell, text presentation. A glyph a terminal may draw as a colour emoj
 | `·` | separator |
 | `━` `─` | meter fill and track; `─` is also a rule |
 | `╸` | half a meter cell, the last lit one |
+| `▁▂▃▄▅▆▇█` | sparkline levels, low to high (flightdeck's trends; `glyphs: text` draws `_.:-=+*#`, flightdeck's `SPARK_ASCII`, as `ASCII` in `style.ts` has none) |
 | `│` `╭` `╮` `╰` `╯` `┬` `┴` | borders, quote bars, connectors |
 | `↗︎` | opens outside (a link to the origin) |
 | `⚠︎` | warning callout |
@@ -139,7 +141,7 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 | sweep | filetree's activity shimmer | a soft band (raised-cosine falloff over a four-step ramp) crossing the name with an ease-in-out, about 1.6 s a pass |
 | packets | flightdeck's rails | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
-| glide | flightdeck's meters on graphical surfaces | a new reading glides from the last width on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters step, as a 10-cell bar has no in-between |
+| glide | flightdeck's meters and sparklines on graphical surfaces | a new reading glides from the last width (a sparkline bar from its last height) on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters and sparklines step, as a cell has no in-between |
 
 - **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`, imported from `style.ts` (a surface module imports its plugin's files like the hooks module does, so it keeps no copies). No element starts a timer of its own.
 - **Ease, never blink**: positions move on `easeInOut`, intensities fall off on a raised cosine, so nothing switches on and off.
@@ -170,7 +172,7 @@ Desktop, VS Code and mobile already draw the transcript well: proportional type,
 | pulse tool rows (`ToolUse`, `ToolResult`, `ToolGroup`) | compact | native | native | native | the surfaces draw tool calls as collapsible rows |
 | pulse footer (`TurnDuration`) | yes | - | - | - | the engine raises it on the terminal only |
 | pulse band (`AbovePrompt`) | yes | yes | - | - | no surface has it; the engine raises it on the terminal and desktop |
-| flightdeck pane | text meters, rails | SVG meters that glide, SVG swimlanes | same | same | no surface has a dashboard |
+| flightdeck pane | text meters, sparklines, rails | SVG meters and sparklines that glide, SVG swimlanes | same | same | no surface has a dashboard |
 | filetree pane | yes | yes, native scroll | - | - | it draws through `Client` regions, which VS Code and mobile do not have |
 
 What a graphical version of a mod's own pane uses, and keeps from the system:
