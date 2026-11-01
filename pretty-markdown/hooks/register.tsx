@@ -9,7 +9,6 @@ const CHIP_BG = '#2f3440'
 const CHIP_FG = '#e5c07b'
 const FOLD_OVER = 20
 const FOLD_TO = 12
-const NUMBER_OVER = 10
 
 const CALLOUT: Record<CalloutType, { color: string; title: string }> = {
   note: { color: 'suggestion', title: 'ℹ Note' },
@@ -169,13 +168,19 @@ export const register: Register = on => {
         const foldId = `${e.requestId}:${i}`
         const isFolded = all.length > FOLD_OVER && !open.includes(foldId)
         const shown = isFolded ? all.slice(0, FOLD_TO).join('\n') : part.source
+        // Open sides, no padding, no line-number gutter: a mouse selection of the
+        // code rows copies the code alone. The rules above and below frame it.
+        const label = part.language || 'code'
+        const COPY = '⧉ copy'
         return (
-          <Box key={`c${i}`} flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
-            <Box flexDirection="row" justifyContent="space-between">
-              <Text dimColor italic>{part.language}</Text>
+          <Box key={`c${i}`} flexDirection="column">
+            <Box flexDirection="row">
+              <Text color="subtle">{'╭─ '}</Text>
+              <Text dimColor italic>{label}</Text>
+              <Text color="subtle">{` ${'─'.repeat(Math.max(1, room - label.length - COPY.length - 6))} `}</Text>
               <Button
                 key={`copy${i}`}
-                label="⧉ copy"
+                label={COPY}
                 plain
                 dimColor
                 onPress={async press => {
@@ -187,11 +192,7 @@ export const register: Register = on => {
             {isDiff ? (
               <Code source={asHunk(part.source)} format="diff" />
             ) : (
-              <Code
-                source={shown}
-                language={part.language || undefined}
-                startLine={all.length > NUMBER_OVER ? 1 : undefined}
-              />
+              <Code source={shown} language={part.language || undefined} />
             )}
             {all.length > FOLD_OVER && !isDiff ? (
               <Button
@@ -206,6 +207,7 @@ export const register: Register = on => {
                 }
               />
             ) : null}
+            <Text color="subtle">{`╰${'─'.repeat(Math.max(1, room - 1))}`}</Text>
           </Box>
         )
       }

@@ -50,3 +50,13 @@ test('long blocks fold and unfold', async $ => {
   await ui.press({ key: 'fold0' })
   expect((await ui.find({ key: 'fold0' }))?.text).toContain('fold')
 })
+
+test('a code block has no side border, so a mouse selection copies only code', async $ => {
+  const ui = await mount($, '```sh\n! cd ~/x\n```')
+  const boxes = await ui.findAll({ type: 'Box' })
+  expect(boxes.some(b => (b as { props?: { borderStyle?: string } }).props?.borderStyle)).toBe(false)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.some(t => t.startsWith('╭─ '))).toBe(true)
+  expect(texts.some(t => t.startsWith('╰─'))).toBe(true)
+  expect((await ui.find({ type: 'Code' }))?.props?.startLine).toBeUndefined()
+})
