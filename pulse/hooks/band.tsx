@@ -11,10 +11,11 @@ import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
-import { SPACE, bar as kitBar, cardFrame, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
+import { APP, SPACE, bar as kitBar, cardFrame, gBar, gRow, gUsage, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
   GLYPH, LIMIT_WINDOW_MS, ROLE, glyphSet, glyphTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
+  sentence,
 } from './style'
 
 const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
@@ -810,6 +811,143 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       ]
     }
 
+    // ---- graphical surfaces: drawn as the app draws its own banners and panels (kit's g* parts): no frame,
+    // the band on the tint the app draws a message on, a semibold head, native buttons for the tabs, and
+    // each tab's readings as Settings > Usage and the Environment panel draw theirs.
+    const appRows = (id: Tab): RenderChildren[] => {
+      const none = (text: string) => [<Text key="g-none" dimColor>{text}</Text>]
+      if (id === 'context') {
+        const rows: RenderChildren[] = []
+        if (ctxPct !== undefined && u) {
+          const t = u.context.tokens
+          rows.push(gUsage(k, { key: 'g-ctx', label: 'Context', ...(t !== undefined ? { sub: `${count(t)} of ${count(u.context.window)} tokens` } : {}), pct: ctxPct }))
+        }
+        for (const x of limits) {
+          const d = span(x.left)
+          rows.push(
+            gUsage(k, {
+              key: `g-limit-${x.name}`,
+              label: x.name === '5h' ? 'Current session' : x.name === '7d' ? 'Weekly · all models' : x.name,
+              ...(d ? { sub: `Resets in ${d}` } : {}),
+              ...(x.full !== null ? { note: `Full by ${forecastLabel(x.full, now).replace(/^full /, '')} at this pace`, noteColor: APP.red } : {}),
+              pct: x.pct,
+            }),
+          )
+        }
+        if (c) {
+          rows.push(
+            gRow(k, {
+              key: 'g-cache',
+              label: 'Prompt cache',
+              sub: isCacheWarm ? `Kept for ${countdown(cacheLeftMs)} more` : 'Expired: the next prompt writes it again',
+              value: isCacheWarm ? 'Warm' : 'Cold',
+              ...(isCacheWarm ? {} : { valueColor: APP.red }),
+            }),
+          )
+        }
+        return rows.length ? rows : none('Readings come with the first reply')
+      }
+      if (id === 'turn') {
+        if (!isWorking && !l) return none('No turn yet')
+        const kinds = summarize(turnCalls.filter(x => !x.file).map(x => ({ tool: x.tool, isErrored: false })))
+        const failed = turnCalls.filter(x => x.state === 'fail').length
+        const files = [...new Set(turnCalls.flatMap(x => (x.file ? [x.file] : [])))]
+        const session = u?.cost?.usd
+        return [
+          gRow(k, { key: 'g-turn-tools', label: 'Tools', ...(kinds.text ? { sub: kinds.text } : {}), value: String(turnCalls.length) }),
+          gRow(k, { key: 'g-turn-files', label: 'Files edited', ...(files.length ? { sub: files.map(base).join(', ') } : {}), value: String(files.length) }),
+          gRow(k, { key: 'g-turn-errors', label: 'Errors', value: String(failed), ...(failed ? { valueColor: APP.red } : {}) }),
+          ...(!isWorking && l && l.costUsd !== null ? [gRow(k, { key: 'g-turn-cost', label: 'Cost', ...(session !== undefined ? { sub: `${usd(session)} this session` } : {}), value: usd(l.costUsd) })] : []),
+        ]
+      }
+      if (id === 'git') {
+        if (!r) return none('Reading git status')
+        if (!r.isRepo) return none('Not a git repository')
+        const sync = !r.upstream ? 'No upstream' : r.ahead || r.behind ? [r.ahead ? `${r.ahead} to push` : '', r.behind ? `${r.behind} to pull` : ''].filter(Boolean).join(', ') : 'In sync'
+        const counts = [r.staged ? `${r.staged} staged` : '', r.unstaged ? `${r.unstaged} unstaged` : '', r.untracked ? `${r.untracked} untracked` : ''].filter(Boolean).join(' · ')
+        return [
+          ...(r.op || r.conflicted ? [gRow(k, { key: 'g-git-op', label: sentence([r.op, r.conflicted ? plural(r.conflicted, 'conflict') : ''].filter(Boolean).join(' · ')), value: 'Needs you', valueColor: APP.red })] : []),
+          gRow(k, {
+            key: 'g-git-branch',
+            label: r.branch || '(no branch)',
+            sub: [r.upstream ? `Tracks ${r.upstream}` : '', r.fetchedAt ? `fetched ${span(Math.max(1000, now - r.fetchedAt))} ago` : r.upstream ? 'never fetched' : '', r.stash ? `${r.stash} stashed` : '', r.worktrees > 1 ? plural(r.worktrees, 'worktree') : ''].filter(Boolean).join(' · '),
+            value: sync,
+          }),
+          gRow(k, { key: 'g-git-changes', label: counts ? 'Changes' : 'No changes', ...(counts ? { sub: counts } : {}), ...(r.add || r.del ? { value: `+${count(r.add)} −${count(r.del)}` } : {}) }),
+          ...(r.last ? [gRow(k, { key: 'g-git-last', label: r.last.subject, sub: `${r.last.hash} · ${span(Math.max(1000, now - r.last.at)) || 'now'} ago`, value: 'Last commit' })] : []),
+          ...(r.commits ? [gRow(k, { key: 'g-git-session', label: `${plural(r.commits, 'commit')} this session`, value: '' })] : []),
+          ...r.files.slice(0, 4).map(f => gRow(k, { key: `g-git-file-${f.path}`, label: f.path, value: f.add === null ? (f.status === '?' ? 'New' : 'Binary') : `+${f.add} −${f.del}` })),
+        ]
+      }
+      if (id === 'checks') {
+        const order: CheckKind[] = ['test', 'types', 'lint', 'build']
+        const local = order.map(x => ck.local.find(y => y.kind === x)).filter(x => x !== undefined)
+        const state = (st: 'running' | 'ok' | 'fail') => (st === 'running' ? { text: 'Running', color: undefined } : st === 'ok' ? { text: 'Passed', color: '#3fb950' } : { text: 'Failed', color: APP.red })
+        const why = { missing: 'Install the GitHub CLI (gh) to see CI', auth: 'Run gh auth login to see CI', remote: 'No GitHub remote' } as const
+        return [
+          ...(local.length ? [] : none('No test, type check, lint or build run yet')),
+          ...local.map(x => {
+            const st = state(x.state)
+            return gRow(k, { key: `g-check-${x.kind}`, label: x.command.split(/\r?\n/)[0] ?? x.command, sub: `${sentence(x.kind)} · ${span(Math.max(1000, now - x.at)) || 'now'} ago${x.ms !== null ? ` · took ${took(x.ms)}` : ''}`, value: st.text, ...(st.color ? { valueColor: st.color } : {}) })
+          }),
+          ck.gh === 'unread'
+            ? gRow(k, { key: 'g-ci', label: 'CI', sub: 'Reading GitHub' })
+            : ck.gh
+              ? gRow(k, { key: 'g-ci', label: 'CI', sub: why[ck.gh] })
+              : ck.runs.length === 0
+                ? gRow(k, { key: 'g-ci', label: 'CI', sub: 'No runs on this branch' })
+                : null,
+          ...(!ck.gh ? ck.runs.slice(0, 4).map(run => {
+            const st = state(runState(run))
+            return gRow(k, { key: `g-ci-${run.workflow}`, label: run.workflow, sub: `GitHub Actions · ${run.sha}`, value: st.text, ...(st.color ? { valueColor: st.color } : {}) })
+          }) : []),
+          ...(ck.pr ? [gRow(k, {
+            key: 'g-pr',
+            label: `#${ck.pr.number} ${ck.pr.title}`,
+            sub: [ck.pr.state !== 'open' ? sentence(ck.pr.state) : '', ck.pr.review ? sentence(ck.pr.review.replace(/_/g, ' ')) : '', ck.pr.passed + ck.pr.failed + ck.pr.pending ? `${ck.pr.passed} of ${ck.pr.passed + ck.pr.failed + ck.pr.pending} checks passed` : ''].filter(Boolean).join(' · '),
+            value: 'Pull request',
+          })] : []),
+        ].filter(x => x !== null)
+      }
+      // Activity: Claude's plan as a bar and its count, then the turn's calls.
+      const calls = turnCalls.slice(-ACTIVITY_ROWS)
+      return [
+        ...(pp ? [<Box key="g-plan" flexDirection="column" gap="xs">
+          {gRow(k, { key: 'g-plan-row', label: pp.isDone ? 'Plan done' : pp.now || 'Plan', sub: 'Plan', value: `${pp.done} of ${pp.total}` })}
+          {gBar(k, { key: 'g-plan-bar', alt: `Plan: ${pp.done} of ${pp.total} steps done`, segments: [{ share: pp.total ? pp.done / pp.total : 0, color: pp.isDone ? '#3fb950' : APP.blue }] })}
+        </Box>] : []),
+        ...(calls.length
+          ? calls.map(call =>
+              gRow(k, {
+                key: `g-call-${call.id}`,
+                label: call.label,
+                value: call.state === 'running' ? 'Running' : call.state === 'fail' ? 'Failed' : call.ms !== undefined ? took(call.ms) : '',
+                ...(call.state === 'fail' ? { valueColor: APP.red } : {}),
+              }),
+            )
+          : none(isWorking ? 'No tool calls yet' : 'No tool calls in the last turn')),
+      ]
+    }
+    const appUnfolded = () => {
+      const tab = TABS.find(t => t.id === v.tab) ?? TABS[0]!
+      const head = isWorking ? 'Working' : l ? (l.isAborted ? 'Interrupted' : 'Done') : 'Idle'
+      const meta = isWorking ? `${elapsed(Math.floor(runMs / 1000))} · ${plural(a.tools, 'tool')}` : l ? `${elapsed(Math.round(l.durationMs / 1000))} · ${plural(l.tools, 'tool')}` : ''
+      return (
+        <Box flexDirection="column" gap="md" paddingX="sm" paddingY="xs">
+          <Box flexDirection="row" alignItems="center" gap="sm">
+            <Text weight="semibold">{head}</Text>
+            {meta ? <Text dimColor size="footnote">{meta}</Text> : null}
+            <Box flexGrow={1} />
+            {tabRow(t => t.title)}
+            <Button key="fold" label="Collapse" onPress={() => pressFold($)} />
+          </Box>
+          <Box flexDirection="column" gap="sm">
+            {appRows(tab.id)}
+          </Box>
+        </Box>
+      )
+    }
+
     const unfolded = () => {
       const tab = TABS.find(t => t.id === v.tab) ?? TABS[0]!
       const meta = isWorking ? `${elapsed(Math.floor(runMs / 1000))} ${GLYPH.dot} ${plural(a.tools, 'tool')}` : l ? lastText : 'idle'
@@ -844,7 +982,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       )
     }
 
-    const drawn = v.isOpen ? unfolded() : folded()
+    const drawn = v.isOpen ? (isTerm ? unfolded() : appUnfolded()) : folded()
     // `glyphs: text` draws ASCII stand-ins and a classic border.
     const mine = glyphTree(drawn, glyphSet(options.glyphs, font.hasNerd, e.surface))
     return (

@@ -93,11 +93,12 @@ import {
   splitLabel,
   splitOf,
   svgSpark,
+  svgColor,
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence } from './style'
+import { APP, SPACE, cardFrame, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, header, kit, nerdFont, space, usageColor } from './kit'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence, clockAt } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -1763,6 +1764,171 @@ export const register: Register = (on, options) => {
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
     // The pane in the glyph set `glyphs` and the font call for (glyphTree, DESIGN.md Options).
     const drawn = <T,>(tree: T): T => glyphTree(tree, glyphSet(options?.glyphs, hasNerd, e.surface))
+
+    // ---- graphical surfaces (desktop, VS Code, mobile): drawn as the app draws its own panels, part for
+    // part (kit's g* parts): limits as Settings > Usage draws them, the model as the Environment panel's
+    // rows, the gate as the Context panel's legend. Context and its mix are the app's own Context panel's.
+    if (!isTerminal && !isMini) {
+      const gs = gateSummary(g)
+      const muted = (text: string) => <Text dimColor wrap="truncate-end">{text}</Text>
+      const changes = rp?.isRepo ? [rp.added ? `+${rp.added}` : '', rp.modified ? `~${rp.modified}` : '', rp.deleted ? `-${rp.deleted}` : ''].filter(Boolean).join(' ') : ''
+      const limitName = (kind: string) => (kind === 'five_hour' ? 'Current session' : kind === 'seven_day' ? 'Weekly · all models' : limitLabel(kind))
+      const limits =
+        u.limits.length || ctxFill.pct !== null
+        ? gSection(
+            k,
+            { key: 'g-limits', title: 'Usage' },
+            ...(ctxFill.pct !== null
+              ? [gUsage(k, { key: 'g-ctx', label: 'Context', ...(u.tokens !== null ? { sub: `${kTokens(u.tokens)} of ${kTokens(ctxFill.window)} tokens` } : {}), pct: ctxFill.pct })]
+              : []),
+            ...u.limits.slice(0, 2).map(l => {
+              const full = forecast(l.pct, l.resetsAt, LIMIT_WINDOW_MS[l.kind], now)
+              const at = fmtResetAt(l.resetsAt, now)
+              const sub = at ? `Resets ${/^\d/.test(at) ? `at ${at}` : at}` : ''
+              return gUsage(k, {
+                key: `g-limit-${l.kind}`,
+                label: limitName(l.kind),
+                ...(sub ? { sub } : {}),
+                ...(full !== null ? { note: `Full by ${clockAt(full, now) || 'now'} at this pace`, noteColor: APP.red } : {}),
+                pct: l.pct,
+              })
+            }),
+          )
+        : null
+      // What fills the context, as the app's Context panel splits it: one bar, a legend of its categories.
+      const MIX = [APP.blue, '#8b5cf6', '#d97757', '#3fb950', '#e3b341', '#14b8a6']
+      const mix =
+        sp && sp.rows.length > 0
+          ? gSection(
+              k,
+              { key: 'g-mix', title: 'Context by category', meta: muted('Estimated') },
+              gBar(k, {
+                key: 'g-mix-bar',
+                alt: `What fills the context: ${sp.rows.map(x => `${splitLabel(x.name)} ${kTokens(x.tokens)}`).join(', ')}`,
+                segments: sp.rows.map((x, i) => ({ share: x.tokens / sp.window, color: MIX[i % MIX.length]! })),
+              }),
+              ...sp.rows.slice(0, MIX.length).map((x, i) => gLegend(k, { key: `g-mix-${i}`, color: MIX[i]!, label: x.name, value: kTokens(x.tokens) })),
+            )
+          : null
+      const model = gSection(
+        k,
+        { key: 'g-model', title: modelName, meta: m.isRunning ? <Text color={C.main}>Working</Text> : muted('Idle') },
+        ...(m.effort ? [gRow(k, { key: 'g-effort', icon: 'effort', label: 'Effort', value: sentence(m.effort) })] : []),
+        ...(m.mode ? [gRow(k, { key: 'g-mode', icon: 'mode', label: 'Mode', value: sentence(m.mode) })] : []),
+        ...(rp?.isRepo ? [gRow(k, { key: 'g-branch', icon: 'branch', label: rp.branch, ...(changes ? { sub: changes } : {}) })] : []),
+        ...(u.costUsd !== null ? [gRow(k, { key: 'g-cost', icon: 'cost', label: 'Session cost', value: fmtUsd(u.costUsd) })] : []),
+        ...(m.speed ? [gRow(k, { key: 'g-ttft', icon: 'timer', label: 'Time to first token', value: fmtDuration(m.speed.ttftMs) })] : []),
+      )
+      const gate =
+        gs.total > 0
+          ? gSection(
+              k,
+              { key: 'g-gate', title: 'Permissions', meta: muted(plural(gs.total, 'check')) },
+              gBar(k, {
+                key: 'g-gate-bar',
+                alt: `${gs.rule} allowed by a rule, ${gs.cleared} cleared by ${decider}, ${gs.ask} waiting, ${gs.deny} denied`,
+                segments: [
+                  { share: gs.rule / gs.total, color: svgColor(C.ok) },
+                  { share: gs.cleared / gs.total, color: APP.blue },
+                  { share: gs.ask / gs.total, color: svgColor(C.amber) },
+                  { share: gs.deny / gs.total, color: APP.red },
+                ],
+              }),
+              gLegend(k, { key: 'g-gate-rule', color: svgColor(C.ok), label: 'Allowed by a rule', value: String(gs.rule) }),
+              gLegend(k, { key: 'g-gate-cleared', color: APP.blue, label: `Approved by ${decider}`, value: String(gs.cleared) }),
+              ...(gs.ask ? [gLegend(k, { key: 'g-gate-ask', color: svgColor(C.amber), label: 'Waiting for you', value: String(gs.ask) })] : []),
+              gLegend(k, { key: 'g-gate-deny', color: APP.red, label: 'Denied', value: String(gs.deny) }),
+            )
+          : null
+      const agents = cards.length
+        ? gSection(
+            k,
+            { key: 'g-agents', title: 'Agents', meta: muted(running.length ? `${running.length} running` : plural(cards.length, 'agent')) },
+            ...cards.slice(-8).reverse().map(c =>
+              gRow(k, {
+                key: `g-agent-${c.id}`,
+                lead: <Text color={statusColor(c)}>{glyph(c)}</Text>,
+                label: cardTitle(c),
+                sub: `${c.type}${c.model && prettyModel(c.model) !== modelName ? ` · ${prettyModel(c.model)}` : ''}`,
+                value: c.spawnedAt > 0 ? fmtTimer((c.endedAt ?? now) - c.spawnedAt) : '',
+              }),
+            ),
+          )
+        : null
+      const architect = showArchitect
+        ? gSection(k, { key: 'g-arch', title: cfg.architectLabel, meta: advising ? <Text color={C.arch}>Advising</Text> : muted('On call') }, ...(a.lastAdvice ? [<Text key="g-advice" dimColor wrap="wrap">{a.lastAdvice}</Text>] : []))
+        : null
+      const turn =
+        m.isRunning || r
+          ? gSection(
+              k,
+              { key: 'g-turn', title: m.isRunning ? 'This turn' : 'Last turn', ...(r && !m.isRunning ? { meta: muted(`${r.reason === 'answer' ? 'Done' : 'Stopped'} in ${fmtDuration(r.durationMs)}`) } : {}) },
+              gRow(k, { key: 'g-turn-edits', icon: 'edit', label: 'Files edited', value: String(m.isRunning ? t.edits : (r?.edits ?? 0)) }),
+              gRow(k, { key: 'g-turn-errors', icon: 'error', label: 'Errors', value: String(m.isRunning ? t.errors : (r?.errors ?? 0)), ...((m.isRunning ? t.errors : r?.errors) ? { valueColor: APP.red } : {}) }),
+              ...(!m.isRunning && r && r.agents ? [gRow(k, { key: 'g-turn-agents', icon: 'agent', label: 'Agents', value: String(r.agents) })] : []),
+              ...(!m.isRunning && r && r.costDelta !== null ? [gRow(k, { key: 'g-turn-cost', icon: 'cost', label: 'Cost', value: fmtUsd(r.costDelta) })] : []),
+            )
+          : null
+      // The last turns as sparklines, each figure's latest value right.
+      const pts = tr.slice(-20)
+      const trends = pts.length
+        ? gSection(
+            k,
+            { key: 'g-trends', title: 'Trends', meta: muted(`Last ${plural(pts.length, 'turn')}`) },
+            ...(
+              [
+                { key: 'ctx', label: 'Context', vals: pts.map(x => x.ctx), max: 100, fmt: percent, isHeat: true },
+                { key: 'cost', label: 'Cost', vals: pts.map(x => x.cost), fmt: fmtUsd },
+                { key: 'time', label: 'Time', vals: pts.map(x => x.ms), fmt: fmtDuration },
+                { key: 'out', label: 'Output tokens', vals: pts.map(x => x.out), fmt: kTokens },
+              ] as TrendRow[]
+            )
+              .filter(x => x.vals.some(y => y !== null))
+              .map(x => {
+                const { Svg } = $.ui.resolve(e)
+                const colorOf = (v: number | null | undefined) => (v === null || v === undefined ? APP.track : x.isHeat ? usageColor(v) : APP.blue)
+                const drawn = svgSpark(sparkLevels(x.vals, x.max), x.vals.map(colorOf), pts.length, sparkHeights.get(x.key) ?? [], !motion)
+                sparkHeights.set(x.key, drawn.heights)
+                const latest = [...x.vals].reverse().find((y): y is number => y !== null)
+                return gChartRow(k, {
+                  key: `g-trend-${x.key}`,
+                  label: x.label,
+                  chart: <Svg source={drawn.source} alt={`${x.label.toLowerCase()} over the last ${plural(pts.length, 'turn')}`} />,
+                  value: latest !== undefined ? x.fmt(latest) : '—',
+                  ...(x.isHeat && latest !== undefined && latest >= 80 ? { valueColor: APP.red } : {}),
+                })
+              }),
+          )
+        : null
+      const tools = ts.length
+        ? gSection(
+            k,
+            { key: 'g-tools', title: 'Tools', meta: muted(plural(ts.reduce((n, x) => n + x.calls, 0), 'call')) },
+            ...ts.slice(0, 8).map(x =>
+              gRow(k, {
+                key: `g-tool-${x.name}`,
+                label: toolLabel(x.name),
+                sub: `${plural(x.calls, 'call')}${x.calls > 1 ? ` · ${fmtDuration(x.totalMs / x.calls)} on average` : ''}${x.fails ? ` · ${x.fails} failed` : ''}`,
+                value: fmtDuration(x.maxMs),
+                ...(x.maxMs >= 10_000 ? { valueColor: svgColor(C.amber) } : {}),
+              }),
+            ),
+          )
+        : null
+      const inbox = ib.length
+        ? gSection(k, { key: 'g-inbox', title: 'Needs attention', meta: <Text color={APP.red}>{String(ib.length)}</Text> }, ...ib.slice(0, 6).map(x => gRow(k, { key: `g-inbox-${x.id}`, label: x.text, sub: x.source })))
+        : null
+      const log = gSection(
+        k,
+        { key: 'g-log', title: 'Session log' },
+        ...(lines.length
+          ? lines.slice(-8).reverse().map((x, i) =>
+              gRow(k, { key: `g-log-${i}`, label: x.text, sub: `${new Date(x.at).toTimeString().slice(0, 5)} · ${x.who}`, ...(x.kind === 'error' ? { value: 'Error', valueColor: APP.red } : {}) }),
+            )
+          : [muted('Nothing yet')]),
+      )
+      return drawn(gPane(k, inbox, limits, mix, model, gate, agents, architect, turn, trends, tools, log))
+    }
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = `${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`

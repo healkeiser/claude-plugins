@@ -309,7 +309,7 @@ test('a fresh session draws on every surface and width, empty panels hidden', as
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     for (const cols of [40, 60, 86, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
-      expect(await ui.find({ text: /· main$/ })).toBeDefined()
+      expect(surface === 'terminal' ? await ui.find({ text: /· main$/ }) : await ui.find({ key: 'g-model' })).toBeDefined()
       expect(await ui.find({ text: /Session log/ })).toBeDefined()
       expect(await ui.find({ text: /agents ·/ })).toBeUndefined() // no subagents: no agents panel
       expect(await ui.find({ text: /permissions/ })).toBeUndefined() // no checks yet: no gate panel
@@ -381,12 +381,14 @@ test('subagents become cards, then swimlanes past the card limit; a card expands
 
   await $.agent.spawn(spawn('general-purpose', 'Implement the parser'))
   await $.agent.spawn(spawn('general-purpose', 'Review the parser'))
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const lanesUi = await $.ui.mount({ ...pane(64), surface })
-    expect(await lanesUi.find({ text: /4 total/ })).toBeDefined()
-    expect(await lanesUi.find({ text: /━/ })).toBeDefined()
-    await lanesUi.unmount()
-  }
+  const lanesUi = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await lanesUi.find({ text: /4 total/ })).toBeDefined()
+  expect(await lanesUi.find({ text: /━/ })).toBeDefined()
+  await lanesUi.unmount()
+  const listUi = await $.ui.mount({ ...pane(64), surface: 'desktop' })
+  expect(await listUi.find({ text: /^4 running$/ })).toBeDefined()
+  for (const id of ['ag1', 'ag2', 'ag3', 'ag4']) expect(await listUi.find({ key: `g-agent-${id}` })).toBeDefined()
+  await listUi.unmount()
 })
 
 test('the server-side advisor is read from assistant rows: consulting, then on call', async ($, on) => {
@@ -610,28 +612,28 @@ test('on a graphical surface, rows of marks hold fewer marks and clip at their b
       uuid: 'marks-row',
     })
     .catch(() => undefined)
-  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
-    for (const cols of [40, 64, 120]) {
-      const ui = await $.ui.mount({ ...pane(cols), surface })
-      // The gate is a meter, not a row of marks: 29 allowed and 1 denied fill it, the denied cell last.
-      const cells = cols === 40 ? 5 : 10
-      if (surface === 'terminal') {
-        const bar = textsIn(keyed(await ui.drawn(), 'meter-gate'))[1]
-        expect(textOf(bar)).toBe('━'.repeat(cells))
-        expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
-      } else {
-        // A graphical surface draws it as SVG in the roles' hex: success, then the denied run in error.
-        const svg = (await ui.findAll({ type: 'Svg' })).find(x => /^all /.test(String((x as Drawn).props?.alt))) as Drawn | undefined
-        const source = String(svg?.props?.source ?? '')
-        expect(source.indexOf('#16a34a')).toBeGreaterThan(-1)
-        expect(source.indexOf('#dc2626')).toBeGreaterThan(source.indexOf('#16a34a'))
-        expect(source).toContain(`width="${cells * 7}"`)
-      }
-      expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
-      expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
-      expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBe(surface === 'terminal' ? 0 : 1)
-      await ui.unmount()
-    }
+  for (const cols of [40, 64, 120]) {
+    const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    // The gate is a meter, not a row of marks: 29 allowed and 1 denied fill it, the denied cell last.
+    const cells = cols === 40 ? 5 : 10
+    const bar = textsIn(keyed(await ui.drawn(), 'meter-gate'))[1]
+    expect(textOf(bar)).toBe('━'.repeat(cells))
+    expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
+    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
+    expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
+    expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBe(0)
+    await ui.unmount()
+  }
+  // A graphical surface draws the gate as the app's Context panel draws a split: one bar, the denied run
+  // last in the app's red, then a legend with each count.
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...pane(64), surface })
+    const svg = (await ui.findAll({ type: 'Svg' })).find(x => /allowed by a rule/.test(String((x as Drawn).props?.alt))) as Drawn | undefined
+    const source = String(svg?.props?.source ?? '')
+    expect(String(svg?.props?.alt)).toMatch(/^29 allowed by a rule, 0 cleared .*, 0 waiting, 1 denied$/)
+    expect(source.indexOf('#dc3c3d')).toBeGreaterThan(source.indexOf('#16a34a'))
+    expect(textsIn(keyed(await ui.drawn(), 'g-gate-deny')).map(textOf)).toEqual(['Denied', '1'])
+    await ui.unmount()
   }
 })
 
@@ -1182,11 +1184,7 @@ test('a single agent card fits from 24 columns, and the time axis scales to the 
     for (let cols = 24; cols <= 40; cols += 1) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       for (const s of spillsOf(await ui.drawn(), cols)) failures.push(`${surface} ${cols}: ${s}`)
-      if (surface !== 'terminal') {
-        // No pixel width of its own: the surface draws it at the markup's width, down to the pane's.
-        const svg = await ui.find({ type: 'Svg' })
-        expect([svg !== undefined, svg?.props.width, svg?.props.height]).toEqual([true, undefined, undefined])
-      }
+      if (surface !== 'terminal') expect(await ui.find({ key: 'g-agent-one' })).toBeDefined()
       await ui.unmount()
     }
   }
@@ -1198,7 +1196,7 @@ test('a running connector keeps its length every frame: one face, clipped at its
   on('tool.check', () => ({ decision: 'allow' }))
   await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'r1' })
   await $.turn.start({ text: 'go', turnId: 'R1' }) // a turn running: the connectors animate
-  for (const surface of ['desktop', 'terminal'] as const) {
+  for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(64), surface })
     // The connector runs on the main block's bottom edge: a one-row overlay inside its corners.
     expect((await ui.find({ key: 'link-gate' }))?.props).toMatchObject({ marginTop: -1, marginX: 1, height: 1 })
@@ -1579,14 +1577,16 @@ test('a terminal with 256 colours or more draws the status line heat ramp, one s
   await ui.unmount()
 })
 
-test('a graphical surface draws a heat meter as the ramp gradient, the gate in its roles', async ($, on) => {
+test('a graphical surface draws usage as the app does: a thin round bar, blue, red from 80%', async ($, on) => {
   await measured($, on)
   const ui = await $.ui.mount({ ...pane(66), surface: 'desktop' })
   const svgs = (await ui.findAll({ type: 'Svg' })) as Drawn[]
-  const ctx = String(svgs.find(x => /^ctx /.test(String(x.props?.alt)))?.props?.source ?? '')
-  expect(ctx).toContain('<linearGradient id="heat"')
-  expect(ctx).toContain('stop-color="#ff0000"')
-  expect(ctx).toContain('fill="url(#heat)"')
+  const bar = (label: RegExp) => String(svgs.find(x => label.test(String(x.props?.alt)))?.props?.source ?? '')
+  expect(bar(/^Context: /)).toContain('rx="3"')
+  for (const x of svgs.filter(x => /% used/.test(String(x.props?.alt)))) {
+    const pct = Number(/(\d+)% used/.exec(String(x.props?.alt))?.[1])
+    expect(String(x.props?.source)).toContain(pct >= 80 ? '#dc3c3d' : '#257de0')
+  }
   await ui.unmount()
 })
 
@@ -1623,11 +1623,12 @@ test('meters show what the status line shows: the same rounding, half cells, not
     const row = textsIn(keyed(await ui.drawn(), 'meter-five_hour')).map(textOf)
     expect([row[1], row.includes(shown)]).toEqual([bar, true])
     await ui.unmount()
-    // On a graphical surface the fill is the reading's share, at least half a cell above zero.
+    // On a graphical surface the fill is the reading's own share of the bar, as the app draws it.
     const g = await $.ui.mount({ ...pane(66), surface: 'desktop' })
-    const svg = ((await g.findAll({ type: 'Svg' })) as Drawn[]).find(x => /^5h /.test(String(x.props?.alt)))
-    const lit = /fill="url\(#heat\)"/.test(String(svg?.props?.source)) ? Number(/<rect x="0" y="0" width="([\d.]+)" height="6" fill="url/.exec(String(svg?.props?.source))?.[1]) : 0
-    expect(lit).toBe(Math.round(10 * 7 * (pct === 0 ? 0 : Math.min(1, Math.max(0.05, pct / 100))) * 100) / 100)
+    const svg = ((await g.findAll({ type: 'Svg' })) as Drawn[]).find(x => /^Current session: /.test(String(x.props?.alt)))
+    const lit = /<rect x="0\.00%" width="([\d.]+)%"/.exec(String(svg?.props?.source))?.[1]
+    expect(lit === undefined ? 0 : Number(lit)).toBe(pct === 0 ? 0 : Math.max(1.2, Math.min(100, pct)))
+    expect(await g.find({ text: `${shown.replace('%', '')}% used` })).toBeDefined()
     await g.unmount()
   }
 })
@@ -1782,7 +1783,13 @@ test('the main block splits the context by category, with a legend, and the spli
   await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 'S1', reason: 'answer' })
   expect(asked.filter(Boolean).length - n).toBe(1)
   expect(asked.filter(Boolean).every(x => x === 'summary')).toBe(true) // never `full`, which sends requests
-  for (const surface of ['terminal', 'desktop'] as const) {
+  const g = await $.ui.mount({ ...pane(66), surface: 'desktop' })
+  const legend = textsIn(keyed(await g.drawn(), 'g-mix')).map(textOf)
+  expect(legend.slice(0, 2)).toEqual(['Context by category', 'Estimated'])
+  expect(legend.slice(2, 4)).toEqual(['Messages', '320k'])
+  expect(legend.join('|')).not.toContain('Free space')
+  await g.unmount()
+  for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(66), surface })
     const tree = await ui.drawn()
     const row = keyed(tree, 'meter-split')
@@ -1943,10 +1950,11 @@ const fmtClockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 test('the new blocks keep one-row gaps and fit every width, and a busy session shows them all', { timeoutMs: 60_000 }, async ($, on) => {
   await busySession($, on)
   for (const surface of ['terminal', 'desktop'] as const) {
+    const keys = surface === 'terminal' ? ['block-inbox', 'block-trends', 'meter-split'] : ['g-inbox', 'g-trends', 'g-mix', 'g-tools']
     for (const cols of [24, 40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       const json = JSON.stringify(await ui.drawn())
-      for (const key of ['block-inbox', 'block-trends', 'meter-split']) expect(`${surface} ${cols} ${key} ${json.includes(`"${key}"`)}`).toBe(`${surface} ${cols} ${key} true`)
+      for (const key of keys) expect(`${surface} ${cols} ${key} ${json.includes(`"${key}"`)}`).toBe(`${surface} ${cols} ${key} true`)
       await ui.unmount()
     }
   }

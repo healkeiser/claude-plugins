@@ -385,18 +385,19 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   await ui.press({ key: 'tab-context' })
   expect((await ui.findAll({ type: 'Button' })).find(b => b.key === 'tab-context')?.props.variant).toBe('primary')
   const first = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source))
-  expect(first.some(s => s.includes('<title>context 64% used'))).toBe(true)
+  // The open band draws its readings as Settings > Usage draws them: a thin bar per reading.
+  expect(first.some(s => s.includes('<title>Context: 64% used'))).toBe(true)
   // Every tab draws on desktop: hover reveals sit inside keyed rows.
   for (const key of ['tab-activity', 'tab-turn', 'tab-git']) {
     await ui.press({ key })
-    expect(await look(ui)).toContain('Pulse')
+    expect(await look(ui)).toContain('Collapse')
   }
   await ui.press({ key: 'tab-context' })
   await ui.unmount()
   world.ctx = 81
   const again = await mount($, 'desktop')
   const glided = (await again.findAll({ type: 'Svg' })).map(s => String(s.props.source))
-  expect(glided.some(s => s.includes('<title>context 81% used') && s.includes('<animate'))).toBe(true)
+  expect(glided.some(s => s.includes('<title>Context: 81% used') && s.includes('#dc3c3d'))).toBe(true)
   await again.unmount()
 })
 

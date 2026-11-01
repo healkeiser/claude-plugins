@@ -48,7 +48,7 @@ Decisions that resolve old double meanings:
 Where a surface cannot take theme keys, fixed colours are allowed and documented:
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
-- flightdeck's SVG meters and swimlanes (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
+- flightdeck's gate bar (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
 - The heat ramp of fill meters (see Formatting): the status line's 256-colour ramp, xterm 46 82 118 154 190 226 220 214 208 196 with 239 unlit, as those entries' hex (`HEAT_RAMP`, `HEAT_UNLIT` in `style.ts`). A ramp needs ten fixed steps; a theme has three.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
@@ -132,7 +132,7 @@ One formatter per kind, in `style.ts`, and the status line matches them.
 | separator | ` · ` in chrome | `effort high · mode auto` |
 | meter | `━` filled in half-cell steps (`╸` the half), each lit cell its own heat step, `─` track unlit; above zero, at least half a cell | `━━━━━━╸───  64%` `╸─────────   3%` |
 
-Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps, as wide as the reading's share and, above zero, at least half a cell (`meterShare`). Every terminal draws the ramp, as `statusline.sh` does, except consoles known to lack 256 colours (`TERM` `dumb`, `linux`, `vt100`, `ansi`), which get three role colours instead (`heat`); an unset `TERM` (Windows) draws the ramp: accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
+Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). A graphical surface draws usage as the app does instead: its blue, red from 80% (see Graphical surfaces). Every terminal draws the ramp, as `statusline.sh` does, except consoles known to lack 256 colours (`TERM` `dumb`, `linux`, `vt100`, `ansi`), which get three role colours instead (`heat`); an unset `TERM` (Windows) draws the ramp: accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
 
 Text is measured in terminal cells, not characters: `cellWidth` counts East Asian wide and fullwidth characters and emoji as 2, combining marks and variation selectors as 0, and cuts by grapheme (`Intl.Segmenter`), so a cut never splits a character. Truncation ends with `…` inside the width.
 
@@ -165,7 +165,7 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 | sweep | filetree's activity shimmer | a soft band (raised-cosine falloff over a four-step ramp) crossing the name with an ease-in-out, about 1.6 s a pass |
 | packets | flightdeck's connectors, drawn on the upper block's own bottom edge (one cell in from each side, so its rounded corners stay; at rest the line is the edge itself, in its colour) | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
-| glide | flightdeck's meters and sparklines on graphical surfaces | a new reading glides from the last width (a sparkline bar from its last height) on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters and sparklines step, as a cell has no in-between |
+| glide | flightdeck's sparklines on graphical surfaces | a sparkline bar glides from its last height on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters and sparklines step, as a cell has no in-between |
 
 - **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`, imported from `style.ts` (a surface module imports its plugin's files like the hooks module does, so it keeps no copies). No element starts a timer of its own.
 - **Ease, never blink**: positions move on `easeInOut`, intensities fall off on a raised cosine, so nothing switches on and off.
@@ -199,10 +199,20 @@ Desktop, VS Code and mobile already draw the transcript well: proportional type,
 | flightdeck pane | text meters, sparklines, rails | SVG meters and sparklines that glide, SVG swimlanes | same | same | no surface has a dashboard |
 | filetree pane | yes | yes, native scroll | - | - | it draws through `Client` regions, which VS Code and mobile do not have |
 
-What a graphical version of a mod's own pane uses, and keeps from the system:
+A graphical pane or band is drawn as the desktop app draws its own panels, never as the terminal drawing translated. The kit's `g*` parts in `shared/kit.tsx` are the only way to draw one, each copied from a native panel (sampled from the app, dark theme):
 
-- **Keeps**: the colour roles (as theme keys, or each role's mid-tone hex inside SVG), the glyph meanings, the header grammar, the number beside every meter.
-- **Uses instead of terminal tricks**: `Svg` for meters, sparklines and swimlanes in place of `━─` runs; `borderStyle` for frames, never drawn box characters; proportional text, with `mono` and `tabular` only where columns must align; `Button` labels that name the action, since there are no hotkeys in VS Code.
+| Part | Copied from | What it is |
+| --- | --- | --- |
+| `gPane` | the Environment panel | sections one under the other, a `gDivider` hairline between each two (1px, the track grey at 25%: `#252525` on `#191919`), `gap="md"` around it |
+| `gSection` | Environment's "Environment", "Connectors" | a plain title, the rows' size and weight, never semibold or a chip; a grey meta right; rows under it at `gap="sm"` (a 32px rhythm) |
+| `gRow` | Environment's rows | one line: an outline icon (`gIcon`, 16px, `#9c9c9c`, Lucide shapes) or another lead in its own column, the label, a grey ` · detail` after it, the value right in grey or a colour |
+| `gUsage`, `gChartRow` | Settings > Usage | the name with a grey line (and a coloured note) under it in a 36% column, a thin bar (`gBar`: 6px, round ends, faint track) or a sparkline as wide as is left, the value right |
+| `gBar` + `gLegend` | the Context panel | one bar split by kind, then a legend: a rounded swatch, the label, the value right |
+| `header`, `search` | the app's pane heads | the title plain, the detail grey, a hovered action's words grey, then native `Button`s; a plain native `Input` |
+
+Colours inside a graphical pane are the app's: its usage blue `#257de0`, red `#dc3c3d` from 80% (`APP`, `usageColor`), grey icons and details. The heat ramp and the terminal's role colours stay on the terminal. Spacing is the surface's own steps (`xs` to `xl`), never cells; a number given to `width` is cells, so a graphical part never sets one.
+
+What a graphical version of a mod's own pane keeps from the system: the glyph meanings, sentence case, the number beside every meter.
 
 Capabilities the graphical surfaces have and the terminal lacks, for future features:
 
