@@ -18,7 +18,7 @@
     <!-- License -->
     <img src="https://img.shields.io/badge/License-MIT-brightgreen.svg?&logo=open-source-initiative&logoColor=white" alt="License: MIT"/>&nbsp;&nbsp;
     <!-- Claude Code version -->
-    <img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757?&logo=claude&logoColor=white" alt="Claude Code 2.1.287+"/>&nbsp;&nbsp;
+    <img src="https://img.shields.io/badge/Claude%20Code-2.1.299%2B-D97757?&logo=claude&logoColor=white" alt="Claude Code 2.1.299+"/>&nbsp;&nbsp;
     <!-- Last Commit -->
     <img src="https://img.shields.io/github/last-commit/healkeiser/claude-plugins?logo=github&label=Last%20Commit" alt="Last Commit"/>&nbsp;&nbsp;
     <!-- Commit Activity -->
@@ -48,6 +48,7 @@
 - [Documentation skills](#documentation-skills)
 - [Security](#security)
 - [Development](#development)
+- [Credits and inspiration](#credits-and-inspiration)
 - [License](#license)
 - [Contact](#contact)
 
@@ -67,6 +68,8 @@ Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude 
 | **filetree** | An IDE-style file tree pane: what Claude reads, writes and changes, git status, previews, a treemap and diffs. A restyled fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
+
+All five and the status line share one design: the same colour roles, glyphs, card shapes, number formats and motion, written down in [DESIGN.md](./DESIGN.md). Where Claude Code's desktop app, VS Code extension or mobile app already draws a part well (replies, prompts, tool rows), the mods leave it to them and change only the terminal.
 
 The repository also ships [documentation skills](#documentation-skills): each one gives Claude a local, searchable copy of one software release's official docs.
 
@@ -89,7 +92,7 @@ claude plugin install filetree@healkeiser --scope user
 Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
 
 > [!IMPORTANT]
-> Mods need Claude Code **2.1.287** or later.
+> Mods need Claude Code **2.1.299** or later.
 
 
 
@@ -101,20 +104,21 @@ Run `/reload-plugins` in a session that is already open; new sessions load them 
 Redraws each block of Claude's reply that has something to gain; plain prose keeps Claude Code's own look.
 
 - **Code blocks** draw between a top rule, carrying their language and a `⧉ copy` button, and a bottom rule, with no side border, so a mouse selection copies the code alone. Past 20 lines they fold to 12 with a `▾ show all N lines` button.
-- **Inline code** becomes a chip in the theme's own colours (the prompt tint behind the warning colour), so it reads on light and dark themes alike, `auto` included.
-- **Lists** change bullet by depth (`•`, `◦`, `■`, each in its own colour) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✓`.
+- **Inline code** becomes a chip on the theme's own prompt tint, in the normal text colour, so it reads on light and dark themes alike, `auto` included.
+- **Lists** change bullet by depth (`•`, `◦`, `■`; the first level in Claude orange, deeper ones dim) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✓`.
 - **Quotes** that are not callouts draw with a dim `│` bar on every line, one per nesting level, rather than a box.
 - **Rules** (`---`, `***`, `___` alone on a line) draw as a dim line across the window.
 - **Strikethrough** (`~~text~~`) draws struck through.
 - **Diff fences** (` ```diff `) draw in red and green, a hunk header added when the fence has none.
-- **Tables** draw in a rounded border with a bold header row; a table too wide for the window narrows its widest column and wraps it.
+- **Tables** draw in a rounded border with a bold header row; a table too wide for the window narrows its widest column and wraps it. Widths are counted in terminal cells, so Chinese, Japanese and Korean text and emoji keep the borders straight.
 - **Headings** (`##` lines and bold-only lines such as `**What changed:**`) draw in the accent colour with a rule under them.
-- **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon.
-- A paragraph opening with **`Next:`** draws in its own box, so the action a reply ends on is easy to spot.
+- **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon: `ℹ` blue, `✓` green, `◆` orange, `⚠` yellow, `✕` red.
+- A paragraph opening with **`Next:`** draws in its own box, led by `»`, so the action a reply ends on is easy to spot.
+- In the desktop app, VS Code and on mobile, replies keep Claude Code's own drawing, which already does all of this.
 
 ### pulse
 
-- While a turn runs, the band above the prompt reads `⠹ editing parse.ts  ·  3 tools  ·  42s`: a spinner, the current action, the tool count and the elapsed time.
+- While a turn runs, the band above the prompt reads `⠹ editing parse.ts  ·  3 tools  ·  42s`: a spinner, the current action (fading in as it changes), the tool count and the elapsed time. Bands from other mods stay below it. The band shows in the desktop app too.
 - Folded tool rows read `◇ 3 reads  ·  ⌕ 2 searches  ·  ⌘ 1 shell`, dim, with failures in red.
 - The footer of a turn that used tools reads `✻ Baked for 29s  ·  6 tools  ·  2 files edited`.
 - A shell command that stands on its own row draws in three short lines:
@@ -125,7 +129,8 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
     └ bb43e7c feat(vfx): bundle the documentation skills into one vfx…  +3 lines
   ```
 
-  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✓` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `‖ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing.
+  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✓` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `‖ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing. The desktop app, VS Code and mobile keep their own tool rows.
+- Option (in `/plugin`, or `pluginConfigs` under `pulse@healkeiser`): `motion` (`while-active`, `off`). Off, nothing spins and the time still counts. Claude Code's **Reduce motion** setting stills it too.
 
 ### postcard
 
@@ -135,12 +140,10 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - A prompt sent while Claude is still working draws as a narrow grey `‖ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
 - `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; `1` to `9` reach the nine newest.
 - It ships a `postcard` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
+- The cards are drawn in the terminal; the desktop app, VS Code and mobile keep their own message bubbles, and `/prompts` works there too.
 
 > [!NOTE]
 > Clicking a button (copy, fold, a row of the `/prompts` pane) needs Claude Code's fullscreen layout, where the terminal reports clicks. The pane's hotkeys work either way.
-
-> [!NOTE]
-> Colours are tuned for dark themes: the inline-code chip and the prompt card's background are fixed colours, and read as dark bands on a light theme.
 
 ### flightdeck
 
@@ -176,7 +179,9 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 ```
 
 - **Blocks**: main (the status line's header: the folder and its origin as links, the branch and its `+added ~modified -deleted` counts, zeros left out; then its meters for context and each rate limit, with the time to each reset and its wall-clock time, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
-- Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off` keeps them still.
+- Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off`, or Claude Code's **Reduce motion** setting, keeps them still.
+- Colours follow the shared roles: the main block in Claude orange, agents and loops in the agent colour, the architect in the info colour, the gate in the colour of your own prompts, with checks allowed by a rule green, pending yellow and denied red.
+- In the desktop app, VS Code and on mobile the meters are drawn as SVG bars that glide to each new reading, and the agents get an SVG time axis.
 - Status glyphs are plain text (`✓ ✕ ● ○ ■`), never ones a terminal such as Warp draws as colour emoji, and each takes the colour of the words it marks.
 - Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
 - `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card and `f`, `s`, `o` open the gate's rows.
@@ -194,7 +199,7 @@ claude plugin install filetree@healkeiser --scope user
 ```
 
 - **The tree** shows the working folder, or one pinned with `/filetree <path>`, with search across folders not yet opened. Each file and folder carries its git status and line counts; the branch row under the header shows the branch, its upstream and how far ahead or behind it is.
-- **Claude's activity** shimmers in the tree: reads in purple, writes in orange, commits and other git actions in green. Collapsed folders open to show the file, and the last action stays as a chip at the bottom of the pane.
+- **Claude's activity** shimmers in the tree: reads in purple, writes in orange, commits and other git actions in green. Collapsed folders open to show the file, and the last action stays as a chip at the bottom of the pane. The `motion` option (`while-active`, `off`), or Claude Code's **Reduce motion** setting, holds each name at its colour instead.
 - **The split preview** (`p`) shows the file under the cursor (highlighted code, rendered Markdown, images, video frames, PDF and Word pages turned with `[` and `]`) or a treemap of the folder, sized by bytes or by lines.
 - **`d`** shows the diff of a file, or of every changed file in a folder. Files open in their default app, in an editor in a tmux or herdr pane, or in any command set in the plugin options.
 - `/filetree` shows or hides the pane; `/filetree open` opens it without hiding it. `?` lists the shortcuts.
@@ -203,13 +208,14 @@ What the restyle changes from upstream:
 
 - **Colours** are Claude theme keys rather than ANSI palette indices, so the pane follows light, dark and `auto` themes: Claude orange for the accent, green, yellow, blue and red from the theme for git status, and the prompt tint behind the selected row.
 - **Headers** read as compact headings: the folder name in orange, a dim rule across the rest of the row, and the header toggles drawn orange while they are on and dim while they are off. The root row, when picked, reads as a chip instead of a half-row fill.
+- **Motion** runs on the same clock as the other mods: the shimmer glides across a name and fades rather than blinking.
 - **The split preview** draws like a code block: a labelled rule above with the file name and line range, a plain rule below, and no side border. The scrollbar is a thumb with no track line, so a mouse selection of a preview or a path copies text, not borders.
 - **Diffs** head each file with a labelled rule.
 
 The `Palette` option still overrides any colour with a hex value. Two things keep upstream's fixed colours, because a theme key cannot express them: the activity shimmer, which needs a light and a dark four-step ramp per colour, and the treemap, which paints pixels and so works from RGB values of the theme's colours.
 
 > [!IMPORTANT]
-> `filetree` needs Claude Code **2.1.306** or later. In the terminal it shows in the right sidebar, which needs the fullscreen layout (`/tui fullscreen`) and a window at least **110 columns** wide.
+> `filetree` needs Claude Code **2.1.306** or later. In the terminal it shows in the right sidebar, which needs the fullscreen layout (`/tui fullscreen`) and a window at least **110 columns** wide. It also draws in the desktop app; VS Code and mobile cannot show it, as it draws through surface modules they do not run.
 
 
 
@@ -226,7 +232,9 @@ The `Palette` option still overrides any colour with a hex value. Two things kee
 ╰────────────────────────────────────────────────────╯
 ```
 
-The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
+The bars heat as the mods' meters do: Claude orange, yellow from 60%, red from 80%, each cell in the colour of its own tenth. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
+
+Its colours are the terminal's own green, yellow, red and grey, so a light theme's palette keeps them readable; the orange is a mid tone that reads on both. Set `NO_COLOR` to drop every colour. When Claude Code passes `COLUMNS`, the card fits it: the wall clock, pace and token counts go first, then the reset times, and the header drops the link and changes, then the branch, then the folder.
 
 Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
 
@@ -308,6 +316,21 @@ claude plugin test ./gloss
 ```
 
 A marketplace added from a local folder is read in place: edit a mod, run `/reload-plugins`, and the session picks it up with no reinstall.
+
+The mods share one design system, described in [DESIGN.md](./DESIGN.md): colour roles, glyphs, shapes, formats, motion and what each mod does on graphical surfaces. Its tokens live in `hooks/style.ts`, one identical copy per mod, since a plugin cannot import from another. After changing one copy, copy it to the other four and run the check, which also fails on any drawn glyph a terminal may show as a colour emoji:
+
+``` shell
+node scripts/check-style.mjs
+```
+
+<!-- CREDITS -->
+## Credits and inspiration
+
+- **flightdeck** is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella (MIT), with contributions from Alejandro Remior, @vihrea1337, Da Vinci and the people credited in its changelog. See [`flightdeck/NOTICE`](./flightdeck/NOTICE).
+- **filetree** is a fork of [claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) by [Kurt Buhler](https://github.com/data-goblin) (MIT), with its contributors listed in [`filetree/ACKNOWLEDGEMENTS.md`](./filetree/ACKNOWLEDGEMENTS.md).
+- **gloss**: lists by depth, task items, quote bars, rules, strikethrough and theme-aware chips were inspired by [cc-crayon](https://github.com/jonpojonpo/cc-crayon) by jonpojonpo (ideas only, no code taken).
+- Measuring text in terminal cells, with CJK and emoji two cells wide, follows [prismantis](https://github.com/NahumLitvin/prismantis) by Nahum Litvin (idea only).
+- The status line's `NO_COLOR` support and its narrow forms follow [claude-powerline](https://github.com/Owloops/claude-powerline) and [ccstatusline](https://github.com/sirmalloc/ccstatusline) (ideas only).
 
 
 
