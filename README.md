@@ -41,7 +41,7 @@
   - [gloss](#gloss)
   - [pulse](#pulse)
   - [postcard](#postcard)
-  - [Status line](#gauge-status-line)
+  - [Status line](#status-line)
 - [File tree](#file-tree)
 - [Dev skills](#dev-skills)
 - [Documentation skills](#documentation-skills)
@@ -63,7 +63,7 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 | **pulse** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
 | **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 
-A matching [status line](#gauge-status-line) script comes alongside. It is not a mod, so it installs on its own.
+A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
 
 The repository also ships [documentation skills](#documentation-skills): each one gives Claude a local, searchable copy of one software release's official docs.
 
@@ -137,9 +137,9 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 > [!NOTE]
 > Colours are tuned for dark themes: the inline-code chip and the prompt card's background are fixed colours, and read as dark bands on a light theme.
 
-### gauge (status line)
+### Status line
 
-`gauge/gauge.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
+`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
 
 ```
 ╭─ Opus 5.5 · claude-mods ↗ · main +5 ~4 ──────────╮
@@ -156,7 +156,7 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 ``` json
 "statusLine": {
   "type": "command",
-  "command": "bash ~/.claude/gauge.sh"
+  "command": "bash ~/.claude/statusline.sh"
 }
 ```
 
