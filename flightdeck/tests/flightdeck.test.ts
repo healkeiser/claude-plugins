@@ -255,7 +255,7 @@ const engine = (on: On) => {
   gitCalls = []
   gitReply = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' })
   on('session.cwd', () => ({ value: '/w/proj' }))
-  on('process.run', (_$, e) => (gitCalls.push(e.argv), { value: gitReply(e.argv) }))
+  on('process.run', (_$, e) => (gitCalls.push(e.argv), { value: { isStdoutTruncated: false, isStderrTruncated: false, ...gitReply(e.argv) } }))
   on('ui.status', () => ({ value: undefined }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))

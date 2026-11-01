@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
 import { bareEmoji } from './style'
 
@@ -67,7 +68,7 @@ test('a message redrawn with new text is parsed again', async $ => {
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain(' b.ts ')
 })
 
-const mountAt = ($: Parameters<Parameters<typeof test>[1]>[0], text: string, columns = 100) =>
+const mountAt = ($: Parameters<TestBody>[0], text: string, columns = 100) =>
   $.ui.mount({
     plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
     props: { text, isFirstOfReply: true }, viewport: { columns, rows: 40 },
