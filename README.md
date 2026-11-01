@@ -126,7 +126,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 `statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
 
 ```
-╭─ Opus 5.5 · claude-mods ↗ · master +5 ~4 ──────────╮
+╭─ Opus 5.5 · claude-mods ↗ · main +5 ~4 ──────────╮
 │ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k  │
 │ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1× │
 │ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8× │
