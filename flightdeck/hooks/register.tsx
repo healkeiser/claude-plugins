@@ -31,7 +31,7 @@ import {
   endConsult,
   fitLegend,
   heatOf,
-  ruleFit,
+  headFit,
   ruleLine,
   fmtClock,
   fmtDuration,
@@ -198,7 +198,7 @@ async function isArchitectType($: EngineInterface, cfg: Config, type: string) {
 
 async function openPane($: EngineInterface, cfg: Config) {
   // columns apply when docked beside the transcript, rows when seated inline above the prompt.
-  return $.ui.open({ id: PANE, title: TITLE, columns: cfg.paneColumns, rows: 8 })
+  return $.ui.open({ id: PANE, title: TITLE, columns: cfg.paneColumns, rows: 8, backgroundColor: 'transparent' })
 }
 
 async function resetAll($: EngineInterface) {
@@ -666,22 +666,22 @@ export const register: Register = (on, options) => {
     const panels = cfg.panels.filter(p => !isEmpty[p])
     const decider = m.mode === 'auto' ? 'classifier' : 'you'
 
-    // The rule under a block: while its flow is live, packets run along it toward the block below; a dim
-    // rule otherwise. `marks` drop ┴ where the agent cards' bars meet it.
-    const foot = (key: string, w: number, active: boolean, color: string, marks: number[] = [], isStill = false) =>
-      motion && !isStill ? (
+    // A connector between blocks: animated while its flow is live, a dim line otherwise.
+    const rail = (key: string, active: boolean, color: string, width: number, marks: number[] = [], isMerge = false) =>
+      motion ? (
         <els.Client
           key={key}
           module="./rail.tsx"
-          width={w}
+          width={width}
           height={1}
-          props={{ active, width: w, color, dim: C.faint, marks, isMerge: true, lead: '╰' }}
+          props={{ active, width, color, dim: C.faint, marks, isMerge }}
         />
       ) : (
         <Text color={C.faint} mono>
-          {ruleLine(w, '╰', marks, '┴')}
+          {ruleLine(width, marks, isMerge ? '┴' : '┬')}
         </Text>
       )
+
     // A start time of 0 is unknown (state saved before it was recorded): no clock, not decades.
     const clock = (key: string, since: number, endAt: number | null, color: string) =>
       since <= 0 ? (
@@ -737,40 +737,26 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // An open-sided block, as gloss draws a code fence: `╭─ label ──── status` above, `╰────` below and
-    // no side borders, so a mouse selection copies the rows alone. The label keeps what the status leaves.
+    // A full rounded block, as postcard draws a card: the border in the block's colour, and its first row
+    // the bold label with the status on the right. The label keeps what the status leaves.
     type Right = { node: RenderChildren; width: number }
     const spanText = (spans: Span[]) =>
       spans.length === 1 && spans[0] ? <Text {...styleOf(spans[0])}>{spans[0].text}</Text> : <Text>{spans.map(x => <Text {...styleOf(x)}>{x.text}</Text>)}</Text>
     const right = (spans: Span[]): Right => ({ node: spanText(spans), width: spans.reduce((n, x) => n + cellWidth(x.text), 0) })
     const head = (w: number, label: string, color: string, r: Right | null = null, o: { dim?: boolean } = {}) => {
-      const fit = ruleFit(w, cellWidth(label), r?.width ?? 0)
-      const shown = shorten(label, fit.label)
-      // Dashes to the block's edge, clipped by the box the status leaves them.
-      const dashes = '─'.repeat(Math.max(1, w - 4 - cellWidth(shown)))
+      const fit = headFit(w, cellWidth(label), r?.width ?? 0)
       return (
-        <Box width={w} columnGap={1} overflow="hidden">
-          <Box flexShrink={0}>
-            <Text color={C.faint} mono>
-              ╭─
-            </Text>
-          </Box>
-          <Box flexShrink={0}>
-            <Text color={color} bold {...(o.dim ? { dimColor: true } : {})}>
-              {shown}
-            </Text>
-          </Box>
-          <Box flexGrow={1} flexShrink={1} overflow="hidden">
-            <Box flexShrink={0}>
-              <Text color={C.faint} mono>
-                {dashes}
-              </Text>
-            </Box>
-          </Box>
+        <Box width={w} justifyContent="space-between" columnGap={1} overflow="hidden">
+          <Text color={color} bold wrap="truncate" {...(o.dim ? { dimColor: true } : {})}>
+            {shorten(label, fit.label)}
+          </Text>
           {r && fit.showRight ? <Box flexShrink={0}>{r.node}</Box> : null}
         </Box>
       )
     }
+    // A block's frame: `w` wide outside, its rows `w - 4` inside the border and padding.
+    const block = (w: number, color: string, isDim = false) =>
+      ({ flexDirection: 'column', borderStyle: 'round', borderColor: color, paddingX: 1, width: w, ...(isDim ? { borderDimColor: true } : {}) }) as const
     // A fill's colour by how full it is: three steps of the statusline's heat ramp, in theme colours.
     const heat = (pct: number) => ({ calm: C.main, warm: C.amber, hot: C.warn })[heatOf(pct)]
     const sep: Span = { text: '· ', color: C.faint }
@@ -781,8 +767,8 @@ export const register: Register = (on, options) => {
     const ctxGauge = ctxFill.pct !== null ? gauge(ctxFill.pct, 10) : null
     const mainState = m.isRunning ? right([{ text: '● working', color: C.main }]) : right([{ text: '○ idle', color: C.dim }])
     const mainPanel = (w: number) => (
-      <Box flexDirection="column" width={w}>
-        {head(w, `${modelName} · main`, C.main, mainState)}
+      <Box {...block(w, C.main)}>
+        {head(w - 4, `${modelName} · main`, C.main, mainState)}
         {line(
           [
             {
@@ -795,7 +781,7 @@ export const register: Register = (on, options) => {
             m.mode ? { spans: [sep, { text: `mode ${m.mode}`, dim: true }] } : null,
             { spans: [sep, { text: `${m.steps} req`, dim: true }] },
           ],
-          w,
+          w - 4,
         )}
         {ctxGauge
           ? line(
@@ -811,7 +797,7 @@ export const register: Register = (on, options) => {
                 u.tokens !== null ? { spans: [sep, { text: `${kTokens(u.tokens)}/${kTokens(ctxFill.window)}`, dim: true }] } : null,
                 u.compactions > 0 ? { spans: [{ text: `⟲${u.compactions}`, color: C.amber }] } : null,
               ],
-              w,
+              w - 4,
             )
           : null}
         {u.costUsd !== null || u.limits.length > 0
@@ -834,11 +820,10 @@ export const register: Register = (on, options) => {
                   }
                 }),
               ],
-              w,
+              w - 4,
             )
           : null}
         {m.speed ? <Text dimColor wrap="truncate">{`last req · ${fmtSpeed(m.speed)}`}</Text> : null}
-        {foot('rule-main', w, m.isRunning, C.main)}
       </Box>
     )
 
@@ -846,11 +831,11 @@ export const register: Register = (on, options) => {
     const lastConsult = a.consults[a.consults.length - 1]
     const architectPanel = (w: number) => {
       // Both ends are anchors (the first consult, now): should it run past its box, it asks to lose the middle.
-      const tl = consultTimeline(a, now, Math.max(8, w))
+      const tl = consultTimeline(a, now, Math.max(8, w - 4))
       return (
-        <Box flexDirection="column" width={w}>
+        <Box {...block(w, C.arch)}>
           {head(
-            w,
+            w - 4,
             `${cfg.architectLabel} · ${advising ? 'advising' : 'on call'}`,
             C.arch,
             right([
@@ -892,7 +877,6 @@ export const register: Register = (on, options) => {
               » {a.lastAdvice}
             </Text>
           ) : null}
-          {foot('rule-architect', w, advising, C.arch)}
         </Box>
       )
     }
@@ -909,7 +893,7 @@ export const register: Register = (on, options) => {
       </Text>
     )
     const gatePanel = (w: number) => {
-      const strip = g.recent.slice(-Math.max(8, marksIn(w, isTerminal)))
+      const strip = g.recent.slice(-Math.max(8, marksIn(w - 4, isTerminal)))
       const open = v.gateOpen
       // The totals in words where they all fit, in numbers alone where they don't: the colours say which is which.
       const totalsOf = (isShort: boolean): Piece[] => [
@@ -919,13 +903,13 @@ export const register: Register = (on, options) => {
         { spans: [{ text: isShort ? `✕ ${s.deny}` : `✕ ${s.deny} denied`, color: s.deny > 0 ? C.warn : C.dim }] },
       ]
       const words = totalsOf(false)
-      const isShort = piecesThatFit(words.map(p => ({ width: widthOf(p) })), w, 2) < words.length
+      const isShort = piecesThatFit(words.map(p => ({ width: widthOf(p) })), w - 4, 2) < words.length
       const totals = isShort ? totalsOf(true) : words
       return (
-        <Box flexDirection="column" width={w}>
-          {head(w, `${cfg.gateLabel} · permissions`, C.gate, right([{ text: `${s.total} checks`, dim: true }]))}
+        <Box {...block(w, C.gate)}>
+          {head(w - 4, `${cfg.gateLabel} · permissions`, C.gate, right([{ text: `${s.total} checks`, dim: true }]))}
           {strip.length === 0 ? <Text color={C.faint}>no checks yet</Text> : markRow(strip.map(checkMark))}
-          {line([...totals, !isShort && w >= 80 && g.recent.some(c => c.inSubagent) ? { spans: [{ text: 'dim: in subagents', color: C.faint }] } : null], w, 2)}
+          {line([...totals, !isShort && w >= 80 && g.recent.some(c => c.inSubagent) ? { spans: [{ text: 'dim: in subagents', color: C.faint }] } : null], w - 4, 2)}
           {/* Below about 44 columns the three rows' buttons take two lines rather than run past the block. */}
           <Box columnGap={2} flexWrap="wrap">
             {(['file', 'shell', 'other'] as const).map((b: Bucket) => {
@@ -949,7 +933,7 @@ export const register: Register = (on, options) => {
                 .slice(-5)
                 .map(c => (
                   // The verdict sits in a box of its own width, not padded with spaces, which a graphical surface collapses.
-                  <Box width={w} columnGap={1} overflow="hidden">
+                  <Box width={w - 4} columnGap={1} overflow="hidden">
                     <Box width={12} flexShrink={0}>
                       <Text>
                         <Text color={verdictColor(c)}>{`${markOf(c)} `}</Text>
@@ -957,12 +941,11 @@ export const register: Register = (on, options) => {
                       </Text>
                     </Box>
                     <Text dimColor={c.inSubagent} wrap="truncate">
-                      {shorten(c.detail, Math.max(10, w - 14))}
+                      {shorten(c.detail, Math.max(10, w - 18))}
                     </Text>
                   </Box>
                 ))
             : null}
-          {foot('rule-gate', w, m.isRunning, C.gate)}
         </Box>
       )
     }
@@ -985,7 +968,6 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" width={w}>
             {head(w, label, C.agent)}
             <Text color={C.faint}>no subagents yet</Text>
-            {foot('rule-agents', w, false, C.agent, [], true)}
           </Box>
         )
       }
@@ -1022,64 +1004,51 @@ export const register: Register = (on, options) => {
                 </Box>
               )
             })}
-            {foot('rule-agents', w, running.length > 0, C.agent)}
           </Box>
         )
       }
-      // Each card is a bar down its left side, as gloss draws a quote, merging into the block's bottom rule at ┴.
+      // Each card is a rounded box; connectors fan out to the cards and merge back below them.
       const shown = cards.slice(-fit)
       const cardW = Math.max(20, Math.floor((w - (shown.length - 1)) / shown.length))
-      const edges = shown.map((_, i) => i * (cardW + 1)).filter(x => x > 0)
+      const centers = shown.map((_, i) => i * (cardW + 1) + Math.floor(cardW / 2))
       return (
         <Box flexDirection="column" width={w}>
           {head(w, label, C.agent, hint)}
+          {rail('fan-out', running.length > 0, C.agent, w, centers)}
           <Box columnGap={1}>
             {shown.map((c, i) => {
               const isViewed = viewed === c.id
               const sameModel = !c.model || prettyModel(c.model) === modelName
-              const [first, rest] = titleLines(cardTitle(c), cardW - 5, cardW - 2)
+              const [first, rest] = titleLines(cardTitle(c), cardW - 7, cardW - 4)
               const isMax = c.lastStop === 'max_tokens'
-              const bar = () => (
-                <Text color={isMax ? C.warn : C.agent} bold={isViewed} {...(c.status !== 'running' && !isViewed ? { dimColor: true } : {})}>
-                  {isViewed ? '┃' : '│'}
-                </Text>
-              )
-              const rows = [
-                <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={first} onPress={expandOnPress(c.id)} />,
-                rest ? (
+              return (
+                <Box
+                  flexDirection="column"
+                  borderStyle={isViewed ? 'bold' : 'round'}
+                  borderColor={isMax ? C.warn : C.agent}
+                  borderDimColor={c.status !== 'running' && !isViewed}
+                  width={cardW}
+                  paddingX={1}
+                >
+                  <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={first} onPress={expandOnPress(c.id)} />
                   <Text bold wrap="truncate">
                     {rest}
                   </Text>
-                ) : null,
-                <Text color={C.dim} wrap="truncate">
-                  {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
-                </Text>,
-                <Text dimColor wrap="truncate">
-                  {c.steps > 0 ? `ctx ${kTokens(c.ctx)} · out ${kTokens(c.out)} · ${c.steps} st` : 'starting…'}
-                </Text>,
-                <Box columnGap={1}>
-                  <Text color={isMax ? C.warn : statusColor(c)}>{cardW >= 26 ? `${glyph(c)} ${isMax ? 'max_tokens' : c.status}` : glyph(c)}</Text>
-                  <Box flexShrink={0}>{clock(`card-clock-${c.id}`, c.spawnedAt, c.endedAt, C.dim)}</Box>
-                </Box>,
-              ]
-              // Every row carries the bar, an empty one too, so the cards stand the same height.
-              return (
-                <Box flexDirection="column" width={cardW}>
-                  {rows.map(row => (
-                    <Box columnGap={1}>
-                      {bar()}
-                      {row ? (
-                        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                          {row}
-                        </Box>
-                      ) : null}
-                    </Box>
-                  ))}
+                  <Text color={C.dim} wrap="truncate">
+                    {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
+                  </Text>
+                  <Text dimColor wrap="truncate">
+                    {c.steps > 0 ? `ctx ${kTokens(c.ctx)} · out ${kTokens(c.out)} · ${c.steps} st` : 'starting…'}
+                  </Text>
+                  <Box columnGap={1}>
+                    <Text color={isMax ? C.warn : statusColor(c)}>{cardW >= 26 ? `${glyph(c)} ${isMax ? 'max_tokens' : c.status}` : glyph(c)}</Text>
+                    <Box flexShrink={0}>{clock(`card-clock-${c.id}`, c.spawnedAt, c.endedAt, C.dim)}</Box>
+                  </Box>
                 </Box>
               )
             })}
           </Box>
-          {foot('rule-agents', w, running.length > 0, C.agent, edges)}
+          {rail('merge', running.length > 0, C.agent, w, centers, true)}
         </Box>
       )
     }
@@ -1087,8 +1056,8 @@ export const register: Register = (on, options) => {
     const expandedCard = cards.find(c => c.id === v.expanded)
     const expandedPanel = (w: number) =>
       expandedCard ? (
-        <Box flexDirection="column" width={w}>
-          {head(w, `${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${expandedCard.status} · ${plural(expandedCard.steps, 'step')}`, C.agent)}
+        <Box {...block(w, C.agent)}>
+          {head(w - 4, `${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${expandedCard.status} · ${plural(expandedCard.steps, 'step')}`, C.agent)}
           <Text bold wrap="wrap">
             {expandedCard.description || expandedCard.type}
           </Text>
@@ -1106,7 +1075,6 @@ export const register: Register = (on, options) => {
               {`» ${shorten(expandedCard.answer, 240)}`}
             </Text>
           ) : null}
-          {foot('rule-expanded', w, false, C.agent, [], true)}
         </Box>
       ) : null
 
@@ -1150,8 +1118,8 @@ export const register: Register = (on, options) => {
           ? right([{ text: `${r.reason === 'answer' ? '✔' : '✕'} ${fmtDuration(r.durationMs)}`, color: r.reason === 'answer' ? C.ok : C.warn }])
           : null
       return (
-        <Box flexDirection="column" width={w}>
-          {head(w, m.isRunning ? 'turn' : 'last turn', C.main, state, { dim: !m.isRunning && !isReview })}
+        <Box {...block(w, C.main, !m.isRunning && !isReview)}>
+          {head(w - 4, m.isRunning ? 'turn' : 'last turn', C.main, state, { dim: !m.isRunning && !isReview })}
           {m.isRunning ? (
             <Text dimColor wrap="truncate">{`${modelName.toLowerCase()} · ${plural(t.edits, 'edit')} · ${plural(t.errors, 'error')}`}</Text>
           ) : r ? (
@@ -1160,7 +1128,7 @@ export const register: Register = (on, options) => {
                 { spans: [{ text: `${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}`, dim: true }], fill: true },
                 r.costDelta !== null ? { spans: [{ text: `· +${fmtUsd(r.costDelta)}`, color: C.main }] } : null,
               ],
-              w,
+              w - 4,
             )
           ) : (
             <Text color={C.faint}>no turn finished yet</Text>
@@ -1170,7 +1138,6 @@ export const register: Register = (on, options) => {
               {`${cfg.architectLabel.toLowerCase()} reviewing before done (inferred)`}
             </Text>
           ) : null}
-          {foot('rule-receipt', w, m.isRunning, C.main)}
         </Box>
       )
     }
@@ -1185,8 +1152,8 @@ export const register: Register = (on, options) => {
       l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'gate' ? C.gate : l.who === 'you' ? C.text : C.agent
     // Below 40 columns a line keeps its minute, not its second, and a shorter name.
     const logPanel = (w: number) => (
-      <Box flexDirection="column" marginTop={1} width={w}>
-        {head(w, viewed ? 'session log · this agent' : 'session log', C.dim)}
+      <Box {...block(w, C.dim)} marginTop={1}>
+        {head(w - 4, viewed ? 'session log · this agent' : 'session log', C.dim)}
         {shownLines.length === 0 ? <Text color={C.faint}>nothing yet</Text> : null}
         {shownLines.map(l => (
           <Box>
@@ -1203,7 +1170,6 @@ export const register: Register = (on, options) => {
             </Text>
           </Box>
         ))}
-        {foot('rule-log', w, false, C.dim, [], true)}
       </Box>
     )
 
@@ -1222,17 +1188,26 @@ export const register: Register = (on, options) => {
                   ? receiptPanel(w)
                   : logPanel(w)
 
-    // Blocks stacked; each one's bottom rule carries the flow toward the next.
+    // Blocks with the flow between them; the agents panel draws its own connectors.
     const column = (ps: Panel[], w: number) => (
       <Box flexDirection="column" width={w}>
-        {ps.map(p => (
-          <Box flexDirection="column">
-            {draw(p, w)}
-            {p === 'agents' ? expandedPanel(w) : null}
-          </Box>
-        ))}
+        {ps.map((p, i) => {
+          const prev = ps[i - 1]
+          const link =
+            i === 0 || p === 'agents' || prev === 'agents' || p === 'log' || p === 'loops' || prev === 'loops'
+              ? null
+              : rail(`link-${p}`, p === 'architect' ? advising : m.isRunning, p === 'architect' ? C.arch : C.main, w)
+          return (
+            <Box flexDirection="column">
+              {link}
+              {draw(p, w)}
+              {p === 'agents' ? expandedPanel(w) : null}
+            </Box>
+          )
+        })}
       </Box>
     )
+
     // Desktop draws the agents' time axis as SVG under the panels.
     const svgLanes =
       e.surface !== 'terminal' && cards.length > 0

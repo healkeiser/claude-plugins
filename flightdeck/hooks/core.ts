@@ -543,19 +543,18 @@ export const fitLegend = <T extends { label: string }>(items: T[], width: number
 }
 
 /**
- * How an open-sided block's top rule `╭─ label ──── right` shares `width` cells: the label keeps what the
- * corner, two gaps and one dash leave, less the right-hand status and its gap. The status is dropped
- * when it would cut the label below 6 cells (or below its own length, if shorter).
+ * How a block's label row `label    right` shares `width` cells: the label keeps what the right-hand
+ * status and its gap leave. The status is dropped when it would cut the label below 6 cells (or below
+ * its own length, if shorter).
  */
-export const ruleFit = (width: number, labelW: number, rightW: number) => {
-  const fixed = 2 + 1 + 1 + 1
-  const showRight = rightW > 0 && width - fixed - 1 - rightW >= Math.min(labelW, 6)
-  return { label: Math.max(1, Math.min(labelW, width - fixed - (showRight ? 1 + rightW : 0))), showRight }
+export const headFit = (width: number, labelW: number, rightW: number) => {
+  const showRight = rightW > 0 && width - 1 - rightW >= Math.min(labelW, 6)
+  return { label: Math.max(1, Math.min(labelW, width - (showRight ? 1 + rightW : 0))), showRight }
 }
 
-/** A rule of `width` cells: `lead` in the first, `mark` at each of `marks`, ─ elsewhere. */
-export const ruleLine = (width: number, lead = '', marks: readonly number[] = [], mark = '┴') =>
-  Array.from({ length: Math.max(1, width) }, (_, i) => (i === 0 && lead ? lead : marks.includes(i) ? mark : '─')).join('')
+/** A connector of `width` cells: `mark` at each of `marks`, ─ elsewhere. */
+export const ruleLine = (width: number, marks: readonly number[] = [], mark = '┴') =>
+  Array.from({ length: Math.max(1, width) }, (_, i) => (marks.includes(i) ? mark : '─')).join('')
 
 /** The cells a string takes in a terminal: one per character. */
 export const cellWidth = (s: string) => [...s].length

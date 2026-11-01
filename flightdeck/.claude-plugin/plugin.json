@@ -1,6 +1,6 @@
 {
   "name": "flightdeck",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A live agent dashboard pane: main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log. Based on scasella/claude-flightdeck.",
   "author": {
     "name": "Valentin Beaumont"
@@ -44,7 +44,7 @@
     },
     "motion": {
       "title": "Motion",
-      "description": "Animate the blocks' bottom rules while real work flows, or keep them still",
+      "description": "Animate the connectors while real work flows, or keep them still",
       "type": "string",
       "options": [
         "while-active",

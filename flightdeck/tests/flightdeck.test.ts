@@ -26,7 +26,7 @@ import {
   fitLegend,
   gauge,
   heatOf,
-  ruleFit,
+  headFit,
   ruleLine,
   fmtResetIn,
   fmtSpeed,
@@ -554,10 +554,10 @@ test('on a graphical surface, rows of marks hold fewer marks, keep the newest an
     for (const cols of [40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       // A terminal draws all 30 marks; a graphical surface draws fewer where 30 would not fit
-      // (26 in the 40 cells of a 40-column pane), always ending on the newest.
+      // (24 in the 36 cells of a 40-column pane), always ending on the newest.
       const strip = await ui.find({ type: 'Text', text: /^[▪○✕]{2,}$/ })
       expect(strip?.props.wrap).toBe('truncate-start')
-      expect(strip?.text.length).toBe(surface !== 'terminal' && cols === 40 ? 26 : 30)
+      expect(strip?.text.length).toBe(surface !== 'terminal' && cols === 40 ? 24 : 30)
       expect(strip?.text.endsWith('✕')).toBe(true)
       expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
       expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
@@ -627,14 +627,16 @@ test('a finished agent that takes another step (resumed by SendMessage) runs aga
   await ui.unmount()
 })
 
-test('the docked pane asks for the width set in paneColumns', { options: { paneColumns: 46 } }, async ($, on) => {
+test('the docked pane asks for the width set in paneColumns, over a transparent backdrop', { options: { paneColumns: 46 } }, async ($, on) => {
   engine(on)
   const asked: (number | undefined)[] = []
+  const backdrops: unknown[] = []
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
-  on('ui.open', (_$, e) => (asked.push(e.columns), { value: { isPlaced: true as const } }))
+  on('ui.open', (_$, e) => (asked.push(e.columns), backdrops.push(e.backgroundColor), { value: { isPlaced: true as const } }))
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
   expect(asked).toEqual([46])
+  expect(backdrops).toEqual(['transparent'])
 })
 
 test('the context gauge measures against a compaction window set below the model window', () => {
@@ -1117,17 +1119,17 @@ test('a single agent card fits from 24 columns, and the time axis scales to the 
   expect(failures).toEqual([])
 })
 
-test("a running block's bottom rule keeps its length every frame: one face, clipped at its width, its corner still, the dot moving", async ($, on) => {
+test('a running connector keeps its length every frame: one face, clipped at its width, the dot still moving', async ($, on) => {
   engine(on)
   on('tool.check', () => ({ decision: 'allow' }))
   await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'r1' })
   await $.turn.start({ text: 'go', turnId: 'R1' }) // a turn running: the connectors animate
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(64), surface })
-    expect((await ui.find({ key: 'rule-gate' }))?.type).toBe('Client')
+    expect((await ui.find({ key: 'link-gate' }))?.type).toBe('Client')
     const heads = new Set<number>()
     for (let frame = 0; frame < 30; frame += 1) {
-      const tree = (await ui.drawn({ in: 'rule-gate' })) as Drawn
+      const tree = (await ui.drawn({ in: 'link-gate' })) as Drawn
       const texts: Drawn[] = []
       const walk = (n: unknown) => {
         if (!isDrawn(n)) return
@@ -1140,7 +1142,7 @@ test("a running block's bottom rule keeps its length every frame: one face, clip
       expect([tree.type, tree.props?.width, tree.props?.overflow]).toEqual(['Box', 64, 'hidden'])
       expect(cellsOf(line)).toBe(64 + 4)
       expect(texts.every(t => t.props?.mono === true)).toBe(true)
-      expect(/^╰[─●•┬┴]+$/.test(line)).toBe(true)
+      expect(/^[─●•┬┴]+$/.test(line)).toBe(true)
       const head = [...line].slice(0, 64).indexOf('●')
       if (head >= 0) heads.add(head)
       await ui.advance(110)
@@ -1152,11 +1154,12 @@ test("a running block's bottom rule keeps its length every frame: one face, clip
 
 // ---------------------------------------------------------------- the look shared with gloss, pulse and postcard
 
-test("a block's top rule gives the label its room first, the status only where the label keeps 6 cells", () => {
-  expect(ruleFit(66, 15, 9)).toEqual({ label: 15, showRight: true })
-  expect(ruleFit(24, 15, 9)).toEqual({ label: 9, showRight: true })
-  expect(ruleFit(20, 15, 12)).toEqual({ label: 15, showRight: false })
-  expect(ruleLine(8, '╰', [3, 6])).toBe('╰──┴──┴─')
+test("a block's label row gives the label its room first, the status only where the label keeps 6 cells", () => {
+  expect(headFit(62, 15, 9)).toEqual({ label: 15, showRight: true })
+  expect(headFit(20, 15, 9)).toEqual({ label: 10, showRight: true })
+  expect(headFit(16, 15, 12)).toEqual({ label: 15, showRight: false })
+  expect(ruleLine(8, [3, 6])).toBe('───┴──┴─')
+  expect(ruleLine(5, [2], '┬')).toBe('──┬──')
   expect(gauge(64, 10)).toEqual({ on: '━━━━━━', off: '────' })
   expect([heatOf(30), heatOf(64), heatOf(82)]).toEqual(['calm', 'warm', 'hot'])
 })
@@ -1174,7 +1177,7 @@ const boxesIn = (n: unknown, out: Drawn[] = []): Drawn[] => {
   return out
 }
 
-test('panels are open-sided blocks in theme colours, cards hang on bars that merge into the rule below', { options: { motion: 'off' } }, async ($, on) => {
+test('panels are full rounded blocks in theme colours, cards are rounded boxes between connectors', { options: { motion: 'off' } }, async ($, on) => {
   engine(on)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'd1' ? 'deny' : e.tool_use_id === 'a1' ? 'ask' : 'allow' }))
@@ -1195,32 +1198,56 @@ test('panels are open-sided blocks in theme colours, cards hang on bars that mer
   const tree = await ui.drawn()
   const texts = textsIn(tree)
   const first = (re: RegExp) => texts.find(t => re.test(textOf(t)))
-  // No side borders anywhere: main, gate, agents, the running turn and the log each open on ╭─ and close on ╰.
-  expect(boxesIn(tree).filter(b => b.props?.borderStyle)).toEqual([])
-  expect(texts.filter(t => textOf(t) === '╭─').length).toBe(5)
-  expect(texts.filter(t => textOf(t).startsWith('╰')).length).toBe(5)
-  expect(texts.filter(t => textOf(t) === '╭─').every(t => t.props?.color === 'subtle')).toBe(true)
+  // Every block is a full round border with one cell of padding, no fill: main, gate, the running turn and
+  // the log in their panel colours, then the two cards, the finished one dimmed.
+  const framed = boxesIn(tree).filter(b => b.props?.borderStyle)
+  expect(framed.map(b => [b.props?.borderStyle, b.props?.borderColor, b.props?.paddingX, b.props?.borderDimColor === true])).toEqual([
+    ['round', 'claude', 1, false],
+    ['round', 'success', 1, false],
+    ['round', 'suggestion', 1, false],
+    ['round', 'suggestion', 1, true],
+    ['round', 'claude', 1, false],
+    ['round', 'inactive', 1, false],
+  ])
+  expect(boxesIn(tree).some(b => b.props?.backgroundColor !== undefined)).toBe(false)
+  // No open-sided rules are left: the label is the block's bold first row, in the block's colour.
+  expect(texts.some(t => /^[╭╰]/.test(textOf(t)))).toBe(false)
+  expect([first(/· main$/)?.props?.color, first(/· main$/)?.props?.bold]).toEqual(['claude', true])
+  expect(first(/^● working$/)?.props?.color).toBe('claude')
   // Fills heat up as the statusline's bars do: 64% in the warning colour, 82% in the error colour.
   expect(texts.filter(t => /^━+$/.test(textOf(t))).map(t => t.props?.color)).toEqual(['warning', 'error'])
   // The gate strip: ▪ ran, ○ pending, ✕ refused, newest last.
   expect(textOf(first(/^[▪○✕]{2,}$/))).toBe('▪○✕')
-  // Two cards of 32 columns: the second card's bar meets the bottom rule at ┴ in column 33.
-  const rule = texts.find(t => textOf(t).startsWith('╰') && textOf(t).includes('┴'))
-  expect([...textOf(rule)].indexOf('┴')).toBe(33)
+  // Still connectors in the subtle colour: main to gate, then a fan-out to the two 32-column cards' centres and a merge back.
+  const rails = texts.filter(t => /^[─┬┴]{66}$/.test(textOf(t)))
+  expect(rails.map(textOf)).toEqual(['─'.repeat(66), `${'─'.repeat(16)}┬${'─'.repeat(32)}┬${'─'.repeat(16)}`, `${'─'.repeat(16)}┴${'─'.repeat(32)}┴${'─'.repeat(16)}`])
+  expect(rails.every(t => t.props?.color === 'subtle')).toBe(true)
   expect(first(/^● running$/)?.props?.color).toBe('suggestion')
   expect(first(/^✔ done$/)?.props?.color).toBe('success')
-  const bars = texts.filter(t => textOf(t) === '│')
-  expect(bars.some(t => t.props?.dimColor === true) && bars.some(t => t.props?.dimColor !== true)).toBe(true) // the finished card's bar dims
   expect(first(/^turn$/)?.props?.color).toBe('claude')
   await ui.unmount()
 
-  // The finished turn: its time on the right of the rule, ✔ in the success colour, as pulse times a shell row.
+  // The finished turn: its time on the right of the label, ✔ in the success colour, the block dimmed.
   await $.turn.complete({ answer: 'ok', durationMs: 95_000, isAborted: false, turnId: 'L1', reason: 'answer' })
   const done = await $.ui.mount({ ...pane(66), surface: 'terminal' })
-  const after = textsIn(await done.drawn())
+  const drawn = await done.drawn()
+  const after = textsIn(drawn)
   expect(after.find(t => textOf(t) === 'last turn')?.props?.dimColor).toBe(true)
   expect(after.find(t => textOf(t) === '✔ 1m35s')?.props?.color).toBe('success')
+  expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true])
   await done.unmount()
+})
+
+test('the viewed card is drawn bold, the others round', async ($, on) => {
+  engine(on)
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `v${++n}` }))
+  await $.agent.spawn(spawn('general-purpose', 'Write the tests'))
+  await $.agent.spawn(spawn('Explore', 'Map the code'))
+  const ui = await $.ui.mount({ ...pane(66), surface: 'terminal', props: { ...pane(66).props, view: { agentId: 'v2' } } } as never)
+  const cards = boxesIn(await ui.drawn()).filter(b => b.props?.borderColor === 'suggestion')
+  expect(cards.map(b => b.props?.borderStyle)).toEqual(['round', 'bold'])
+  await ui.unmount()
 })
 
 test('the header is one compact row and the legend uses ▪ swatches', async ($, on) => {

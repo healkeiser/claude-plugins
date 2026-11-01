@@ -142,25 +142,29 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 
 ### flightdeck
 
-A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: open-sided blocks like gloss's code fences, bars and heat colours like the status line, and pulse's `✔ 1.4s` timing.
+A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: full rounded blocks like postcard's cards, bars and heat colours like the status line, and pulse's `✔ 1.4s` timing. The pane asks for a transparent backdrop, so your terminal's own background shows through.
 
 ```
-╭─ Opus 5.5 · main ───────────────────────────────── ● working
-effort ●●●○ high · mode auto · 12 req
-ctx ━━━━━━──── 64% · 640k/1.0M
-$12.45 · 5h ━━━━─ 82% ↻2h58m · 7d ━━─── 40% ↻3d22h
-╰─────────────────────────────────────────────────────────────
-╭─ agents · 2 running · 3 total ──────────────────── 1-3 expand
-│ 1: Write the loader │ 2: Map every call  │ 3: Review the
-│ regression tests    │ site               │ migration path
-│ general-purpose     │ Explore            │ general-purpose
-│ ctx 124k · out 900  │ ctx 40k · out 2k   │ starting…
-│ ● 0:42              │ ✔ 0:30             │ ● 0:12
-╰─────────────────────┴────────────────────┴──────────────────
+╭────────────────────────────────────────────────────────────╮
+│ Opus 5.5 · main                                  ● working │
+│ effort ●●●○ high · mode auto · 12 req                      │
+│ ctx ━━━━━━──── 64% · 640k/1.0M                             │
+│ $12.45 · 5h ━━━━─ 82% ↻2h58m · 7d ━━─── 40% ↻3d22h         │
+╰────────────────────────────────────────────────────────────╯
+agents · 2 running · 3 total                        1-3 expand
+──────────┬────────────────────┬────────────────────┬─────────
+╭──────────────────╮ ╭──────────────────╮ ╭──────────────────╮
+│ 1: Write the     │ │ 2: Map every     │ │ 3: Review the    │
+│ loader tests     │ │ call site        │ │ migration path   │
+│ general-purpose  │ │ Explore          │ │ general-purpose  │
+│ ctx 124k · out 9 │ │ ctx 40k · out 2k │ │ starting…        │
+│ ● 0:42           │ │ ✔ 0:30           │ │ ● 0:12           │
+╰──────────────────╯ ╰──────────────────╯ ╰──────────────────╯
+──────────┴────────────────────┴────────────────────┴─────────
 ```
 
-- **Blocks**: main (model, effort, mode, context gauge, compactions, cost, rate limits with their reset times, time to first token), architect (consult timeline, inferred moment, last advice), gate (one `▪` per permission check, `○` pending, `✕` denied, a drill-down per file, shell and other), agents (cards, or swimlanes when they don't fit), other loops, the turn receipt and the session log. A block with nothing to show stays hidden.
-- While work flows, a packet runs along the bottom rule of each live block; `motion: off` keeps them still.
+- **Blocks**: main (model, effort, mode, context gauge, compactions, cost, rate limits with their reset times, time to first token), architect (consult timeline, inferred moment, last advice), gate (one `▪` per permission check, `○` pending, `✕` denied, a drill-down per file, shell and other), agents (cards, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
+- While work flows, packets run along the connectors between blocks and fan out to the cards and back; `motion: off` keeps them still.
 - Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
 - `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card and `f`, `s`, `o` open the gate's rows.
 - Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels`, `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `openOnStart`, `statusLine`.
