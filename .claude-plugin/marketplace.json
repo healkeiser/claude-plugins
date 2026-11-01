@@ -46,6 +46,11 @@
       "name": "blender-5-2",
       "source": "./blender-5-2",
       "description": "Blender 5.2 LTS manual, Python API and developer docs, mirrored locally as searchable Markdown."
+    },
+    {
+      "name": "dev",
+      "source": "./dev",
+      "description": "Development skills: coding conventions and workflows, starting with Python."
     }
   ]
 }

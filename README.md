@@ -42,6 +42,7 @@
   - [working-band](#working-band)
   - [prompt-cards](#prompt-cards)
   - [Status line](#status-line)
+- [Dev skills](#dev-skills)
 - [Documentation skills](#documentation-skills)
 - [Security](#security)
 - [Development](#development)
@@ -151,6 +152,21 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 
 > [!IMPORTANT]
 > The script needs `bash` 4.2 or later, `jq` and `git`. On Windows, Git Bash brings all of them except `jq`; on macOS, the system `bash` is 3.2, so install a newer one.
+
+
+
+<!-- DEV -->
+## Dev skills
+
+The `dev` plugin holds coding-convention skills, shown as `dev:<skill>`.
+
+| Skill | What it covers |
+|-------|----------------|
+| `dev:python-development` | Python conventions: package layout, type hints, docstrings, imports, comments, formatting (ruff/black), `pyproject.toml`, tests |
+
+``` shell
+claude plugin install dev@healkeiser --scope user
+```
 
 
 
