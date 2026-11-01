@@ -59,7 +59,7 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 | Mod | What it changes |
 |-----|-----------------|
 | **pretty-markdown** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
-| **working-band** | The line above the prompt while Claude works, the folded tool rows, and the footer that closes each turn |
+| **working-band** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
 | **prompt-cards** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
@@ -111,6 +111,15 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - While a turn runs, the band above the prompt reads `⠹ editing parse.ts  ·  3 tools  ·  42s`: a spinner, the current action, the tool count and the elapsed time.
 - Folded tool rows read `◇ 3 reads  ·  ⌕ 2 searches  ·  ⌘ 1 shell`, dim, with failures in red.
 - The footer of a turn that used tools reads `✻ Baked for 29s  ·  6 tools  ·  2 files edited`.
+- A shell command that stands on its own row draws in three short lines:
+
+  ```
+  ● Rebase the vfx branch onto main                          ✔ 1.4s
+    $ cd ~/…/claude-plugins-vfx && git show main:.claude-plugin/marketpl…
+    └ bb43e7c feat(vfx): bundle the documentation skills into one vfx…  +3 lines
+  ```
+
+  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✔` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `⏸ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing.
 
 ### prompt-cards
 

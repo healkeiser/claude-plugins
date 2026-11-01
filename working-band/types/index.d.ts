@@ -3,6 +3,7 @@ export type Activity = { label: string; tools: number; frames: number; startedAt
 
 declare module 'claude-code' {
   interface PluginState {
-    'working-band': { activity: Activity | null }
+    /** `durations`: each Bash call's wall time in ms, by tool_use_id; null until it ends. */
+    'working-band': { activity: Activity | null; durations: StateFamily<number | null> }
   }
 }

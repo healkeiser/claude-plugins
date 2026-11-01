@@ -1,10 +1,12 @@
-import { atom, read, update } from 'claude-code'
+import { atom, memberOf, read, update } from 'claude-code'
 import type { Register, Timer } from 'claude-code'
 
 import type { Activity } from '../types'
+import { clip, commandLine, preview, took } from './bash'
 import { describe, elapsed, summarize } from './label'
 
 const activity = atom({ plugin: 'working-band', key: 'activity' } as const, null)
+const durations = atom({ plugin: 'working-band', key: 'durations' } as const, null)
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 // 8 frames a second: smooth enough for a braille spinner, light on redraws.
 const FRAME_MS = 125
@@ -39,6 +41,20 @@ export const register: Register = on => {
     if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(e.tool) && typeof path === 'string') turn.files.add(path)
     update($, activity, a => (a ? { ...a, label: describe(e), tools: a.tools + 1 } : a)).catch(() => {})
     return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // A Bash call's wall time, for its row. shortcut: it includes any wait on a
+  // permission prompt; time from the tool.check verdict if that misleads.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const startedAt = await $.clock.now()
+    const ran = await next(e)
+    // Written before the result goes back, so the finished row draws with it;
+    // a failed write costs the row its time, never the call its result.
+    try {
+      const end = await $.clock.now()
+      await update($, memberOf(durations, { requestId: e.tool_use_id }), () => end - startedAt)
+    } catch {}
+    return ran
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
@@ -85,6 +101,69 @@ export const register: Register = on => {
         {failed ? <Text color="error">{`  ·  ✕ ${failed} failed`}</Text> : null}
       </Text>
     )
+  })
+
+  // ● Rebase the vfx branch onto main            ✔ 1.4s
+  //   $ cd ~/…/repo && git rebase main
+  //   └ Successfully rebased and updated…  +3 lines
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    // ctrl+o and --verbose show the engine's full drawing.
+    if (e.surface !== 'terminal' || e.props.tool !== 'Bash' || e.props.isExpanded) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const { isRunning, isErrored, isInterrupted, output } = e.props
+    const input = (e.props.input ?? {}) as { command?: unknown; description?: unknown }
+    const command = String(input.command ?? '')
+    const width = (e.viewport?.columns ?? 80) - 2
+    const headline = describe({ tool: 'Bash', command, description: input.description })
+
+    let status: string
+    let color: 'warning' | 'error' | 'inactive' | 'success'
+    if (isInterrupted) [status, color] = ['⏸ interrupted', 'warning']
+    else if (isErrored) [status, color] = ['✕', 'error']
+    else if (isRunning) {
+      // The band's own tick turns the spinner; between turns it stands still.
+      const a = await read($, activity)
+      ;[status, color] = [a ? SPINNER[a.frames % SPINNER.length]! : '…', 'inactive']
+    } else {
+      const ms = await read($, memberOf(durations, e))
+      ;[status, color] = [ms === null ? '✔' : `✔ ${took(ms)}`, 'success']
+    }
+
+    // An errored call's text stays in the engine's ToolResult row below.
+    const shown = isRunning || isErrored || isInterrupted ? null : preview(output)
+    const more = shown?.more ? `  +${shown.more} ${shown.more === 1 ? 'line' : 'lines'}` : ''
+
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text wrap="truncate-end">
+            <Text color={color}>● </Text>
+            {headline}
+          </Text>
+          <Box flexShrink={0}>
+            <Text color={color}>{`  ${status}`}</Text>
+          </Box>
+        </Box>
+        <Text dimColor>{`  ${commandLine(command, width)}`}</Text>
+        {shown ? (
+          <Text>
+            <Text dimColor>{'  └ '}</Text>
+            <Text {...(shown.isStderr ? { color: 'error' as const } : { dimColor: true })}>
+              {clip(shown.first, width - 2 - more.length)}
+            </Text>
+            <Text dimColor>{more}</Text>
+          </Text>
+        ) : null}
+      </Box>
+    )
+  })
+
+  // The compact Bash row above previews the output, so its result block would
+  // say it twice; an error keeps the engine's block, its full text.
+  on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
+    const { Box } = $.ui.resolve(e)
+    return <Box />
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
