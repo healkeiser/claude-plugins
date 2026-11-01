@@ -145,7 +145,7 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 ```
 
 > [!IMPORTANT]
-> The script needs `bash`, `jq`, `git` and GNU `date`. On Windows, Git Bash brings all of them except `jq`.
+> The script needs `bash` 4.2 or later, `jq` and `git`. On Windows, Git Bash brings all of them except `jq`; on macOS, the system `bash` is 3.2, so install a newer one.
 
 
 
