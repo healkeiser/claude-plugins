@@ -358,6 +358,47 @@ export const segments = (counts: readonly number[], width: number): number[] => 
 }
 
 /** A rate-limit window's short name: `five_hour` → `5h`, `seven_day_opus` → `7d opus`. */
+// ---------------------------------------------------------------- the session folder, as the statusline reads it
+
+/** The folder's own name: the last part of `dir`, either separator. */
+export const folderOf = (dir: string) => dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || dir
+
+/** `dir` as a file:/// link: forward slashes, one leading slash dropped (so `/home/x` and `C:/x` both read right), spaces encoded. */
+export const fileUri = (dir: string) => `file:///${dir.replace(/\\/g, '/').replace(/^\//, '').replace(/ /g, '%20')}`
+
+/** `git remote get-url origin` as an https link: `.git` dropped, `git@host:owner/repo` turned into `https://host/owner/repo`. */
+export const remoteUrl = (raw: string) => {
+  const url = raw.trim().replace(/\.git$/, '')
+  const scp = /^[^@/]+@([^:/]+):(.+)$/.exec(url)
+  return scp ? `https://${scp[1]}/${scp[2]}` : url
+}
+
+/**
+ * `git status --porcelain=v2 --branch` read as the statusline reads it: the branch (a detached head as its
+ * first 7 hex digits in brackets), untracked and newly added files as added, then modified and deleted.
+ */
+export const parseGitStatus = (out: string) => {
+  let oid = ''
+  let branch = ''
+  let added = 0
+  let modified = 0
+  let deleted = 0
+  for (const l of out.split(/\r?\n/)) {
+    if (l.startsWith('# branch.oid ')) oid = l.slice('# branch.oid '.length)
+    else if (l === '# branch.head (detached)') branch = `(${oid.slice(0, 7)})`
+    else if (l.startsWith('# branch.head ')) branch = l.slice('# branch.head '.length)
+    else if (l.startsWith('? ')) added += 1
+    else if (/^[12u] /.test(l)) {
+      const x = l[2]
+      const y = l[3]
+      if (x === 'A') added += 1
+      if (x === 'M' || y === 'M') modified += 1
+      if (x === 'D' || y === 'D') deleted += 1
+    }
+  }
+  return { branch, added, modified, deleted }
+}
+
 export const limitLabel = (kind: string) =>
   kind
     .replace(/five[_ -]?hours?/i, '5h')

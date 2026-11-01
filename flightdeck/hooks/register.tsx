@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Roster, Turn, Usage, View } from '../types'
+import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Repo, Roster, Turn, Usage, View } from '../types'
 import {
   DEFAULT_ARCHITECT,
   addCard,
@@ -31,7 +31,11 @@ import {
   endConsult,
   fitLegend,
   heatOf,
+  fileUri,
+  folderOf,
   headFit,
+  parseGitStatus,
+  remoteUrl,
   segments,
   ruleLine,
   fmtClock,
@@ -76,6 +80,8 @@ import {
 import type { Config, Panel } from './core'
 
 const PANE = 'flightdeck'
+// Calls that may change the session folder's files: its git state is read again a second after the last.
+const REPO_TOOLS = new Set(['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const TITLE = 'Flightdeck'
 
 
@@ -93,6 +99,7 @@ const turn = atom({ plugin: 'flightdeck', key: 'turn' } as const, DEFAULT_TURN)
 const receipt = atom({ plugin: 'flightdeck', key: 'receipt' } as const, null)
 const view = atom({ plugin: 'flightdeck', key: 'view' } as const, DEFAULT_VIEW)
 const roster = atom({ plugin: 'flightdeck', key: 'roster' } as const, DEFAULT_ROSTER)
+const repo = atom({ plugin: 'flightdeck', key: 'repo' } as const, null)
 
 type ServerBlock = { type: string; id?: string; name?: string; tool_use_id?: string }
 
@@ -237,6 +244,36 @@ async function noteMode($: EngineInterface, mode: string | undefined) {
 
 // ---------------------------------------------------------------- hooks
 
+// The session folder's git state for the main block's label row, read as the statusline reads it: two
+// read-only git calls by argument vector, no shell, never on a draw. Read at start, on a change of folder,
+// a second after the last call that may change files, and at the end of each main turn.
+async function readRepo($: EngineInterface) {
+  const dir = await $.session.cwd().catch(() => '')
+  if (!dir) return
+  const git = (args: string[]) =>
+    $.process.run(['git', '-C', dir, '--no-optional-locks', ...args], { cwd: dir, timeoutMs: 3000 }).catch(() => null)
+  const st = await git(['status', '--porcelain=v2', '--branch'])
+  const isRepo = st !== null && st.exitCode === 0
+  const origin = isRepo ? await git(['remote', 'get-url', 'origin']) : null
+  const found: Repo = {
+    dir,
+    isRepo,
+    remote: origin && origin.exitCode === 0 ? remoteUrl(origin.stdout) : '',
+    ...(st && isRepo ? parseGitStatus(st.stdout) : { branch: '', added: 0, modified: 0, deleted: 0 }),
+  }
+  // Unchanged, no write: a write redraws the pane.
+  if (JSON.stringify(await read($, repo)) !== JSON.stringify(found)) await update($, repo, () => found)
+}
+// A newer call within the second supersedes an older one.
+let repoTick = 0
+function readRepoSoon($: EngineInterface) {
+  const mine = (repoTick += 1)
+  void $.clock
+    .sleep(1000)
+    .then(() => (mine === repoTick ? readRepo($) : undefined))
+    .catch(() => undefined)
+}
+
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
   const C = PALETTES[cfg.palette]
@@ -270,10 +307,17 @@ export const register: Register = (on, options) => {
     if (cfg.openOnStart) void openPane($, cfg).catch(() => undefined)
     await refreshStatus($, cfg)
     const done = await next(e)
+    await readRepo($)
     if (resumedWindow > 0) {
       await readCompactWindow($, resumedWindow)
       await refreshStatus($, cfg)
     }
+    return done
+  })
+
+  on('classic.CwdChanged', async ($, e, next) => {
+    const done = await next(e)
+    await readRepo($)
     return done
   })
 
@@ -464,6 +508,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     callLoop.set(e.tool_use_id, e.agentId ?? null)
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
+    if (REPO_TOOLS.has(String(e.tool))) readRepoSoon($)
     const didRun = ran.deny === undefined
     // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
     const g0 = await getGate($)
@@ -584,6 +629,7 @@ export const register: Register = (on, options) => {
       })
       await update($, receipt, () => r)
       await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: false }))
+      await readRepo($)
       await refreshStatus($, cfg)
       return done
     }
@@ -630,7 +676,7 @@ export const register: Register = (on, options) => {
     const hasClient = 'Client' in els
     const hasRail = hasClient && !faulted.has(faultKey(e.surface, 'rail.tsx'))
     const hasClock = hasClient && !faulted.has(faultKey(e.surface, 'elapsed.tsx'))
-    const [m, u, a, g, cards, lp, lines, t, r, v, now] = await Promise.all([
+    const [m, u, a, g, cards, lp, lines, t, r, v, rp, now] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -641,6 +687,7 @@ export const register: Register = (on, options) => {
       getTurn($),
       read($, receipt),
       getView($),
+      read($, repo),
       $.clock.now(),
     ])
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
@@ -710,10 +757,13 @@ export const register: Register = (on, options) => {
     // own, lays truncating ones out as blocks of their own, and collapses runs of spaces. So pieces sit `gap`
     // cells apart (a piece's `lead` adds more), each keeps its width, and pieces that don't fit in `room` are
     // left out from the end; or a piece marked `fill` (one span) truncates to what the others leave.
-    type Span = { text: string; color?: string; dim?: boolean; bold?: boolean }
+    type Span = { text: string; color?: string; dim?: boolean; bold?: boolean; href?: string }
     type Piece = { spans: Span[]; lead?: number; fill?: boolean }
     const styleOf = (s: Span) => ({ ...(s.color ? { color: s.color } : {}), ...(s.dim ? { dimColor: true } : {}), ...(s.bold ? { bold: true } : {}) })
     const widthOf = (p: Piece) => p.spans.reduce((n, s) => n + cellWidth(s.text), 0)
+    // A span is a Text, its text a link where it has an `href`.
+    const spanNode = (x: Span) => <Text {...styleOf(x)}>{x.href ? <els.Link href={x.href}>{x.text}</els.Link> : x.text}</Text>
+    const spanText = (spans: Span[]) => (spans.length === 1 && spans[0] ? spanNode(spans[0]) : <Text>{spans.map(spanNode)}</Text>)
     const line = (pieces: (Piece | null)[], room: number, gap = 1, justify?: 'center') => {
       const all = pieces.filter((p): p is Piece => p !== null)
       const shown = all.some(p => p.fill) ? all : all.slice(0, piecesThatFit(all.map(p => ({ width: widthOf(p), lead: p.lead })), room, gap))
@@ -730,7 +780,7 @@ export const register: Register = (on, options) => {
             }
             return (
               <Box flexShrink={0} {...lead}>
-                {p.spans.length === 1 && p.spans[0] ? <Text {...styleOf(p.spans[0])}>{p.spans[0].text}</Text> : <Text>{p.spans.map(s => <Text {...styleOf(s)}>{s.text}</Text>)}</Text>}
+                {spanText(p.spans)}
               </Box>
             )
           })}
@@ -741,8 +791,6 @@ export const register: Register = (on, options) => {
     // A full rounded block, as postcard draws a card: the border in the block's colour, and its first row
     // the bold label with the status on the right. The label keeps what the status leaves.
     type Right = { node: RenderChildren; width: number }
-    const spanText = (spans: Span[]) =>
-      spans.length === 1 && spans[0] ? <Text {...styleOf(spans[0])}>{spans[0].text}</Text> : <Text>{spans.map(x => <Text {...styleOf(x)}>{x.text}</Text>)}</Text>
     const right = (spans: Span[]): Right => ({ node: spanText(spans), width: spans.reduce((n, x) => n + cellWidth(x.text), 0) })
     const head = (w: number, label: string, color: string, r: Right | null = null, o: { dim?: boolean } = {}) => {
       const fit = headFit(w, cellWidth(label), r?.width ?? 0)
@@ -840,19 +888,36 @@ export const register: Register = (on, options) => {
         }
       }),
     ]
+    // The label row as the statusline's header: model, folder ↗ (the folder and origin as links), branch and
+    // its changes, zeros left out. Narrower, the link and the changes go first, then the branch, then the folder.
+    const headVariants = (): Piece[][] => {
+      const model: Piece = { spans: [{ text: modelName, color: C.main, bold: true }] }
+      if (!rp) return [[model, { spans: [sep, { text: 'main', dim: true }] }], [model]]
+      const folder = (withLink: boolean): Piece => ({
+        spans: [sep, { text: folderOf(rp.dir), href: fileUri(rp.dir) }, ...(withLink && rp.remote ? [{ text: ' ↗\uFE0E', dim: true, href: rp.remote }] : [])],
+      })
+      const changes: Span[] = [
+        ...(rp.added > 0 ? [{ text: ` +${rp.added}`, color: C.ok }] : []),
+        ...(rp.modified > 0 ? [{ text: ` ~${rp.modified}`, color: C.amber }] : []),
+        ...(rp.deleted > 0 ? [{ text: ` -${rp.deleted}`, color: C.warn }] : []),
+      ]
+      const branch = (withChanges: boolean): Piece => ({ spans: [sep, { text: rp.branch, color: C.ok }, ...(withChanges ? changes : [])] })
+      return rp.isRepo && rp.branch
+        ? [[model, folder(true), branch(true)], [model, folder(false), branch(true)], [model, folder(false), branch(false)], [model, folder(false)], [model]]
+        : [[model, folder(true)], [model, folder(false)], [model]]
+    }
     const mainPanel = (w: number) => {
       const iw = w - 4
-      const fit = headFit(iw, cellWidth(`${modelName} · main`), mainState.width)
+      const variants = headVariants()
+      const widthOfAll = (ps: Piece[]) => ps.reduce((n, x) => n + widthOf(x), 0) + ps.length - 1
+      // The status keeps its place while the model and folder fit beside it.
+      const fit = headFit(iw, widthOfAll(variants[Math.max(0, variants.length - 2)] ?? []), mainState.width)
+      const room = fit.showRight ? iw - 1 - mainState.width : iw
+      const label = variants.find(ps => widthOfAll(ps) <= room) ?? variants[variants.length - 1] ?? []
       return (
         <Box {...block(w, C.main)}>
           <Box key="main-head" width={iw} justifyContent="space-between" overflow="hidden">
-            {line(
-              [
-                { spans: [{ text: modelName, color: C.main, bold: true }] },
-                { spans: [sep, { text: 'main', dim: true }] },
-              ],
-              fit.showRight ? iw - 1 - mainState.width : iw,
-            )}
+            {line(label, room)}
             {fit.showRight ? <Box flexShrink={0}>{mainState.node}</Box> : null}
           </Box>
           {meters(mainRows(iw), iw)}

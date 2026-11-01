@@ -108,6 +108,18 @@ export type View = { expanded: string | null; gateOpen: Bucket | null; layout: L
 
 export type Roster = { architectTypes: string[] }
 
+/** The session folder's git state, as the statusline reads it: `branch` empty and `remote` empty outside a repo. */
+export type Repo = {
+  dir: string
+  isRepo: boolean
+  branch: string
+  /** `origin` as an https URL, or empty. */
+  remote: string
+  added: number
+  modified: number
+  deleted: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'flightdeck': {
@@ -123,6 +135,7 @@ declare module 'claude-code' {
       receipt: Receipt | null
       view: View
       roster: Roster
+      repo: Repo | null
     }
   }
 }

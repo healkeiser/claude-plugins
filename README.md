@@ -148,7 +148,7 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 
 ```
 ╭────────────────────────────────────────────────────────────╮
-│ Opus 5.5 · main                                  ● working │
+│ Opus 5.5 · claude-plugins ↗ · main ~2            ● working │
 │ ctx  ━━━━━━────   64%   640k/1.0M                          │
 │ 5h   ━━━━━━━━──   82%   ↻ 4h 51m   21:05                   │
 │ 7d   ━━━━──────   40%   ↻ 3d 22h   Thu 14:41               │
@@ -175,7 +175,7 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 ╰────────────────────────────────────────────────────────────╯
 ```
 
-- **Blocks**: main (the status line's meters for context and each rate limit, with the time to each reset and its wall-clock time, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
+- **Blocks**: main (the status line's header: the folder and its origin as links, the branch and its `+added ~modified -deleted` counts, zeros left out; then its meters for context and each rate limit, with the time to each reset and its wall-clock time, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
 - Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off` keeps them still.
 - Status glyphs are plain text (`✓ ✕ ● ○ ■`), never ones a terminal such as Warp draws as colour emoji, and each takes the colour of the words it marks.
 - Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
@@ -286,7 +286,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also 
 <!-- SECURITY -->
 ## Security
 
-Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. gloss, pulse, postcard and flightdeck only draw and count; none of them runs a command, reads your files, or makes a network call. flightdeck reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
+Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. gloss, pulse and postcard only draw and count; none of them runs a command, reads your files, or makes a network call. flightdeck runs two read-only git commands in the session folder, `git status --porcelain=v2 --branch` and `git remote get-url origin` (by argument vector, no shell, with `--no-optional-locks` so it never takes the index lock), at start, on a change of folder, a second after a Bash, Edit or Write call and at the end of each turn; it writes nothing and makes no network call. It also reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
 
 `filetree` does more than draw: it lists and reads files under the folder it shows, runs `git` for status and diffs, local converters such as `ffmpeg`, `pdftoppm` and `soffice` for previews when they are installed, and opens files in the programs its options name. It makes no network call of its own.
 

@@ -26,7 +26,11 @@ import {
   fitLegend,
   gauge,
   heatOf,
+  fileUri,
+  folderOf,
   headFit,
+  parseGitStatus,
+  remoteUrl,
   segments,
   ruleLine,
   fmtResetAt,
@@ -239,8 +243,17 @@ test('a window keeps its reset time, drawn as the time left', () => {
 
 // ---------------------------------------------------------------- drawing
 
+// What git answers in a test, and every git command flightdeck ran: no test reaches the real git.
+type GitReply = { exitCode: number; stdout: string; stderr: string }
+let gitReply: (argv: readonly string[]) => GitReply = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' })
+let gitCalls: (readonly string[])[] = []
+
 const engine = (on: On) => {
   const clock = mock.clock(on)
+  gitCalls = []
+  gitReply = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' })
+  on('session.cwd', () => ({ value: '/w/proj' }))
+  on('process.run', (_$, e) => (gitCalls.push(e.argv), { value: gitReply(e.argv) }))
   on('ui.status', () => ({ value: undefined }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -1059,7 +1072,12 @@ const busySession = async ($: Parameters<TestBody>[0], on: On) => {
 }
 
 test('every panel fits the pane at every width from 24 columns, on every surface and placement, in lines a graphical surface keeps whole', { timeoutMs: 60_000 }, async ($, on) => {
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   await busySession($, on)
+  // A repo with a long branch and every kind of change: the main block's label row must fit too.
+  gitReply = repoReply(STATUS.replace('feat/x', 'feature/a-rather-long-branch-name'))
+  await $.session.start({ cwd: '/w/proj', surface: 'terminal', isInteractive: true })
   const failures: string[] = []
   const check = async (label: string) => {
     for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
@@ -1351,4 +1369,104 @@ test('the header is one compact row and the legend uses ■ swatches', async ($,
   expect(texts.find(t => textOf(t) === 'flightdeck')?.props?.color).toBe('claude')
   expect(texts.filter(t => textOf(t) === '■').map(t => t.props?.color)).toEqual(['claude', 'suggestion', 'success'])
   await ui.unmount()
+})
+
+// ---------------------------------------------------------------- the session folder in the main block
+
+const STATUS = ['# branch.oid 0123456789abcdef', '# branch.head feat/x', '1 .M N... 100644 100644 100644 a a a.ts', '1 A. N... 0 100644 100644 0 b b.ts', '? c.ts', '1 D. N... 100644 0 0 d 0 d.ts'].join('\n')
+const repoReply = (status: string) => (argv: readonly string[]): GitReply =>
+  argv.includes('status')
+    ? { exitCode: 0, stdout: status, stderr: '' }
+    : { exitCode: 0, stdout: 'git@github.com:healkeiser/claude-plugins.git\n', stderr: '' }
+const headOf = async (ui: { drawn: () => Promise<unknown> }) => textOf(keyed(await ui.drawn(), 'main-head'))
+const linksIn = (n: unknown, out: Drawn[] = []): Drawn[] => {
+  if (!isDrawn(n)) return out
+  if (n.type === 'Link') out.push(n)
+  ;(n.children ?? []).forEach(c => linksIn(c, out))
+  return out
+}
+const start = ($: Parameters<TestBody>[0], on: On) => {
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  return $.session.start({ cwd: '/w/proj', surface: 'terminal', isInteractive: true })
+}
+
+test('git output reads as the statusline reads it', () => {
+  expect(parseGitStatus(STATUS)).toEqual({ branch: 'feat/x', added: 2, modified: 1, deleted: 1 })
+  expect(parseGitStatus('# branch.oid 0123456789abcdef\n# branch.head (detached)\n').branch).toBe('(0123456)')
+  expect(remoteUrl('git@github.com:owner/repo.git\n')).toBe('https://github.com/owner/repo')
+  expect(remoteUrl('https://example.com/owner/repo.git')).toBe('https://example.com/owner/repo')
+  expect([folderOf('/w/proj'), folderOf('C:\\Users\\me\\my repo\\'), fileUri('C:\\Users\\me\\my repo')]).toEqual(['proj', 'my repo', 'file:///C:/Users/me/my%20repo'])
+})
+
+test('the main block names the folder, its origin, the branch and its changes', async ($, on) => {
+  engine(on)
+  gitReply = repoReply(STATUS)
+  await start($, on)
+  expect(gitCalls).toEqual([
+    ['git', '-C', '/w/proj', '--no-optional-locks', 'status', '--porcelain=v2', '--branch'],
+    ['git', '-C', '/w/proj', '--no-optional-locks', 'remote', 'get-url', 'origin'],
+  ])
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await headOf(ui)).toMatch(/· proj ↗\uFE0E· feat\/x \+2 ~1 -1/) // pieces sit a Box gap apart, their texts read back to back
+  expect(linksIn(await ui.drawn()).map(l => l.props?.href)).toEqual(['file:///w/proj', 'https://github.com/healkeiser/claude-plugins'])
+  const texts = textsIn(keyed(await ui.drawn(), 'main-head'))
+  expect(['feat/x', ' +2', ' ~1', ' -1'].map(x => texts.find(t => textOf(t) === x)?.props?.color)).toEqual(['success', 'success', 'warning', 'error'])
+  await ui.unmount()
+  // Narrower, the link and the changes go first, then the branch.
+  const mid = await $.ui.mount({ ...pane(32), surface: 'terminal' })
+  expect(await headOf(mid)).toMatch(/· proj· feat\/x(?! \+)/)
+  expect(await headOf(mid)).not.toMatch(/↗/)
+  await mid.unmount()
+  const narrow = await $.ui.mount({ ...pane(24), surface: 'terminal' })
+  expect(await headOf(narrow)).not.toMatch(/feat/)
+  await narrow.unmount()
+})
+
+test('a detached head shows its commit, a folder outside a repo shows alone', async ($, on) => {
+  engine(on)
+  gitReply = repoReply('# branch.oid 89abcdef01234567\n# branch.head (detached)\n')
+  await start($, on)
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await headOf(ui)).toMatch(/· proj ↗\uFE0E· \(89abcde\)/)
+  await ui.unmount()
+
+  gitCalls = []
+  gitReply = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' })
+  await $.turn.start({ text: 'go', turnId: 'N1' })
+  await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 'N1', reason: 'answer' })
+  expect(gitCalls.length).toBe(1) // no repo: origin is not asked
+  const plain = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await headOf(plain)).toMatch(/· proj/)
+  expect(await headOf(plain)).not.toMatch(/↗|89abcde/)
+  expect(linksIn(await plain.drawn()).map(l => l.props?.href)).toEqual(['file:///w/proj'])
+  await plain.unmount()
+})
+
+test('git runs at start, a second after the last call that may change files, and at the end of a turn, never on a draw', async ($, on) => {
+  const clock = engine(on)
+  gitReply = repoReply(STATUS)
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  await start($, on)
+  expect(gitCalls.length).toBe(2)
+  for (let i = 0; i < 3; i += 1) {
+    const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+    await ui.drawn()
+    await ui.advance(500)
+    await ui.unmount()
+  }
+  expect(gitCalls.length).toBe(2)
+  // Two edits half a second apart, then a read: one refresh, a second after the last edit.
+  await $.tool.call({ tool: 'Bash', command: 'touch e.ts', tool_use_id: 'x1' } as never)
+  await clock.advance(500)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/proj/a.ts', old_string: 'a', new_string: 'b', tool_use_id: 'x2' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/w/proj/a.ts', tool_use_id: 'x3' } as never)
+  await clock.advance(999)
+  expect(gitCalls.length).toBe(2)
+  await clock.advance(1)
+  await clock.advance(0)
+  expect(gitCalls.length).toBe(4)
+  await $.turn.start({ text: 'go', turnId: 'G1' })
+  await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 'G1', reason: 'answer' })
+  expect(gitCalls.length).toBe(6)
 })
