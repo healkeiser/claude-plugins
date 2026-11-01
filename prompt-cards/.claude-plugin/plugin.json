@@ -1,1 +1,1 @@
-{"name": "prompt-cards", "version": "0.2.1", "description": "Draws each prompt you send as a blue bordered card, and /prompts lists them in a pane that jumps to any one.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}
+{"name": "prompt-cards", "version": "0.2.2", "description": "Draws each prompt you send as a blue bordered card, and /prompts lists them in a pane that jumps to any one.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}

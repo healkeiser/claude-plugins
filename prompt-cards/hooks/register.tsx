@@ -147,7 +147,10 @@ export const register: Register = on => {
       <Box flexDirection="column">
         {list.length === 0 && <Text dimColor>No prompts yet.</Text>}
         {list.map((p, row) => {
-          const line = p.text.split('\n')[0]!.trim()
+          // The first line with words, past a leading blank or paste tag; cut by
+          // code point so an emoji is never split in half.
+          const line = [...(p.text.split(/\r?\n/).map(l => l.trim())
+            .find(l => l && !/^<\/?pasted_content\b/.test(l)) ?? '')]
           return (
             <Button
               key={`p${p.n}`}
@@ -159,7 +162,7 @@ export const register: Register = on => {
               }}
             >
               <Text color={CARD}>{`#${p.n} `}</Text>
-              {line.length > width ? `${line.slice(0, width - 1)}…` : line}
+              {line.length > width ? `${line.slice(0, width - 1).join('')}…` : line.join('')}
             </Button>
           )
         })}

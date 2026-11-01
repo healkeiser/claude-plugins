@@ -16,6 +16,14 @@ test('the prompts pane lists drawn prompts newest first', async $ => {
   expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['#2 second ask', '#1 first ask'])
 })
 
+test('the pane shows a prompt by its first line with words, cut whole', async $ => {
+  const pasted = '\n<pasted_content id="1">\r\nsudo ls\r\n</pasted_content id="1">'
+  await $.ui.mount({ plugin: 'prompt-cards', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', pasted) })
+  await $.ui.mount({ plugin: 'prompt-cards', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: props('composer', '😀'.repeat(20)) })
+  const pane = await $.ui.mount({ plugin: 'prompt-cards', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#2 ${'😀'.repeat(9)}…`, '#1 sudo ls'])
+})
+
 test('a task notification keeps the engine drawing', async ($, on) => {
   // Stands in for the engine's own row beneath the plugin.
   on('ui.render', { component: 'UserMessage' }, ($, e) => {
