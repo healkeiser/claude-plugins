@@ -71,12 +71,12 @@ export function afterTurn($: EngineInterface) {
   void readRepo($).catch(() => {})
 }
 
-/** Whether the band is hidden: `/pulse band` this session, else the `band` option. */
+/** Whether the band is hidden: the last `/pulse band` (remembered across sessions), else the `band` option. */
 const hiddenBy = (v: View, option: unknown) => (v.band ?? (option === 'off' ? 'off' : 'on')) === 'off'
 
 async function setView($: EngineInterface, fn: (v: View) => View) {
   const v = await update($, view, x => fn({ ...DEFAULT_VIEW, ...x }))
-  await $.store.set(STORE_KEY, { isOpen: v.isOpen, tab: v.tab }).catch(() => {})
+  await $.store.set(STORE_KEY, { isOpen: v.isOpen, tab: v.tab, band: v.band }).catch(() => {})
 }
 /** A tab's key opens it; the open tab's own key folds the band again. */
 function pressTab($: EngineInterface, tab: Tab) {
@@ -100,7 +100,13 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       .catch(() => {})
     const saved = (await $.store.get(STORE_KEY).catch(() => undefined)) as Partial<View> | undefined
     if (saved && typeof saved === 'object') {
-      await update($, view, v => ({ ...DEFAULT_VIEW, ...v, isOpen: saved.isOpen === true, tab: isTab(saved.tab) ? saved.tab : 'activity' }))
+      await update($, view, v => ({
+        ...DEFAULT_VIEW,
+        ...v,
+        isOpen: saved.isOpen === true,
+        tab: isTab(saved.tab) ? saved.tab : 'activity',
+        ...(saved.band === 'on' || saved.band === 'off' ? { band: saved.band } : {}),
+      }))
     }
     const [COLORTERM, TERM, WT_SESSION] = await Promise.all([
       $.env.get('COLORTERM').catch(() => undefined),
@@ -115,10 +121,10 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
   on('command.run', { command: 'pulse' }, async ($, e) => {
     const [what, how = 'toggle'] = e.args.trim().split(/\s+/)
     if (what !== 'band' || !['on', 'off', 'toggle'].includes(how)) return { text: 'Usage: /pulse band on|off|toggle' }
-    const v = await update($, view, x => {
-      const now = { ...DEFAULT_VIEW, ...x }
+    let v: View = DEFAULT_VIEW
+    await setView($, now => {
       const band: 'on' | 'off' = how === 'toggle' ? (isHidden(now) ? 'on' : 'off') : (how as 'on' | 'off')
-      return { ...now, band }
+      return (v = { ...now, band })
     })
     return { text: isHidden(v) ? 'pulse band hidden. /pulse band on shows it again.' : 'pulse band shown.' }
   })
@@ -189,11 +195,11 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       const isActive = v.isOpen && v.tab === t.id
       if (!isTerm) {
         return (
-          <Button key={`tab-${t.id}`} label={t.title} hotkey={t.key} {...(isActive ? { variant: 'primary' as const } : { dimColor: true })} onPress={() => pressTab($, t.id)} />
+          <Button key={`tab-${t.id}`} label={t.title} {...(isActive ? { variant: 'primary' as const } : { dimColor: true })} onPress={() => pressTab($, t.id)} />
         )
       }
       return (
-        <Button key={`tab-${t.id}`} plain hotkey={t.key} {...(isActive ? {} : { dimColor: true })} onPress={() => pressTab($, t.id)}>
+        <Button key={`tab-${t.id}`} plain {...(isActive ? {} : { dimColor: true })} onPress={() => pressTab($, t.id)}>
           {isActive ? <Text color={ROLE.accent}>{label}</Text> : label}
         </Button>
       )
@@ -207,7 +213,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     // ---- folded: one row, never wrapped; the least important pieces leave first
 
     const folded = () => {
-      const tabCells = TABS.reduce((n, t) => n + 2 + cellWidth(`${t.key}: ${t.short}`), 0)
+      const tabCells = TABS.reduce((n, t) => n + 2 + cellWidth(t.short), 0)
       const left: (Piece & { node: () => RenderChildren })[] = []
       if (isWorking) {
         left.push({ id: 'tools', cells: cellWidth(DOT + plural(a.tools, 'tool')), drop: 3, node: () => <Text dimColor>{DOT + plural(a.tools, 'tool')}</Text> })
@@ -454,7 +460,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           ) : null}
         </Box>
       )
-      const longCells = TABS.reduce((n, t) => n + 2 + cellWidth(`${t.key}: ${t.long}`), 0)
+      const longCells = TABS.reduce((n, t) => n + 2 + cellWidth(t.long), 0)
       const tabLabel = (t: (typeof TABS)[number]) => (longCells + 3 <= inner ? t.long : t.short)
       const tabs = (
         <Box flexDirection="row" alignItems="center">

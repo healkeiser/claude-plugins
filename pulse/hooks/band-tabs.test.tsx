@@ -130,7 +130,7 @@ test('the countdown redraws once a second, takes heat as it nears zero, then rea
   await ui.unmount()
 })
 
-test('folded and working: the current action, tab buttons with hotkeys and the fold control', async ($, on) => {
+test('folded and working: the current action, tab buttons with no digit hotkeys and the fold control', async ($, on) => {
   engine(on)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
@@ -139,7 +139,7 @@ test('folded and working: the current action, tab buttons with hotkeys and the f
   expect(text).toContain('reading a.ts')
   expect(text).toContain('1 tool')
   const buttons = await ui.findAll({ type: 'Button' })
-  expect(buttons.map(b => b.props.hotkey).filter(Boolean)).toEqual(['1', '2', '3', '4'])
+  expect(buttons.map(b => b.props.hotkey).filter(Boolean)).toEqual([])  // a bare digit in an empty prompt must stay typing, not switch tabs
   expect(buttons.map(b => b.key)).toEqual(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'fold'])
   await ui.unmount()
 })
@@ -213,7 +213,7 @@ test('the open tab and the unfolded state come back from the store in a new sess
   expect(mine(await look(ui))).toContain('pulse · git')
   await ui.press({ key: 'tab-context' })
   await ui.unmount()
-  expect(store.band).toEqual({ isOpen: true, tab: 'context' })
+  expect(store.band).toMatchObject({ isOpen: true, tab: 'context' })
 })
 
 test('/pulse band off hides the band to the rows beneath; on and toggle bring it back', async ($, on) => {
@@ -374,5 +374,20 @@ test('glyphs text: ASCII stand-ins and a classic border', { options: { glyphs: '
   expect(text).not.toContain('✓')
   expect(text).toContain('v reading a.ts')
   expect((await ui.findAll({ type: 'Box' })).some(b => b.props.borderStyle === 'classic')).toBe(true)
+  await ui.unmount()
+})
+
+test('/pulse band off is written to the store, so it outlives the session', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  engine(on, store)
+  await $.command.run(pulse('band off'))
+  expect(store.band).toMatchObject({ band: 'off' })
+})
+
+test('a new session whose store says off starts with the band hidden', async ($, on) => {
+  engine(on, { band: { isOpen: false, tab: 'activity', band: 'off' } })
+  await startSession($)
+  const ui = await mount($)
+  expect(await look(ui)).toBe('other band')
   await ui.unmount()
 })
