@@ -18,7 +18,8 @@ export type Span =
   | { kind: 'code'; text: string }
   | { kind: 'link'; label: string; href: string }
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([\w+#.-]*)/
+// Any indent: a fence inside a list item sits under its bullet, often 3+ spaces in.
+const FENCE = /^([ \t]*)(`{3,}|~{3,})\s*([\w+#.-]*)/
 
 // Splits a reply into code fences and prose; prose blocks holding inline code
 // become our own lines, every other block stays with the engine's Markdown.
@@ -38,12 +39,16 @@ export function parse(text: string): Part[] {
       prose.push(lines[i]!)
       continue
     }
-    const marker = open[1]!
+    const indent = open[1]!.length
+    const marker = open[2]!
     const body: string[] = []
     let j = i + 1
     while (j < lines.length && !lines[j]!.trimStart().startsWith(marker)) body.push(lines[j++]!)
     flushProse()
-    parts.push({ kind: 'code', language: open[2] ?? '', source: body.join('\n') })
+    // Drop the fence's own indent from each line (CommonMark), so a copied
+    // command starts at its first character, not at the list's indentation.
+    const strip = (l: string) => l.replace(new RegExp(`^[ \\t]{0,${indent}}`), '').replace(/\r$/, '')
+    parts.push({ kind: 'code', language: open[3] ?? '', source: body.map(strip).join('\n') })
     i = j
   }
   flushProse()

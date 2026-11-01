@@ -179,8 +179,8 @@ export const register: Register = on => {
                 plain
                 dimColor
                 onPress={async press => {
-                  const { isCopied } = await $.ui.copy({ text: part.source, surface: press.surface })
-                  $.ui.toast(isCopied ? 'Copied to clipboard' : 'Copy failed')
+                  const result = await $.ui.copy({ text: part.source, surface: press.surface })
+                  $.ui.toast(result.isCopied ? 'Copied to clipboard' : `Copy failed (${result.reason})`)
                 }}
               />
             </Box>

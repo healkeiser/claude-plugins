@@ -44,3 +44,12 @@ test('wrapSpans breaks at spaces and splits a word longer than a line', () => {
   expect(text(parseInline('the quick `brown` foxes'), 9)).toEqual(['the quick', 'brown', 'foxes'])
   expect(text(parseInline('abcdefghij'), 4)).toEqual(['abcd', 'efgh', 'ij'])
 })
+
+test('an indented fence (inside a list item) is code, without the indent', () => {
+  const parts = parse('1. Run it:\n\n    ```\n    ! cd ~/x && uv run a.py\n      nested\n    ```\n2. Done.')
+  expect(parts.find(p => p.kind === 'code')).toEqual({ kind: 'code', language: '', source: '! cd ~/x && uv run a.py\n  nested' })
+})
+
+test('CRLF line ends are not copied', () => {
+  expect(parse('```sh\r\necho hi\r\n```')[0]).toEqual({ kind: 'code', language: 'sh', source: 'echo hi' })
+})
