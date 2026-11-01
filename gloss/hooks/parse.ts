@@ -1,3 +1,5 @@
+import { findRefs, wholeRef } from './paths'
+import type { FileRef } from './paths'
 import { cellWidth, cutCells, GLYPH } from './style'
 
 export type Part =
@@ -25,8 +27,10 @@ export type QuoteLine = Line & { level: number }
 
 export type Span =
   | { kind: 'text'; text: string; bold?: boolean; italic?: boolean; strike?: boolean }
-  | { kind: 'code'; text: string }
+  | { kind: 'code'; text: string; ref?: FileRef }
   | { kind: 'link'; label: string; href: string }
+  // A `file:line` in prose: drawn as a link once the file is found to exist.
+  | { kind: 'path'; text: string; ref: FileRef }
 
 // Any indent: a fence inside a list item sits under its bullet, often 3+ spaces in.
 const FENCE = /^([ \t]*)(`{3,}|~{3,})\s*([\w+#.-]*)/
@@ -132,7 +136,7 @@ function parseOther(block: string, blockLines: string[]): Part {
     // Lists, and prose holding inline code or a strikethrough, are ours; tables,
     // mixed quotes and indented code blocks stay the engine's to draw.
     const isList = ITEM.test(blockLines[0]!)
-    const isOurs = (isList || block.includes('`') || block.includes('~~')) &&
+    const isOurs = (isList || block.includes('`') || block.includes('~~') || findRefs(block).length > 0) &&
       blockLines.every(l => !/^\s*(\||>)/.test(l) && (isList || !/^ {4,}\S/.test(l)) && !/^\s*([-*_])\s*\1\s*\1/.test(l))
     return isOurs
       ? { kind: 'lines', lines: parseLines(blockLines) }
@@ -182,20 +186,40 @@ export function parseInline(text: string): Span[] {
   const spans: Span[] = []
   let at = 0
   for (const m of text.matchAll(INLINE)) {
-    if (m.index! > at) spans.push({ kind: 'text', text: text.slice(at, m.index) })
-    if (m[1]) spans.push({ kind: 'code', text: m[2]!.trim() || m[2]! })
-    else if (m[3]) spans.push({ kind: 'text', text: m[3], bold: true })
+    if (m.index! > at) spans.push(...withRefs(text.slice(at, m.index)))
+    if (m[1]) {
+      const code = m[2]!.trim() || m[2]!
+      const ref = wholeRef(code)
+      spans.push(ref ? { kind: 'code', text: code, ref } : { kind: 'code', text: code })
+    } else if (m[3]) spans.push({ kind: 'text', text: m[3], bold: true })
     else if (m[4]) spans.push({ kind: 'link', label: m[4], href: m[5]! })
     else if (m[8]) spans.push({ kind: 'text', text: m[8], strike: true })
     else spans.push({ kind: 'text', text: m[6] ?? m[7] ?? '', italic: true })
     at = m.index! + m[0].length
   }
-  if (at < text.length) spans.push({ kind: 'text', text: text.slice(at) })
+  if (at < text.length) spans.push(...withRefs(text.slice(at)))
   return spans
+}
+
+// Plain text with each `path:line` in it cut out as a path span.
+function withRefs(text: string): Span[] {
+  const out: Span[] = []
+  let at = 0
+  for (const { start, end, ...ref } of findRefs(text)) {
+    if (start > at) out.push({ kind: 'text', text: text.slice(at, start) })
+    out.push({ kind: 'path', text: text.slice(start, end), ref })
+    at = end
+  }
+  if (at < text.length) out.push({ kind: 'text', text: text.slice(at) })
+  return out
 }
 
 // In terminal cells: CJK and emoji count two, combining marks none.
 export const spanWidth = (s: Span) => (s.kind === 'code' ? cellWidth(s.text) + 2 : cellWidth(s.kind === 'link' ? s.label : s.text))
+
+/** Each file reference the spans hold, prose paths and inline code alike. */
+export const spanRefs = (spans: Span[]): FileRef[] =>
+  spans.flatMap(s => (s.kind === 'path' || (s.kind === 'code' && s.ref) ? [s.ref!] : []))
 
 // Breaks spans into lines at most `width` cells wide, at spaces where it can and
 // mid-word where a word is longer than a line. A link too long for a line loses
@@ -220,7 +244,7 @@ export function wrapSpans(spans: Span[], width: number): Span[][] {
 
   const chunks = (s: Span): Span[] => {
     if (spanWidth(s) <= width) return [s]
-    const plain = s.kind === 'link' ? { kind: 'text' as const, text: s.label } : s
+    const plain = s.kind === 'link' ? { kind: 'text' as const, text: s.label } : s.kind === 'path' ? { kind: 'text' as const, text: s.text } : s
     const step = Math.max(2, plain.kind === 'code' ? width - 2 : width)
     const out: Span[] = []
     // Cut by cells and whole graphemes, so a wide character or a surrogate pair is never split.

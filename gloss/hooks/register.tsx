@@ -2,10 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { FoldId } from '../types'
-import { asHunk, parse, spanWidth, wrapSpans } from './parse'
+import { fenced, oneLine, tsv } from './copy'
+import { layout, parseMermaid, splitMermaid, toSvg } from './mermaid'
+import { asHunk, parse, spanRefs, spanWidth, wrapSpans } from './parse'
 import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
-import { GLYPH, ROLE, asciiTree, cellWidth, isAsciiGlyphs, remember } from './style'
+import { editorScheme, refUrl, resolvePath } from './paths'
+import type { FileRef } from './paths'
+import { GLYPH, ROLE, SEP, asciiTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
 // included, which `$.config.list` only reports as "auto". The chip is the
@@ -25,6 +29,19 @@ const CALLOUT: Record<CalloutType, { color: string; title: string }> = {
 
 // Code blocks the person unfolded, by message id and block index.
 const expanded = atom({ plugin: 'gloss', key: 'expanded' } as const, [] as readonly FoldId[])
+// The text of the main conversation's last reply, for `/gloss copy`.
+const lastReply = atom({ plugin: 'gloss', key: 'lastReply' } as const, '')
+
+const USAGE = 'Usage: /gloss copy [n] copies the nth code block of the last reply (the last when n is left out).'
+
+// Every span of a part, for the file references it holds.
+const partSpans = (p: Part): Span[] =>
+  p.kind === 'lines' || p.kind === 'callout' || p.kind === 'quote' ? p.lines.flatMap(l => l.spans)
+    : p.kind === 'next' || p.kind === 'heading' ? p.spans
+    : p.kind === 'table' ? [...p.header.flat(), ...p.rows.flat(2)]
+    : []
+
+const refKey = (r: FileRef) => `${r.path}:${r.line}:${r.col ?? ''}`
 
 const widthOf = (list: Span[]) => list.reduce((n, s) => n + spanWidth(s), 0)
 
@@ -48,11 +65,76 @@ export const register: Register = (on, options) => {
   // Each message's last parse: a fold toggle or resize redraws every message,
   // and only a message still streaming has new text to parse.
   const parsed = new Map<string, { text: string; parts: Part[] }>()
+  // Whether a resolved path is a file; a reply redraws often, the disk is asked once.
+  const found = new Map<string, boolean>()
+  let env: Promise<{ scheme: string; home: string }> | undefined
+
+  on('session.start', async ($, e, next) => {
+    const result = await next(e)
+    await $.command.register({ name: 'gloss', description: 'Copy the nth code block of the last reply (the last by default)', argumentHint: 'copy [n]' })
+    return result
+  })
+
+  // Keeps the last reply's text: a prompt starts a new one, each response block adds to it.
+  on('session.append', async ($, e, next) => {
+    if (!e.agentId && e.door === 'prompt') await update($, lastReply, () => '')
+    if (!e.agentId && e.door === 'response') {
+      const text = e.message.content.flatMap(b => (b.type === 'text' && typeof b.text === 'string' ? [b.text] : [])).join('\n\n')
+      if (text) await update($, lastReply, was => (was ? `${was}\n\n${text}` : text))
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a copy convenience never holds up the row
+
+  on('command.run', { command: 'gloss' }, async ($, e) => {
+    const m = /^copy(?:\s+(\d+))?$/i.exec(e.args.trim())
+    if (!m) return { text: USAGE }
+    const blocks = parse(await read($, lastReply)).flatMap(p => (p.kind === 'code' ? [p] : []))
+    if (!blocks.length) return { text: 'The last reply has no code block.' }
+    const n = m[1] ? Number(m[1]) : blocks.length
+    const block = blocks[n - 1]
+    if (!block) return { text: `The last reply has ${plural(blocks.length, 'code block')}: pick 1 to ${blocks.length}.` }
+    const result = await $.ui.copy({ text: block.source })
+    return { text: result.isCopied ? `Copied code block ${n} of ${blocks.length}${block.language ? ` (${block.language})` : ''}.` : `Copy failed (${result.reason}).` }
+  })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     // Desktop, VS Code and mobile draw replies well already (proportional type,
     // their own code blocks and tables): gloss leaves them native. DESIGN.md.
-    if (e.surface !== 'terminal') return next(e)
+    if (e.surface !== 'terminal') {
+      // Native drawing, except a mermaid fence, which becomes a picture.
+      const drawn = splitMermaid(e.props.text).map(p => {
+        if (p.kind === 'text') return p
+        const d = parseMermaid(p.source)
+        const grid = 'error' in d ? null : layout(d, 240)
+        if ('error' in d || !grid) return { kind: 'text' as const, text: p.fence }
+        return { ...p, svg: toSvg(grid), what: d.kind === 'flow' ? 'flowchart' : 'sequence diagram' }
+      })
+      if (!drawn.some(p => 'svg' in p)) return next(e)
+      const { Box, Markdown, Button, Svg } = $.ui.resolve(e)
+      return (
+        <Box flexDirection="column" gap={1}>
+          {drawn.map((p, k) =>
+            'svg' in p ? (
+              <Box key={`g${k}`} flexDirection="column">
+                <Svg source={p.svg} alt={`Mermaid ${p.what}`} />
+                <Button
+                  key={`copy${k}`}
+                  label="Copy mermaid source"
+                  plain
+                  dimColor
+                  onPress={async press => {
+                    const result = await $.ui.copy({ text: p.source, surface: press.surface })
+                    $.ui.toast(result.isCopied ? 'Copied the mermaid source' : `Copy failed (${result.reason})`)
+                  }}
+                />
+              </Box>
+            ) : (
+              <Markdown key={`g${k}`} text={p.text} />
+            ),
+          )}
+        </Box>
+      )
+    }
     const cached = parsed.get(e.requestId)
     const parts = cached?.text === e.props.text ? cached.parts : parse(e.props.text)
     // Bounded: a long or resumed session must not keep every reply's parse.
@@ -64,10 +146,59 @@ export const register: Register = (on, options) => {
     const open = await read($, expanded)
     const room = (e.viewport?.columns ?? 100) - 4
 
+    // `file:line` references link only to files that exist; checking is one
+    // cached stat each, so nothing that is not a file turns into a link.
+    const refs = parts.flatMap(p => spanRefs(partSpans(p)))
+    const hrefs = new Map<string, string>()
+    if (refs.length) {
+      env ??= (async () => ({
+        scheme: editorScheme({ VISUAL: await $.env.get('VISUAL'), EDITOR: await $.env.get('EDITOR'), TERM_PROGRAM: await $.env.get('TERM_PROGRAM') }),
+        home: (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || '',
+      }))()
+      const { scheme, home } = await env
+      const cwd = await $.session.cwd()
+      for (const ref of refs) {
+        const abs = resolvePath(cwd, ref.path, home)
+        if (!found.has(abs)) remember(found, abs, await $.fs.stat(abs).then(s => s.kind === 'file', () => false))
+        if (found.get(abs)) hrefs.set(refKey(ref), refUrl(abs, ref, scheme))
+      }
+    }
+
+    type Choice = { key: string; label: string; text: string; what: string }
+    // A row of copy choices, dim, ` · ` between: the first is the plain copy.
+    const menu = (choices: Choice[]) =>
+      choices.flatMap((c, k) => [
+        ...(k ? [<Text key={`${c.key}.sep`} color={ROLE.chrome}>{SEP}</Text>] : []),
+        <Button
+          key={c.key}
+          label={c.label}
+          plain
+          dimColor
+          onPress={async press => {
+            const result = await $.ui.copy({ text: c.text, surface: press.surface })
+            $.ui.toast(result.isCopied ? `Copied ${c.what}` : `Copy failed (${result.reason})`)
+          }}
+        />,
+      ])
+    const menuWidth = (choices: { label: string }[]) =>
+      choices.reduce((n, c) => n + cellWidth(c.label), 0) + SEP.length * Math.max(0, choices.length - 1)
+
     const spans = (list: Span[], at: string) =>
       list.map((s, k) =>
         s.kind === 'code' ? (
-          <Text key={`${at}.${k}`} backgroundColor={ROLE.chip}>{` ${s.text} `}</Text>
+          s.ref && hrefs.has(refKey(s.ref)) ? (
+            <Link key={`${at}.${k}`} href={hrefs.get(refKey(s.ref))!}>
+              <Text backgroundColor={ROLE.chip}>{` ${s.text} `}</Text>
+            </Link>
+          ) : (
+            <Text key={`${at}.${k}`} backgroundColor={ROLE.chip}>{` ${s.text} `}</Text>
+          )
+        ) : s.kind === 'path' ? (
+          hrefs.has(refKey(s.ref)) ? (
+            <Link key={`${at}.${k}`} href={hrefs.get(refKey(s.ref))!} label={s.text} />
+          ) : (
+            <Text key={`${at}.${k}`}>{s.text}</Text>
+          )
         ) : s.kind === 'link' ? (
           <Link key={`${at}.${k}`} href={s.href} label={s.label} />
         ) : (
@@ -157,7 +288,20 @@ export const register: Register = (on, options) => {
           widths[k] = widths[k]! - cut
           over -= cut
         }
-        if (over > 0) return <Markdown key={`t${i}`} text={part.source} />
+        const tableChoices = [
+          { key: `md${i}`, label: '⧉ md', text: part.source, what: 'the table as Markdown' },
+          { key: `tsv${i}`, label: 'tsv', text: tsv(part.source), what: 'the table as TSV' },
+        ]
+        if (over > 0) {
+          return (
+            <Box key={`t${i}`} flexDirection="column">
+              <Markdown text={part.source} />
+              <Box flexDirection="row">{menu(tableChoices)}</Box>
+            </Box>
+          )
+        }
+        const tableWidth = widths.reduce((a, b) => a + b, 0) + 3 * (widths.length - 1) + 4
+        const isBeside = tableWidth + 1 + menuWidth(tableChoices) <= room
         // Drawn line by line, so every wrapped line carries its column rules.
         const rule = (l: string, m: string, r: string, at: string) => (
           <Text key={at} color={ROLE.chrome}>{`${l}─${widths.map(w => '─'.repeat(w)).join(`─${m}─`)}─${r}`}</Text>
@@ -190,7 +334,15 @@ export const register: Register = (on, options) => {
             {rule('╭', '┬', '╮', `t${i}.top`)}
             {row(part.header, `t${i}.h`, true)}
             {part.rows.flatMap((r, j) => [rule('├', '┼', '┤', `t${i}.r${j}`), ...row(r, `t${i}.${j}`, false)])}
-            {rule('╰', '┴', '╯', `t${i}.end`)}
+            {isBeside ? (
+              <Box key={`t${i}.foot`} flexDirection="row">
+                {rule('╰', '┴', '╯', `t${i}.end`)}
+                <Text> </Text>
+                {menu(tableChoices)}
+              </Box>
+            ) : (
+              [rule('╰', '┴', '╯', `t${i}.end`), <Box key={`t${i}.menu`} flexDirection="row">{menu(tableChoices)}</Box>]
+            )}
           </Box>
         )
       }
@@ -225,19 +377,42 @@ export const register: Register = (on, options) => {
         // Open sides, no padding, no line-number gutter: a mouse selection of the
         // code rows copies the code alone. The rules above and below frame it.
         const label = part.language || 'code'
-        const COPY = '⧉ copy'
-        const copy = (
-          <Button
-            key={`copy${i}`}
-            label={COPY}
-            plain
-            dimColor
-            onPress={async press => {
-              const result = await $.ui.copy({ text: part.source, surface: press.surface })
-              $.ui.toast(result.isCopied ? 'Copied to clipboard' : `Copy failed (${result.reason})`)
-            }}
-          />
+        const isMermaid = part.language.toLowerCase() === 'mermaid'
+        const line = isMermaid ? null : oneLine(part.source, part.language)
+        // Least important last: on a narrow window the menu drops from the end.
+        const choices: Choice[] = [
+          { key: `copy${i}`, label: '⧉ copy', text: part.source, what: isMermaid ? 'the mermaid source' : 'the code' },
+          { key: `fence${i}`, label: 'fenced', text: fenced(part.language, part.source), what: 'the block with its fence' },
+          ...(line ? [{ key: `line${i}`, label: 'one line', text: line, what: 'the commands as one line' }] : []),
+        ]
+        while (choices.length > 1 && room - cellWidth(label) - menuWidth(choices) - 6 < 1) choices.pop()
+        const head = (
+          <Box flexDirection="row">
+            <Text color={ROLE.chrome}>{'╭─ '}</Text>
+            <Text dimColor italic>{label}</Text>
+            <Text color={ROLE.chrome}>{` ${GLYPH.track.repeat(Math.max(1, room - cellWidth(label) - menuWidth(choices) - 6))} `}</Text>
+            {menu(choices)}
+          </Box>
         )
+        const foot = <Text color={ROLE.chrome}>{`╰${GLYPH.track.repeat(Math.max(1, room - 1))}`}</Text>
+
+        if (isMermaid) {
+          const d = parseMermaid(part.source)
+          const grid = 'error' in d ? null : layout(d, room)
+          const why = 'error' in d ? d.error : `too wide for ${room} columns`
+          return (
+            <Box key={`c${i}`} flexDirection="column">
+              {head}
+              {grid
+                ? grid.rows().map((row, k) => <Text key={`c${i}.${k}`}>{isAscii ? row.replace(/◂/g, '<') : row}</Text>)
+                : [
+                    <Text key={`c${i}.why`} dimColor>{`${GLYPH.info} ${why}: the source is shown`}</Text>,
+                    <Code key={`c${i}.src`} source={part.source} />,
+                  ]}
+              {foot}
+            </Box>
+          )
+        }
         const body = isDiff ? (
           <Code source={asHunk(part.source)} format="diff" />
         ) : (
@@ -258,15 +433,10 @@ export const register: Register = (on, options) => {
         ) : null
         return (
           <Box key={`c${i}`} flexDirection="column">
-            <Box flexDirection="row">
-              <Text color={ROLE.chrome}>{'╭─ '}</Text>
-              <Text dimColor italic>{label}</Text>
-              <Text color={ROLE.chrome}>{` ${GLYPH.track.repeat(Math.max(1, room - cellWidth(label) - COPY.length - 6))} `}</Text>
-              {copy}
-            </Box>
+            {head}
             {body}
             {fold}
-            <Text color={ROLE.chrome}>{`╰${GLYPH.track.repeat(Math.max(1, room - 1))}`}</Text>
+            {foot}
           </Box>
         )
       }

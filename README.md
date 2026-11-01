@@ -103,18 +103,21 @@ Run `/reload-plugins` in a session that is already open; new sessions load them 
 
 Redraws each block of Claude's reply that has something to gain; plain prose keeps Claude Code's own look.
 
-- **Code blocks** draw between a top rule, carrying their language and a `⧉ copy` button, and a bottom rule, with no side border, so a mouse selection copies the code alone. Past 20 lines they fold to 12 with a `▾ show all N lines` button.
+- **Code blocks** draw between a top rule, carrying their language and a copy menu, and a bottom rule, with no side border, so a mouse selection copies the code alone. The menu reads `⧉ copy · fenced · one line`: the code as it stands, the code inside its ` ``` ` fence and language, and, for a shell block of several commands, those commands joined into one line to paste at a prompt (`\` and PowerShell's backtick continuations joined, `$ ` prompts and comments dropped, `&&` between commands, `;` for PowerShell or a block with its own `if`/`for`; not offered for a heredoc). On a narrow window the menu drops from its end. Past 20 lines a block folds to 12 with a `▾ show all N lines` button.
+- **`/gloss copy [n]`** copies the nth code block of the last reply, the last one when `n` is left out, as `⧉ copy` would.
 - **Inline code** becomes a chip on the theme's own prompt tint, in the normal text colour, so it reads on light and dark themes alike, `auto` included.
+- **`file:line` references** in prose or inline code (`src/a.ts:42`, `./pkg/mod.rs:3:7`, `C:\x\y.py:10`) become links when the file exists, resolved against the session's folder. With VS Code, Cursor, Windsurf or VSCodium as `VISUAL` or `EDITOR` (or in VS Code's terminal) the link opens the file at that line and column; otherwise it is a `file:` link, which opens the file. A reference to a file that is not there, a time (`10:30`), a port or a URL stays plain text. Open a link the way your terminal opens links (often ctrl+click).
+- **Mermaid fences** (` ```mermaid `) draw as a text diagram in the block: flowcharts (`graph`/`flowchart`, `TD`, `TB` or `LR`) as boxes joined by lines and `▾ ▸` arrowheads with their labels, and sequence diagrams as participants over lifelines with their messages (`─` solid, `·` dashed, `✕` lost), notes and `loop`/`alt` rows. Another kind of diagram, `RL` and `BT` flowcharts, or a diagram too wide for the window shows its source with a note saying why. The copy menu copies the source either way.
 - **Lists** change bullet by depth (`•`, `◦`, `■`; the first level in Claude orange, deeper ones dim) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✓`.
 - **Quotes** that are not callouts draw with a dim `│` bar on every line, one per nesting level, rather than a box.
 - **Rules** (`---`, `***`, `___` alone on a line) draw as a dim line across the window.
 - **Strikethrough** (`~~text~~`) draws struck through.
 - **Diff fences** (` ```diff `) draw in red and green, a hunk header added when the fence has none.
-- **Tables** draw in a rounded border with a bold header row; a table too wide for the window narrows its widest column and wraps it. Widths are counted in terminal cells, so Chinese, Japanese and Korean text and emoji keep the borders straight.
+- **Tables** draw in a rounded border with a bold header row and a `⧉ md · tsv` menu beside the bottom border, which copies the table as Markdown or as tab-separated values to paste into a spreadsheet; a table too wide for the window narrows its widest column and wraps it. Widths are counted in terminal cells, so Chinese, Japanese and Korean text and emoji keep the borders straight.
 - **Headings** (`##` lines and bold-only lines such as `**What changed:**`) draw in the accent colour with a rule under them.
 - **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon: `ℹ` blue, `✓` green, `◆` orange, `⚠` yellow, `✕` red.
 - A paragraph opening with **`Next:`** draws in its own box, led by `»`, so the action a reply ends on is easy to spot.
-- In the desktop app, VS Code and on mobile, replies keep Claude Code's own drawing, which already does all of this.
+- In the desktop app, VS Code and on mobile, replies keep Claude Code's own drawing, which already does all of this, save a reply with a mermaid flowchart or sequence diagram: that diagram draws as a picture, with a button that copies its source, and the rest of the reply stays native.
 - Option (in `/plugin`, or `pluginConfigs` under `gloss@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins (`v`, `x`, `*`, `+-|` borders) for a terminal or font that cannot show the Unicode ones.
 
 ### pulse

@@ -3,6 +3,6 @@ export type FoldId = string
 
 declare module 'claude-code' {
   interface PluginState {
-    'gloss': { expanded: readonly FoldId[] }
+    'gloss': { expanded: readonly FoldId[]; lastReply: string }
   }
 }
