@@ -41,6 +41,7 @@
   - [gloss](#gloss)
   - [pulse](#pulse)
   - [postcard](#postcard)
+  - [flightdeck](#flightdeck)
   - [Status line](#status-line)
 - [File tree](#file-tree)
 - [Dev skills](#dev-skills)
@@ -55,13 +56,14 @@
 <!-- ABOUT -->
 ## About
 
-Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code): small TypeScript modules that redraw parts of its terminal interface. Each one works on its own, so install only the ones you want.
+Four [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code): small TypeScript modules that redraw parts of its terminal interface. Each one works on its own, so install only the ones you want.
 
 | Mod | What it changes |
 |-----|-----------------|
 | **gloss** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
 | **pulse** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
 | **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
+| **flightdeck** | A live dashboard pane beside the transcript: the main model's vitals, an on-call architect, every permission check, subagent cards and swimlanes, the turn receipt and a session log. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
 
@@ -79,6 +81,7 @@ claude plugin marketplace add healkeiser/claude-plugins
 claude plugin install gloss@healkeiser --scope user
 claude plugin install pulse@healkeiser --scope user
 claude plugin install postcard@healkeiser --scope user
+claude plugin install flightdeck@healkeiser --scope user
 ```
 
 Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
@@ -136,6 +139,34 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 
 > [!NOTE]
 > Colours are tuned for dark themes: the inline-code chip and the prompt card's background are fixed colours, and read as dark bands on a light theme.
+
+### flightdeck
+
+A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: open-sided blocks like gloss's code fences, bars and heat colours like the status line, and pulse's `✔ 1.4s` timing.
+
+```
+╭─ Opus 5.5 · main ───────────────────────────────── ● working
+effort ●●●○ high · mode auto · 12 req
+ctx ━━━━━━──── 64% · 640k/1.0M
+$12.45 · 5h ━━━━─ 82% ↻2h58m · 7d ━━─── 40% ↻3d22h
+╰─────────────────────────────────────────────────────────────
+╭─ agents · 2 running · 3 total ──────────────────── 1-3 expand
+│ 1: Write the loader │ 2: Map every call  │ 3: Review the
+│ regression tests    │ site               │ migration path
+│ general-purpose     │ Explore            │ general-purpose
+│ ctx 124k · out 900  │ ctx 40k · out 2k   │ starting…
+│ ● 0:42              │ ✔ 0:30             │ ● 0:12
+╰─────────────────────┴────────────────────┴──────────────────
+```
+
+- **Blocks**: main (model, effort, mode, context gauge, compactions, cost, rate limits with their reset times, time to first token), architect (consult timeline, inferred moment, last advice), gate (one `▪` per permission check, `○` pending, `✕` denied, a drill-down per file, shell and other), agents (cards, or swimlanes when they don't fit), other loops, the turn receipt and the session log. A block with nothing to show stays hidden.
+- While work flows, a packet runs along the bottom rule of each live block; `motion: off` keeps them still.
+- Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
+- `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card and `f`, `s`, `o` open the gate's rows.
+- Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels`, `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `openOnStart`, `statusLine`.
+- `statusLine` is off by default, so it leaves your own status line alone; turn it on for a `ctx 36% · agents 1/3 · denied 2` entry.
+
+Credit: Flightdeck is © 2026 Stephen Casella, with contributions from Alejandro Remior, @vihrea1337 and others listed in its changelog. See [`flightdeck/NOTICE`](./flightdeck/NOTICE) and [`flightdeck/LICENSE`](./flightdeck/LICENSE).
 
 ### Status line
 
@@ -238,7 +269,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also 
 <!-- SECURITY -->
 ## Security
 
-Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These three only draw and count; none of them runs a command, reads your files, or makes a network call. Read `hooks/` before installing, as you would for any plugin.
+Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These mods only draw and count; none of them runs a command, reads your files, or makes a network call. flightdeck reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
 
 `filetree` does more than draw: it lists and reads files under the folder it shows, runs `git` for status and diffs, local converters such as `ffmpeg`, `pdftoppm` and `soffice` for previews when they are installed, and opens files in the programs its options name. It makes no network call of its own.
 
