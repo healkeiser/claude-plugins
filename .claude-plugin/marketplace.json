@@ -23,6 +23,11 @@
       "description": "Your prompts as blue cards, dimmed while queued, and /prompts to jump to any one."
     },
     {
+      "name": "filetree",
+      "source": "./filetree",
+      "description": "An IDE-style file tree pane showing what Claude reads, writes and changes, restyled to match these mods. Based on data-goblin/claude-code-filetree (MIT)."
+    },
+    {
       "name": "dev",
       "source": "./dev",
       "description": "Development skills: coding conventions and workflows, starting with Python."

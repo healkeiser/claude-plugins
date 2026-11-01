@@ -42,6 +42,7 @@
   - [pulse](#pulse)
   - [postcard](#postcard)
   - [Status line](#gauge-status-line)
+- [File tree](#file-tree)
 - [Dev skills](#dev-skills)
 - [Documentation skills](#documentation-skills)
 - [Security](#security)
@@ -164,6 +165,35 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 
 
 
+<!-- FILETREE -->
+## File tree
+
+`filetree` is a fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) 0.5.4 by Kurt Buhler (MIT), restyled to match the mods above. It is an IDE-style file tree in a pane beside the chat that shows what Claude reads, writes and changes. Every feature, keyboard shortcut, setting and platform branch (Windows, macOS, Linux) comes from upstream; the credits for its contributors are in [`filetree/ACKNOWLEDGEMENTS.md`](./filetree/ACKNOWLEDGEMENTS.md).
+
+``` shell
+claude plugin install filetree@healkeiser --scope user
+```
+
+- **The tree** shows the working folder, or one pinned with `/filetree <path>`, with search across folders not yet opened. Each file and folder carries its git status and line counts; the branch row under the header shows the branch, its upstream and how far ahead or behind it is.
+- **Claude's activity** shimmers in the tree: reads in purple, writes in orange, commits and other git actions in green. Collapsed folders open to show the file, and the last action stays as a chip at the bottom of the pane.
+- **The split preview** (`p`) shows the file under the cursor (highlighted code, rendered Markdown, images, video frames, PDF and Word pages turned with `[` and `]`) or a treemap of the folder, sized by bytes or by lines.
+- **`d`** shows the diff of a file, or of every changed file in a folder. Files open in their default app, in an editor in a tmux or herdr pane, or in any command set in the plugin options.
+- `/filetree` shows or hides the pane; `/filetree open` opens it without hiding it. `?` lists the shortcuts.
+
+What the restyle changes from upstream:
+
+- **Colours** are Claude theme keys rather than ANSI palette indices, so the pane follows light, dark and `auto` themes: Claude orange for the accent, green, yellow, blue and red from the theme for git status, and the prompt tint behind the selected row.
+- **Headers** read as compact headings: the folder name in orange, a dim rule across the rest of the row, and the header toggles drawn orange while they are on and dim while they are off. The root row, when picked, reads as a chip instead of a half-row fill.
+- **The split preview** draws like a code block: a labelled rule above with the file name and line range, a plain rule below, and no side border. The scrollbar is a thumb with no track line, so a mouse selection of a preview or a path copies text, not borders.
+- **Diffs** head each file with a labelled rule.
+
+The `Palette` option still overrides any colour with a hex value. Two things keep upstream's fixed colours, because a theme key cannot express them: the activity shimmer, which needs a light and a dark four-step ramp per colour, and the treemap, which paints pixels and so works from RGB values of the theme's colours.
+
+> [!IMPORTANT]
+> `filetree` needs Claude Code **2.1.306** or later. In the terminal it shows in the right sidebar, which needs the fullscreen layout (`/tui fullscreen`) and a window at least **110 columns** wide.
+
+
+
 <!-- DEV -->
 ## Dev skills
 
@@ -209,6 +239,8 @@ Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also 
 ## Security
 
 Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These three only draw and count; none of them runs a command, reads your files, or makes a network call. Read `hooks/` before installing, as you would for any plugin.
+
+`filetree` does more than draw: it lists and reads files under the folder it shows, runs `git` for status and diffs, local converters such as `ffmpeg`, `pdftoppm` and `soffice` for previews when they are installed, and opens files in the programs its options name. It makes no network call of its own.
 
 The `vfx` skills run no hooks. Their crawlers make network requests to the docs sites listed above and write only inside the plugin's data folder.
 
