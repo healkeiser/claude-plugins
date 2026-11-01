@@ -37,13 +37,14 @@ export const TONES: Record<string, { bright: string[]; dim: string[]; solid: str
 // The theme key each activity tone draws as where one solid colour is enough
 // (the activity chip, the branch row): reads purple, writes orange, git green.
 // The shimmer keeps the hex ramps above, which a theme key cannot express.
+// Blues take the info role, not suggestion, which the mods keep for you.
 export const TONE_KEY: Record<string, string> = {
   orange: 'claude',
   green: 'success',
-  teal: 'suggestion',
-  blue: 'suggestion',
+  teal: 'ide',
+  blue: 'ide',
   purple: 'merged',
-  cyan: 'suggestion',
+  cyan: 'ide',
   red: 'error',
 }
 

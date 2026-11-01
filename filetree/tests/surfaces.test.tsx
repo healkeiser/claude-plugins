@@ -2742,7 +2742,7 @@ test('restyle: the header is a ruled heading, toggles that are on read in Claude
   expect(seg(`${root}/sub`, '■ ')?.c).toBe('claude')
   await ui.press({ key: 'root' })
   await clock.settle()
-  expect(JSON.stringify(await ui.drawn())).toContain('{"type":"Text","props":{"bold":true,"color":"claude","backgroundColor":"userMessageBackground"},"children":["proj"]}')
+  expect(JSON.stringify(await ui.drawn())).toContain('{"type":"Text","props":{"weight":"bold","color":"claude","backgroundColor":"userMessageBackground"},"children":["proj"]}')
   await ui.unmount()
   const narrow = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(20) })
   await clock.settle()
@@ -2771,5 +2771,20 @@ test('restyle: the split preview is framed open-sided with a labelled rule and i
   const peek = JSON.stringify(await ui.drawn({ in: 'peek' }))
   expect(peek).toContain('{"type":"Text","props":{"color":"claude"},"children":["┃"]}')
   expect(peek).not.toContain('│')
+  await ui.unmount()
+})
+
+test('motion off: the rows are told to stand still, shimmer kept as a solid tone', { timeoutMs: 20_000, options: { motion: 'off' } }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/scratch'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', dirs: { [root]: [['a.ts', 'file']] }, status: '', numstat: '', find: `${root}/a.ts\0` }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await $.tool.call({ tool: 'Bash', command: 'touch a.ts' })
+  await clock.settle()
+  const drawn = await texts(ui)
+  expect(drawn).toContain(shimmer('a.ts', 'orange'))
+  expect(drawn).toContain('"still":true')
   await ui.unmount()
 })

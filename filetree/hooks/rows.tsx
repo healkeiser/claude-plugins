@@ -8,6 +8,8 @@ export type RowsProps = {
   activeBg: string
   hoverBg: string
   tones: Record<string, { bright: string[]; dim: string[] }>
+  /** Motion off or Reduce motion on: no shimmer, no spinner, no timer. */
+  still?: boolean
   spinner?: string[]
   pointer?: boolean
   bar?: { pos: number; size: number; thumb: string; track: string }
@@ -15,7 +17,8 @@ export type RowsProps = {
 }
 type Local = { hover: number; phase: number; drag: boolean; ref: { stop?: () => void; unpoint?: () => void } }
 
-const TICK_MS = 90
+// The shared frame (style.ts FRAME_MS): ten ticks a second.
+const TICK_MS = 100
 const TREE_BUDGET = 70_000
 const MAX_ROWS = 1_500
 // The scrollbar draws its thumb alone, no track line: a mouse selection of a
@@ -23,10 +26,17 @@ const MAX_ROWS = 1_500
 const THUMB = '┃'
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
+// style.ts `sweep`, copied as a surface module stands alone: a soft band crossing
+// the name with an ease-in-out, its glow falling off on a raised cosine over
+// three cells, so a name glows and fades rather than blinks.
 function shimmer(i: number, phase: number, len: number, palette: string[]): string {
-  const band = ((phase * 1.6) % (len + 8)) - 4
-  const d = Math.abs(i - band)
-  return palette[d < 0.8 ? 3 : d < 1.8 ? 2 : d < 2.8 ? 1 : 0] ?? palette[0] ?? '#f97316'
+  const path = len + 8
+  const ticks = Math.max(1, Math.round(path / 1.6))
+  const t = (phase % ticks) / ticks
+  const at = (0.5 - Math.cos(Math.PI * t) / 2) * path - 4
+  const d = i < 0 ? Math.abs(len / 2 - at) / Math.max(1, len / 4) : Math.abs(i - at)
+  const glow = d >= 3 ? 0 : (1 + Math.cos((Math.PI * d) / 3)) / 2
+  return palette[glow > 0.6 ? 3 : glow > 0.3 ? 2 : glow > 0.08 ? 1 : 0] ?? palette[0] ?? '#f97316'
 }
 
 const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
@@ -37,7 +47,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
     surface.setState(state)
   }
   let visible = props.rows.length
-  const lit = props.rows.some(r => r.left.some(s => s.sh || s.spin) || r.right.some(s => s.sh || s.spin))
+  const lit = !props.still && props.rows.some(r => r.left.some(s => s.sh || s.spin) || r.right.some(s => s.sh || s.spin))
   if (lit && !state.ref.stop) {
     state.ref.stop = surface.every(TICK_MS, () => {
       const cur = surface.state
@@ -101,7 +111,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
                 // A labelled dim rule, as gloss heads a code block: `─ path ───`.
                 <Title>
                   <Title color="subtle">{'─ '}</Title>
-                  <Title bold color={p.titleColor || undefined}>{g.title}</Title>
+                  <Title weight="bold" color={p.titleColor || undefined}>{g.title}</Title>
                   <Title color="subtle">{` ${'─'.repeat(Math.max(1, surface.columns - [...g.title].length - 3))}`}</Title>
                 </Title>
               ) : null}
@@ -136,15 +146,23 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
   const draw = (s: Seg) => {
     if (s.spin) {
       return (
-        <Text color={s.c} bold={s.b}>
-          {s.t + (frames[state.phase % frames.length] ?? '')}
+        <Text color={s.c} weight={s.b ? 'bold' : undefined}>
+          {s.t + (props.still ? '●' : (frames[state.phase % frames.length] ?? ''))}
         </Text>
       )
     }
     const palette = s.sh ? (s.dim ? props.tones[s.sh]?.dim : props.tones[s.sh]?.bright) : undefined
     if (!palette) {
       return (
-        <Text color={s.c || undefined} dimColor={s.c === ''} backgroundColor={s.bg} bold={s.b} strikethrough={s.s} italic={s.i}>
+        <Text color={s.c || undefined} dimColor={s.c === ''} backgroundColor={s.bg} weight={s.b ? 'bold' : undefined} strikethrough={s.s} italic={s.i}>
+          {s.t}
+        </Text>
+      )
+    }
+    // Stilled, a shimmer holds its solid colour.
+    if (props.still) {
+      return (
+        <Text color={palette[0]} weight={s.b ? 'bold' : undefined}>
           {s.t}
         </Text>
       )
@@ -158,7 +176,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
     }
     const chars = [...s.t]
     return (
-      <Text bold={s.b}>
+      <Text weight={s.b ? 'bold' : undefined}>
         {chars.map((ch, i) => (
           <Text color={shimmer(i, state.phase, chars.length, palette)}>{ch}</Text>
         ))}

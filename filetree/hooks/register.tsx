@@ -14,6 +14,7 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
+import { cellWidth, GLYPH, motionOn } from './style'
 import {
   age,
   ancestorsOf,
@@ -87,6 +88,9 @@ let generation = 0
 let lastPress = { key: '', at: 0 }
 let noNerd = false
 let glyphSetting = 'auto'
+let motionSetting: unknown = 'while-active'
+// Motion off, or Claude Code's Reduce motion: the shimmer and spinner stand still.
+let isStill = false
 const WORDS: Record<string, string> = { up: 'up', cwd: 'cwd', refresh: 'sync', hidden: 'dots', size: 'size', collapse: 'fold', split: 'split', unselect: 'clear' }
 let openWithSetting = ''
 let binariesInDefaultApp = false
@@ -1652,7 +1656,7 @@ function directPreview(elements: ReturnType<EngineInterface['ui']['resolve']>, w
       <Box flexDirection="column">
         {win.segments.map((g, i) => (
           <Box key={`seg-${i}`} flexDirection="column">
-            {g.title ? <Text bold color={accent || undefined}>{g.title}</Text> : null}
+            {g.title ? <Text weight="bold" color={accent || undefined}>{g.title}</Text> : null}
             {g.source ? <Code source={g.source} path={g.title || path} format="diff" wrap="truncate-end" /> : null}
           </Box>
         ))}
@@ -1861,6 +1865,8 @@ function shortPath(path: string): string {
 
 export const register: Register = (on, options) => {
   glyphSetting = typeof options?.glyphs === 'string' ? options.glyphs : 'auto'
+  motionSetting = options?.motion
+  isStill = !motionOn(motionSetting)
   const activity = typeof options?.activity === 'string' ? options.activity : 'reads and writes'
   showReads = activity.includes('reads')
   showWrites = activity.includes('writes')
@@ -1885,6 +1891,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     cached ??= { ...emptyTree(''), ...(await $.state.get(TREE)).value }
     await $.command.register({ name: 'filetree', description: 'Show or hide the file tree; args: [path | open] (no path = cwd, open = never hide)' })
+    isStill = !motionOn(motionSetting, await Promise.resolve().then(() => $.config.list()).catch(() => []))
     if (palette.unknown.length) void $.ui.toast(`filetree palette: ignored ${palette.unknown.join(' ')}; use key=#hex with fg, bg, accent, muted, urgent, selection, hover, added, modified, renamed, add or del`)
     const windows = (await $.env.get('OS')) === 'Windows_NT'
     useDrives(windows)
@@ -2178,13 +2185,13 @@ export const register: Register = (on, options) => {
     const gitColors = { ...GIT_COLOR, ...palette.git }
     const addColor = palette.add ?? ADD_COLOR
     const delColor = palette.del ?? DEL_COLOR
-    const rowColors = { activeBg: theme.selection, hoverBg: palette.hover ?? (theme.selection.startsWith('#') ? faint(theme.selection) : ''), tones: light ? LIGHT_SHIMMER : SHIMMER }
+    const rowColors = { activeBg: theme.selection, hoverBg: palette.hover ?? (theme.selection.startsWith('#') ? faint(theme.selection) : ''), tones: light ? LIGHT_SHIMMER : SHIMMER, still: isStill }
     nativeScroll = e.surface === 'desktop'
     const button = (b: ButtonProps) => <Client key={`button-${b.id}`} module="./button.tsx" props={{ id: b.id, label: b.label, dim: b.dim } satisfies ButtonProps} />
     const hint = (buttons: { id: string; label: string; hint: string }[], title: number) => {
       const text = buttons.find(b => b.id === hovered)?.hint
       if (!text) return null
-      const room = e.props.bodyColumns - title - buttons.reduce((w, b) => w + b.label.length + (e.surface === 'desktop' ? 2 : 1), 0) - 2
+      const room = e.props.bodyColumns - title - buttons.reduce((w, b) => w + cellWidth(b.label) + (e.surface === 'desktop' ? 2 : 1), 0) - 2
       return text.length <= room ? <Text {...mutedText}>{`${text} `}</Text> : null
     }
     // A dim rule that fills what is left of a header row, as gloss
@@ -2205,14 +2212,14 @@ export const register: Register = (on, options) => {
       previewLine = win.top + 1
       const name = t.preview !== t.root && inside(t.root, t.preview) ? relative(t.root, t.preview) : shortPath(t.preview)
       const previewRuled = e.surface === 'terminal' && name.length + 16 <= e.props.bodyColumns
-      const external = { id: 'external', label: glyphSetting === 'text' ? 'open' : unicode ? '↗' : '\u{eb14}', dim: true, hint: 'open in default app' }
+      const external = { id: 'external', label: glyphSetting === 'text' ? 'open' : unicode ? GLYPH.external : '\u{eb14}', dim: true, hint: 'open in default app' }
       return (
         <Box flexDirection="column" paddingTop={TOP_GAP} minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
           <Box flexDirection="row">
             <Button key="back" plain hotkey="h" autoFocus={editWithSetting || inTmux || inHerdr ? undefined : true} label={unicode ? '← files' : '\u{ea9b} files'} onPress={() => void closePreview($)} />
             <Text> </Text>
             <Box flexShrink={previewRuled ? 0 : 1} flexGrow={previewRuled ? 0 : 1}>
-              <Text bold wrap="truncate-start">{name}</Text>
+              <Text weight="bold" wrap="truncate-start">{name}</Text>
             </Box>
             {previewRuled ? fill('pv-rule') : null}
             {hint([external], 8 + name.length)}
@@ -2306,7 +2313,7 @@ export const register: Register = (on, options) => {
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
     const rootGlyph = unicode ? '■' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
     const header = t.top ? [t.top.split('/').pop() ?? t.top, t.prefix.replace(/\/$/, '')].filter(Boolean).join('/') : t.root.split('/').pop() || t.root
-    const headerRuled = e.surface === 'terminal' && header.length + 6 + buttons.reduce((w, b) => w + [...b.label].length + 1, 0) <= e.props.bodyColumns
+    const headerRuled = e.surface === 'terminal' && cellWidth(header) + 6 + buttons.reduce((w, b) => w + cellWidth(b.label) + 1, 0) <= e.props.bodyColumns
 
     const rowSpec = (r: (typeof rows)[number]): RowSpec => {
       const n = r.node
@@ -2398,7 +2405,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="row" height={1} overflow="hidden">
           <Box flexDirection="row" flexShrink={0}>
             <Text color={isFlash ? (TONE_KEY[tone] ?? theme.accent) : theme.accent}>{(unicode ? BRANCH_ICON.plain : BRANCH_ICON.nerd) + ' '}</Text>
-            <Text bold color={isFlash ? (TONE_KEY[tone] ?? (theme.fg || undefined)) : theme.fg || undefined}>
+            <Text weight="bold" color={isFlash ? (TONE_KEY[tone] ?? (theme.fg || undefined)) : theme.fg || undefined}>
               {label}
             </Text>
             {b.ahead > 0 && <Text color="suggestion">{` ↑${b.ahead}`}</Text>}
@@ -2431,7 +2438,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="row" marginLeft={2}>
           <Text color={color}>{icon + ' '}</Text>
-          <Text bold={a.state === 'running'} color={color}>
+          <Text weight={a.state === 'running' ? 'bold' : undefined} color={color}>
             {a.state === 'running' ? `${a.label}…` : a.label}
           </Text>
           {hash && <Text {...mutedText}>{` ${hash}`}</Text>}
@@ -2620,7 +2627,7 @@ export const register: Register = (on, options) => {
             {anchor && anchor !== t.root && !target ? (
               <Button key="map-up" plain label={`${glyphSetting === 'text' ? 'up ' : unicode ? '↑ ' : '\u{eaa1} '}${name}`} onPress={() => void mapUp($, anchor)} />
             ) : (
-              <Text bold wrap="truncate-start">{name}</Text>
+              <Text weight="bold" wrap="truncate-start">{name}</Text>
             )}
           </Box>
           {fill('peek-fill')}
@@ -2672,7 +2679,7 @@ export const register: Register = (on, options) => {
             <Button key="root" plain onPress={() => void selectRoot($).then(() => focusPane($, t.root, treeKey()))}>
               <Text color={theme.accent}>{`${rootGlyph} `}</Text>
               {/* The root picked reads as a chip, as gloss draws inline code. */}
-              <Text bold color={theme.accent} backgroundColor={t.cursor === t.root ? rowColors.activeBg || undefined : undefined}>{header}</Text>
+              <Text weight="bold" color={theme.accent} backgroundColor={t.cursor === t.root ? rowColors.activeBg || undefined : undefined}>{header}</Text>
             </Button>
           </Box>
           {headerRuled ? fill('header-rule') : <Box flexGrow={1} />}
