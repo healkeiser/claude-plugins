@@ -20,11 +20,17 @@ export type PromptsCursor = string | null
 export type PromptsShellRun = { id: string; command: string; at: number; ms: number | null; state: 'running' | 'ok' | 'fail' | 'denied' }
 export type PromptsShell = readonly PromptsShellRun[]
 
-/** The /prompts pane's open tab: the prompts you sent, or the shell commands Claude ran. */
-export type PromptsTab = 'prompts' | 'shell'
+/** The /prompts pane's open tab: the prompts you sent, the ones waiting in the queue, or the shell commands Claude ran. */
+export type PromptsTab = 'prompts' | 'queue' | 'shell'
+
+/** A prompt you typed while Claude worked, waiting for the turn to end: `at` when you typed it (ms). */
+export type QueuedPrompt = { id: string; text: string; at: number }
+
+/** The queue, first to be sent first; `isHeld` stops it sending (set after an interrupt, or by you). */
+export type PromptsQueue = { items: readonly QueuedPrompt[]; isHeld: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'postcard': { version: PromptsVersion; sent: PromptsSent; query: PromptsQuery; sentAt: PromptsSentAt; cursor: PromptsCursor; shell: PromptsShell; tab: PromptsTab }
+    'postcard': { version: PromptsVersion; sent: PromptsSent; query: PromptsQuery; sentAt: PromptsSentAt; cursor: PromptsCursor; shell: PromptsShell; tab: PromptsTab; queue: PromptsQueue }
   }
 }

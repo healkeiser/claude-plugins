@@ -54,6 +54,12 @@ export type Repo = {
 
 export type Tab = 'activity' | 'context' | 'turn' | 'git' | 'checks'
 
+/** One step of Claude's plan: `id` the task's (TaskCreate) or its place (TodoWrite); `active` its present-tense form. */
+export type PlanItem = { id: string; text: string; active: string; status: 'pending' | 'in_progress' | 'completed' }
+
+/** Claude's plan in the main loop, as its task tools (TodoWrite, TaskCreate, TaskUpdate) last wrote it. */
+export type Plan = { items: PlanItem[] }
+
 /** A kind of check Claude runs from the shell. */
 export type CheckKind = 'test' | 'types' | 'lint' | 'build'
 
@@ -93,6 +99,7 @@ declare module 'claude-code' {
       view: View
       second: number
       checks: Checks
+      plan: Plan | null
     }
   }
 }

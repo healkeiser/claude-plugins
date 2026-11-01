@@ -1200,10 +1200,12 @@ test('a running connector keeps its length every frame: one face, clipped at its
   await $.turn.start({ text: 'go', turnId: 'R1' }) // a turn running: the connectors animate
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(64), surface })
-    expect((await ui.find({ key: 'link-gate' }))?.type).toBe('Client')
+    // The connector runs on the main block's bottom edge: a one-row overlay inside its corners.
+    expect((await ui.find({ key: 'link-gate' }))?.props).toMatchObject({ marginTop: -1, marginX: 1, height: 1 })
+    expect((await ui.find({ key: 'rail-gate' }))?.type).toBe('Client')
     const heads = new Set<number>()
     for (let frame = 0; frame < 30; frame += 1) {
-      const tree = (await ui.drawn({ in: 'link-gate' })) as Drawn
+      const tree = (await ui.drawn({ in: 'rail-gate' })) as Drawn
       const texts: Drawn[] = []
       const walk = (n: unknown) => {
         if (!isDrawn(n)) return
@@ -1213,11 +1215,11 @@ test('a running connector keeps its length every frame: one face, clipped at its
       walk(tree)
       const line = texts.map(textOf).join('')
       // The box is the line's width and clips; its text is that width and four spare cells, every frame.
-      expect([tree.type, tree.props?.width, tree.props?.overflow]).toEqual(['Box', 64, 'hidden'])
-      expect(cellsOf(line)).toBe(64 + 4)
+      expect([tree.type, tree.props?.width, tree.props?.overflow]).toEqual(['Box', 62, 'hidden'])
+      expect(cellsOf(line)).toBe(62 + 4)
       expect(texts.every(t => t.props?.mono === true)).toBe(true)
       expect(/^[─●•┬┴]+$/.test(line)).toBe(true)
-      const head = [...line].slice(0, 64).indexOf('●')
+      const head = [...line].slice(0, 62).indexOf('●')
       if (head >= 0) heads.add(head)
       await ui.advance(110)
     }
@@ -1369,9 +1371,8 @@ test('a status glyph and the words it marks share one colour, in glyphs no termi
   }
 })
 
-test('every gap between blocks is one row, whatever is in it', { timeoutMs: 60_000 }, async ($, on) => {
+test('blocks sit edge to edge; a connector only runs on the upper block\'s bottom edge, inside its corners', { timeoutMs: 60_000 }, async ($, on) => {
   await busySession($, on)
-  // One row on top, then the header; blocks one row apart: a connector, or an empty row.
   const gapsOf = (tree: unknown) => {
     const out: string[] = []
     const walk = (n: unknown) => {
@@ -1380,21 +1381,17 @@ test('every gap between blocks is one row, whatever is in it', { timeoutMs: 60_0
       if (kids.some(k => String(k.props?.key ?? '').startsWith('block-'))) {
         kids.forEach((k, i) => {
           const key = String(k.props?.key ?? '')
-          const isBlock = key.startsWith('block-')
-          // Blocks and gaps alternate, a block first and last.
-          if (isBlock !== (i % 2 === 0)) out.push(`${i}: ${key || k.type} out of turn`)
-          if (isBlock) {
+          if (key.startsWith('block-')) {
             const inner = (k.children ?? []).filter(isDrawn)[0]
             if (inner?.props?.marginTop || inner?.props?.marginBottom) out.push(`${key}: has a margin`)
             return
           }
-          const isRow =
-            (k.type === 'Client' && k.props?.height === 1) ||
-            (k.type === 'Text' && !textOf(k).includes('\n')) ||
-            (k.type === 'Box' && k.props?.height === 1 && (k.children ?? []).filter(isDrawn).length === 0)
-          if (!isRow) out.push(`${i}: ${key || k.type} is not one row`)
+          // Anything between blocks is a connector laid over the edge above: no row of its own.
+          const isOverlay = key.startsWith('link-') && k.props?.marginTop === -1 && k.props?.marginX === 1 && k.props?.height === 1
+          if (!isOverlay) out.push(`${i}: ${key || k.type} stands between blocks`)
+          const prev = kids[i - 1]
+          if (!String(prev?.props?.key ?? '').startsWith('block-')) out.push(`${i}: ${key} has no block above it`)
         })
-        if (kids.length % 2 === 0) out.push('ends on a gap')
       }
       kids.forEach(walk)
     }

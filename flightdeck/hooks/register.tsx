@@ -867,17 +867,18 @@ export const register: Register = (on, options) => {
     const decider = m.mode === 'auto' ? 'classifier' : 'you'
 
     // A connector between blocks: animated while its flow is live, a dim line otherwise.
-    const rail = (key: string, active: boolean, color: string, width: number, marks: number[] = [], isMerge = false) =>
+    // `track`: the line's colour at rest, a block's border colour when the rail is drawn on its edge.
+    const rail = (key: string, active: boolean, color: string, width: number, marks: number[] = [], isMerge = false, track: string = C.faint) =>
       motion ? (
         <els.Client
           key={key}
           module="./rail.tsx"
           width={width}
           height={1}
-          props={{ active, width, color, dim: C.faint, marks, isMerge, ascii: cfg.ascii }}
+          props={{ active, width, color, dim: track, marks, isMerge, ascii: cfg.ascii }}
         />
       ) : (
-        <Text color={C.faint} mono>
+        <Text color={track} mono>
           {ruleLine(width, marks, isMerge ? '┴' : '┬')}
         </Text>
       )
@@ -1692,8 +1693,16 @@ export const register: Register = (on, options) => {
     // architect, gate and the receipt), an empty row elsewhere. Hidden blocks take no gap.
     type Item = Panel | 'expanded'
     const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops' || x === 'inbox' || x === 'trends' || x === 'tools')
+    // Blocks sit edge to edge, no blank row between. Where work flows from one block to the next, the
+    // connector runs on the upper block's own bottom edge: drawn over it, one cell in from each side, so
+    // its rounded corners stay and the connector takes no row. At rest it is the edge, in its colour.
+    const edgeOf = (a: Item) => (a === 'architect' ? C.arch : a === 'gate' ? C.gate : C.main)
     const gapRow = (a: Item, b: Item, w: number) =>
-      flows(a, b) ? rail(`link-${b}`, b === 'architect' ? advising : m.isRunning, b === 'architect' ? C.arch : C.main, w) : <Box key={`gap-${b}`} height={1} />
+      flows(a, b) ? (
+        <Box key={`link-${b}`} marginTop={-1} marginX={1} height={1} flexShrink={0}>
+          {rail(`rail-${b}`, b === 'architect' ? advising : m.isRunning, b === 'architect' ? C.arch : C.main, w - 2, [], false, edgeOf(a))}
+        </Box>
+      ) : null
     const column = (ps: Panel[], w: number) => {
       const items: Item[] = ps.flatMap((p): Item[] => (p === 'agents' && expandedCard ? [p, 'expanded'] : [p]))
       return (
@@ -1830,7 +1839,6 @@ export const register: Register = (on, options) => {
           {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate' || p === 'inbox'), colW)}
           {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt' || p === 'tools' || p === 'trends'), colW)}
         </Box>
-        {panels.includes('log') ? <Box key="gap-log" height={1} /> : null}
         {panels.includes('log') ? (
           <Box key="block-log" flexDirection="column">
             {logPanel(W)}

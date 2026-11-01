@@ -4,13 +4,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, RenderChildren } from 'claude-code'
 
-import type { Call, CheckKind, Checks, Repo, Tab, View } from '../types'
+import type { Call, CheckKind, Checks, Plan, Repo, Tab, View } from '../types'
+import { nextPlan, planProgress } from './plan'
 import { readCi, runState } from './checks'
 import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
-import { SPACE, bar as kitBar, cardFrame, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
+import { SPACE, bar as kitBar, cardFrame, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
   GLYPH, LIMIT_WINDOW_MS, ROLE, asciiTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
@@ -31,6 +32,7 @@ const view = atom({ plugin: 'pulse', key: 'view' } as const, DEFAULT_VIEW)
 const second = atom({ plugin: 'pulse', key: 'second' } as const, 0)
 const NO_CHECKS: Checks = { local: [], runs: [], pr: null, gh: 'unread', readAt: 0 }
 const checks = atom({ plugin: 'pulse', key: 'checks' } as const, NO_CHECKS)
+const plan = atom({ plugin: 'pulse', key: 'plan' } as const, null as Plan | null)
 // While a CI run is going, GitHub is read again this often; never while none is.
 const CI_POLL_MS = 60_000
 // After a push or a `gh` command, GitHub is read this long after, so the new run is listed.
@@ -145,6 +147,16 @@ export function afterTurn($: EngineInterface) {
   void readRepo($)
     .then(() => readChecks($))
     .catch(() => {})
+}
+
+// ---------------------------------------------------------------- plan
+
+/** After one of Claude's task tools ran in the main loop (register's `tool.call` hook): the plan it left. */
+export async function notePlan($: EngineInterface, tool: string, input: Record<string, unknown>, result: unknown) {
+  await update($, plan, p => {
+    const next = nextPlan(p ?? { items: [] }, tool, input, result)
+    return next.items.length ? next : null
+  })
 }
 
 // ---------------------------------------------------------------- checks
@@ -269,7 +281,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     // It rejects only where nothing answers beneath (a test): ours still draws.
     const below = await next(e).catch(() => undefined)
 
-    const [a, list, l, c, r, now, u, ck] = await Promise.all([
+    const [a, list, l, c, r, now, u, ck, pl] = await Promise.all([
       read($, activity),
       read($, calls),
       read($, last),
@@ -279,6 +291,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       $.session.usage().catch(() => null),
       // Read so the countdown's once-a-second write redraws the band.
       read($, second).then(() => read($, checks)),
+      read($, plan),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const isTerm = e.surface === 'terminal'
@@ -331,6 +344,10 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const folded = () => {
       const tabCells = SPACE.keys + tabsWidth(TABS.map(t => ({ label: t.short })))
       const left: (Piece & { node: () => RenderChildren })[] = []
+      if (isWorking && pp && !pp.isDone) {
+        const piece = `${DOT}plan ${pp.done}/${pp.total}`
+        left.push({ id: 'plan', cells: cellWidth(piece), drop: 4, node: () => <Text><Text dimColor>{`${DOT}plan `}</Text><Text color={ROLE.accent}>{`${pp.done}/${pp.total}`}</Text></Text> })
+      }
       if (isWorking) {
         left.push({ id: 'tools', cells: cellWidth(DOT + plural(a.tools, 'tool')), drop: 3, node: () => <Text dimColor>{DOT + plural(a.tools, 'tool')}</Text> })
         left.push({ id: 'time', cells: cellWidth(DOT + elapsed(Math.floor(runMs / 1000))), drop: 2, node: () => <Text dimColor>{DOT + elapsed(Math.floor(runMs / 1000))}</Text> })
@@ -416,7 +433,27 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       </Text>
     )
 
-    const activityRows = () => {
+    const pp = planProgress(pl)
+    // Claude's plan as a progress meter, its count and the step under way: never a row of dots.
+    const planRow = () => {
+      if (!pp) return null
+      const count = `${pp.done}/${pp.total}`
+      const cells = Math.max(4, Math.min(16, Math.floor((inner - 9 - cellWidth(count) - 4) / 3)))
+      return labelled(
+        'plan',
+        'plan',
+        9,
+        <Box flexDirection="row" flexGrow={1}>
+          {progress(k, pp.done, pp.total, cells)}
+          <Text color={pp.isDone ? ROLE.success : ROLE.accent}>{`  ${count}`}</Text>
+          <Box flexGrow={1} flexShrink={1} marginLeft={2} overflow="hidden">
+            {pp.isDone ? <Text color={ROLE.success}>{`${GLYPH.ok} done`}</Text> : <Text wrap="truncate-end">{pp.now}</Text>}
+          </Box>
+        </Box>,
+      )
+    }
+    const activityRows = () => [...(pp ? [planRow(), <Box key="plan-gap" height={1} />] : []), ...callRows()]
+    const callRows = () => {
       if (turnCalls.length === 0) return [dim(`${GLYPH.idle} ${isWorking ? 'no tool calls yet' : 'no tool calls in the last turn'}`)]
       const shown = turnCalls.slice(-ACTIVITY_ROWS)
       const earlier = turnCalls.length - shown.length
@@ -704,21 +741,17 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           ),
         )
       }
-      // The session as a line: a ● per commit made since it began, oldest first, then ○ for work not yet committed.
+      // The commits made since the session began, and whether work waits to be committed.
       if (r.commits) {
-        const tail = `${plural(r.commits, 'commit')}${isClean ? '' : ', then uncommitted work'}`
-        const room = Math.max(1, Math.floor((leftW - col - cellWidth(tail) - 4) / 2))
-        const shown = Math.min(r.commits, room)
-        const nodes = `${r.commits > shown ? `${GLYPH.more}${GLYPH.track}` : ''}${Array.from({ length: shown }, () => GLYPH.live).join(GLYPH.track)}`
         left.push(
           labelled(
             'git-session',
             'session',
             col,
             <Box flexDirection="row" overflow="hidden">
-              <Text color={ROLE.accent}>{nodes}</Text>
-              {isClean ? null : <Text color={ROLE.warning}>{`${GLYPH.track}${GLYPH.idle}`}</Text>}
-              <Text color={ROLE.chrome} wrap="truncate-end">{` ${tail}`}</Text>
+              <Text color={ROLE.accent}>{plural(r.commits, 'commit')}</Text>
+              <Text color={ROLE.chrome}>{' since it began'}</Text>
+              {isClean ? null : <Text color={ROLE.warning} wrap="truncate-end">{', then uncommitted work'}</Text>}
             </Box>,
           ),
         )

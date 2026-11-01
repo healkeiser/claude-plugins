@@ -271,6 +271,23 @@ export function bar(k: Kit, pct: number, cells: number): RenderChildren {
   )
 }
 
+/**
+ * A progress meter of `cells`: how much of a whole is done, the fill in `role`
+ * (the accent by default; success once all is done), the track in chrome. The
+ * same `━` and `─` as every meter, never a row of dots: done and to do read as
+ * one bar. The count beside it says the number.
+ */
+export function progress(k: Kit, done: number, total: number, cells: number, role: string = ROLE.accent): RenderChildren {
+  const { Text } = k.els
+  const m = meter(total > 0 ? (100 * done) / total : 0, cells)
+  return (
+    <Text>
+      <Text color={total > 0 && done >= total ? ROLE.success : role}>{m.fill}</Text>
+      <Text color={ROLE.chrome}>{m.track}</Text>
+    </Text>
+  )
+}
+
 /** A reading as shown, right-aligned in 4 cells, in its heat: a meter never relies on colour alone. */
 export function pct(k: Kit, value: number): RenderChildren {
   const { Text } = k.els

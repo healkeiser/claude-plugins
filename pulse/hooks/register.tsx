@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Call } from '../types'
-import { afterTool, afterTurn, checksSoon, endCheck, registerBand, startCheck } from './band'
+import { afterTool, afterTurn, checksSoon, endCheck, notePlan, registerBand, startCheck } from './band'
 import { checkKind, touchesCi } from './checks'
 import { clip, commandLine, preview, took } from './bash'
 import { cacheLeft, cacheTtl } from './glance'
@@ -92,6 +92,10 @@ export const register: Register = (on, options) => {
     afterTool($, e.tool)
     if (kind && checkAt) {
       void checkAt.then(at => (at === null ? undefined : endCheck($, kind, at, ran.deny === undefined && !ran.isError))).catch(() => {})
+    }
+    // Claude's plan, as its task tools leave it.
+    if (isMain && (e.tool === 'TodoWrite' || e.tool === 'TaskCreate' || e.tool === 'TaskUpdate') && ran.deny === undefined && !ran.isError) {
+      void notePlan($, e.tool, e as unknown as Record<string, unknown>, ran.result).catch(() => {})
     }
     // A push or a `gh` command may start a CI run: GitHub is read a few seconds after.
     if (command && touchesCi(command)) checksSoon($)

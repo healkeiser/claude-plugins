@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PromptsCursor, PromptsQuery, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion } from '../types'
-import { SPACE, actionsWidth, cardFrame, header, kit, search as kitSearch, space, tabs } from './kit'
+import type { PromptsCursor, PromptsQuery, PromptsQueue, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion, QueuedPrompt } from '../types'
+import { isQueueable, moveQueued } from './queue'
+import { SPACE, actionsWidth, card, cardFrame, header, kit, search as kitSearch, space, tabs } from './kit'
+import type { Kit } from './kit'
 import { GLYPH, ROLE, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
@@ -23,6 +25,11 @@ const sentAt = atom({ plugin: 'postcard', key: 'sentAt' } as const, {} as Prompt
 const cursor = atom({ plugin: 'postcard', key: 'cursor' } as const, null as PromptsCursor)
 const shell = atom({ plugin: 'postcard', key: 'shell' } as const, [] as PromptsShell)
 const tab = atom({ plugin: 'postcard', key: 'tab' } as const, 'prompts' as PromptsTab)
+const NO_QUEUE: PromptsQueue = { items: [], isHeld: false }
+const queue = atom({ plugin: 'postcard', key: 'queue' } as const, NO_QUEUE)
+// Where the queue outlives the session (`$.store`): a new session gets it back held.
+const QUEUE_STORE = 'queue'
+let queueSeq = 0
 // Shell commands the Shell tab keeps, and the cells its row gives ` copy run`.
 const SHELL_KEEP = 200
 const SHELL_ACTIONS = 9
@@ -112,6 +119,80 @@ async function rerun($: EngineInterface, command: string) {
   $.ui.toast(isFilled ? 'In the prompt box: Enter runs it in your shell.' : "Couldn't fill the prompt box.")
 }
 
+/** Changes the queue and keeps it in the store, so a restart does not lose a waiting prompt. */
+async function setQueue($: EngineInterface, fn: (q: PromptsQueue) => PromptsQueue) {
+  await update($, queue, fn)
+  await $.store.set(QUEUE_STORE, await read($, queue)).catch(() => undefined)
+}
+
+/** Sends the first waiting prompt as the person's own words; it runs once the session is idle. */
+async function sendNext($: EngineInterface) {
+  const first = (await read($, queue)).items[0]
+  if (!first) return
+  await setQueue($, q => ({ ...q, items: q.items.slice(1) }))
+  await $.prompt.submit({ text: first.text, asUser: true })
+}
+
+/** Takes a waiting prompt out of the queue into an empty prompt box, to change it there. */
+async function editQueued($: EngineInterface, item: QueuedPrompt) {
+  if ((await $.prompt.read()).text.trim()) {
+    $.ui.toast('The prompt box holds a draft. Send or clear it first.')
+    return
+  }
+  await setQueue($, q => ({ ...q, items: q.items.filter(x => x.id !== item.id) }))
+  const { isFilled } = await $.prompt.fill({ text: item.text })
+  $.ui.toast(isFilled ? 'Out of the queue, in the prompt box: change it and send.' : "Couldn't fill the prompt box.")
+}
+
+/** Holds the queue, or lets it go again: resumed while Claude is idle, the next prompt is sent now. */
+async function toggleHold($: EngineInterface) {
+  await setQueue($, q => ({ ...q, isHeld: !q.isHeld }))
+  const q = await read($, queue)
+  if (!q.isHeld && (await read($, sent)).turnId === null) await sendNext($)
+}
+
+/**
+ * The queue's rows: its place, the prompt's first line cut whole, then ↑ ↓ to
+ * reorder, edit to take it back to the prompt box, ✕ to drop it. `w` the cells
+ * the rows have.
+ */
+function queueRows($: EngineInterface, k: Kit, q: PromptsQueue, w: number, keyOf: string) {
+  const { Box, Text, Button } = k.els
+  const ACT = 15
+  const hasActions = w - ACT >= 12
+  const textW = Math.max(1, w - 3 - (hasActions ? ACT : 0))
+  return q.items.map((item, i) => {
+    const line = untagged(item.text).split(/\r?\n/).find(l => l.trim()) ?? item.text
+    return (
+      <Box key={`${keyOf}-${item.id}`} flexDirection="row">
+        <Text color={ROLE.chrome} tabular>{`${i + 1}`.padStart(2)}</Text>
+        <Box width={textW} marginLeft={1} flexShrink={0}>
+          <Text {...(q.isHeld ? { dimColor: true } : {})}>{clip(line, textW)}</Text>
+        </Box>
+        {hasActions && (
+          <Box flexDirection="row" marginLeft={1} flexShrink={0} columnGap={1}>
+            <Button key={`${keyOf}-up-${i}`} plain dimColor label="↑" onPress={() => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, -1) }))} />
+            <Button key={`${keyOf}-down-${i}`} plain dimColor label="↓" onPress={() => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, 1) }))} />
+            <Button key={`${keyOf}-edit-${i}`} plain dimColor label="edit" onPress={() => void editQueued($, item)} />
+            <Button key={`${keyOf}-drop-${i}`} plain dimColor label="✕" onPress={() => void setQueue($, x => ({ ...x, items: x.items.filter(y => y.id !== item.id) }))} />
+          </Box>
+        )}
+      </Box>
+    )
+  })
+}
+
+/** The queue's own controls: hold or resume, and clear. */
+function queueActions($: EngineInterface, k: Kit, q: PromptsQueue, keyOf: string) {
+  const { Box, Button } = k.els
+  return (
+    <Box flexDirection="row" columnGap={2} flexShrink={0}>
+      <Button key={`${keyOf}-hold`} plain dimColor label={q.isHeld ? 'resume' : 'hold'} onPress={() => void toggleHold($)} />
+      <Button key={`${keyOf}-clear`} plain dimColor label="clear" onPress={() => void setQueue($, x => ({ ...x, items: [] }))} />
+    </Box>
+  )
+}
+
 /** Sends an old prompt again, as the person's own words. Called only from the
  * re-send button's press, so nothing is sent without the person's action. */
 async function resend($: EngineInterface, text: string) {
@@ -161,6 +242,19 @@ export const register: Register = (on, options) => {
   const firstSeen = new Map<string, string | null>()
   const ids = () => [...prompts.keys()]
 
+  const isOurQueue = options?.queue !== 'engine'
+
+  // A prompt typed while Claude works waits in postcard's queue, not the engine's: it can be seen,
+  // reordered, edited, held or dropped, and the next is sent when the turn ends. If this hook fails,
+  // the prompt goes on to the engine's queue: it is never lost.
+  on('prompt.submit', async ($, e, next) => {
+    if (!isOurQueue || e.turnId === undefined || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
+    const at = await $.clock.now()
+    const item: QueuedPrompt = { id: `q${at}-${(queueSeq += 1)}`, text: e.text, at }
+    await setQueue($, q => ({ ...q, items: [...q.items, item] }))
+    return { drop: 'Queued: postcard sends it when Claude finishes. Reorder, edit or hold it above the prompt.' }
+  }).catch(($, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       await land($, undefined)
@@ -186,6 +280,12 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.start', async ($, e, next) => {
+    // A queue left by an earlier session comes back held: nothing is sent without the person.
+    const saved = (await $.store.get(QUEUE_STORE).catch(() => undefined)) as Partial<PromptsQueue> | undefined
+    if (saved && Array.isArray(saved.items) && saved.items.length) {
+      const items = saved.items.filter((x): x is QueuedPrompt => typeof x?.id === 'string' && typeof x?.text === 'string' && typeof x?.at === 'number')
+      if (items.length) await update($, queue, () => ({ items, isHeld: true }))
+    }
     await $.command.register({
       name: 'prompts',
       description: 'List, search, re-send or edit the prompts you sent; prev and next jump between them',
@@ -226,14 +326,49 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await update($, version, n => n + 1)
       await update($, sent, s => ({ ...s, turnId: null, opener: '' }))
+      // The queue: after an interrupt it holds, so the person decides what comes next; else the next goes.
+      const q = await read($, queue)
+      if (q.items.length && e.isAborted && !q.isHeld) {
+        await setQueue($, x => ({ ...x, isHeld: true }))
+        $.ui.toast('Queue held after the interrupt: resume it above the prompt.')
+      } else if (q.items.length && !q.isHeld) await sendNext($)
     }
     return next(e)
   })
 
+  // The queue above the prompt, a grey card like a queued prompt's: what waits, in order, and its controls.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const q = await read($, queue)
+    if (!isOurQueue || q.items.length === 0 || e.props.hasSurvey) return next(e)
+    const below = await next(e).catch(() => undefined)
+    const k = kit($.ui.resolve(e), e.surface, { ascii: isAscii })
+    const { Box } = k.els
+    const w = Math.max(16, e.props.bodyColumns - 4)
+    return (
+      <Box flexDirection="column">
+        {drawn(
+          card(
+            k,
+            {
+              key: 'queue-card',
+              role: q.isHeld ? ROLE.warning : ROLE.chrome,
+              title: `Queued ${GLYPH.dot} ${q.items.length}${q.isHeld ? ` ${GLYPH.dot} held` : ''}`,
+              status: queueActions($, k, q, 'band'),
+            },
+            ...queueRows($, k, q, w, 'band'),
+          ),
+        )}
+        {below ?? null}
+      </Box>
+    )
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     // Only the person's own prompts: typed here, or sent from another device.
-    const kind = e.props.origin.kind
-    if (kind !== 'composer' && kind !== 'bridge') return next(e)
+    const origin = e.props.origin as { kind: string; name?: string }
+    const kind = origin.kind
+    const isFromQueue = kind === 'plugin' && origin.name === 'postcard'
+    if (kind !== 'composer' && kind !== 'bridge' && !isFromQueue) return next(e)
     const s = await read($, sent)
     if (!firstSeen.has(e.requestId)) remember(firstSeen, e.requestId, s.turnId, KEEP)
     // shortcut: the row carries no queued flag, so a row new in this turn is
@@ -309,6 +444,7 @@ export const register: Register = (on, options) => {
     const k = kit(els, e.surface, { ascii: isAscii })
     const open = await read($, tab)
     const runs = open === 'shell' ? await read($, shell) : []
+    const waiting = await read($, queue)
     const all = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1, age: id in times ? span(Math.max(1, now - times[id]!)) : '' }))
     // Newest first, so the hotkeys 1 to 9 reach the recent ones.
     const list = all.filter(p => matches(p.text, q)).reverse()
@@ -407,12 +543,26 @@ export const register: Register = (on, options) => {
         {tabs(k, {
           items: [
             { id: 'prompts', label: 'Prompts' },
+            ...(isOurQueue ? [{ id: 'queue', label: waiting.items.length ? `Queue ${waiting.items.length}` : 'Queue' }] : []),
             { id: 'shell', label: 'Shell' },
           ],
           active: open,
           onPick: id => void update($, tab, () => id as PromptsTab),
         })}
-        {open === 'shell' ? shellList(shown, runs.length, now) : (
+        {open === 'queue' ? (
+          <Box key="queue" flexDirection="column">
+            {waiting.items.length === 0 ? (
+              <Text dimColor>Nothing queued. A prompt you type while Claude works waits here.</Text>
+            ) : (
+              <Box flexDirection="row">
+                <Text color={waiting.isHeld ? ROLE.warning : ROLE.chrome}>{waiting.isHeld ? 'held: nothing is sent until you resume' : 'sent in order as each turn ends'}</Text>
+                <Box flexGrow={1} />
+                {queueActions($, k, waiting, 'pane')}
+              </Box>
+            )}
+            {queueRows($, k, waiting, inner, 'pane')}
+          </Box>
+        ) : open === 'shell' ? shellList(shown, runs.length, now) : (
         <Box key="list" flexDirection="column">
           {all.length === 0 && <Text dimColor>No prompts yet.</Text>}
           {all.length > 0 && list.length === 0 && <Text dimColor>No prompt matches.</Text>}

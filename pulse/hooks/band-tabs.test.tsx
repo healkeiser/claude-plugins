@@ -497,7 +497,7 @@ test('edits list only the files of that turn, cut with … at the card width, ne
   await ui.unmount()
 })
 
-test('the Git tab: the session as a line of commits, the last fetch, the work trees, and files in a column of their own when wide', async ($, on) => {
+test('the Git tab: the commits made this session, the last fetch, the work trees, and files in a column of their own when wide', async ($, on) => {
   const { clock, world } = engine(on, { band: { isOpen: true, tab: 'git' } })
   await startSession($)
   await clock.settle()
@@ -507,9 +507,9 @@ test('the Git tab: the session as a line of commits, the last fetch, the work tr
   await clock.advance(1000)
   let ui = await mount($, 'terminal', 90)
   let text = mine(await look(ui))
-  expect(text).toContain('●─●')
-  expect(text).toContain('─○')
-  expect(text).toContain('2 commits, then uncommitted work')
+  // Words, not a line of dots.
+  expect(text).toContain('2 commits since it began, then uncommitted work')
+  expect(text).not.toMatch(/[●○]─/)
   expect(text).toContain('fetched 10m ago')
   expect(text).toContain('2 worktrees')
   expect(world.runs.some(a => a.includes('rev-list') && a.includes('abcdef1234..fedcba9876'))).toBe(true)
@@ -571,4 +571,33 @@ test('the Checks tab says why there is no CI when gh is missing', async ($, on) 
   const ui = await mount($, 'terminal', 120)
   expect(mine(await look(ui))).toContain('gh is not installed')
   await ui.unmount()
+})
+
+test('the plan: a progress meter, never dots, its count and the step under way, first in the Activity tab and in the folded row while working', async ($, on) => {
+  const { clock } = engine(on, { band: { isOpen: true, tab: 'activity' } })
+  await startSession($)
+  await $.turn.start({ text: 'go', turnId: 'P1' })
+  // The tool beneath answers TodoWrite as it does; the hook reads its input.
+  await $.tool.call({
+    tool: 'TodoWrite', tool_use_id: 'w1',
+    todos: [
+      { content: 'Parse', activeForm: 'Parsing', status: 'completed' },
+      { content: 'Write tests', activeForm: 'Writing tests', status: 'in_progress' },
+      { content: 'Ship', activeForm: 'Shipping', status: 'pending' },
+    ],
+  } as never)
+  await clock.settle()
+  const ui = await mount($, 'terminal', 100)
+  const text = mine(await look(ui))
+  expect(text).toContain('plan')
+  expect(text).toContain('1/3')
+  expect(text).toContain('Writing tests')
+  expect(text).toMatch(/━+╸?─+/)
+  expect(text).not.toMatch(/[●○•◦]{2,}/)
+  await ui.unmount()
+  // Folded while working: `plan 1/3` in the row.
+  const folded = await mount($, 'terminal', 120, true)
+  await folded.press({ key: 'fold' })
+  expect(mine(await look(folded))).toContain('plan 1/3')
+  await folded.unmount()
 })

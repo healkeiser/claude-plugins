@@ -109,7 +109,7 @@ Files claude-plugins ───────────────  △  ◎  �
 GATE · permissions                 141 checks
 ```
 
-**Spacing**: one blank row under a pane's tab, one row between blocks, `paddingX={1}` inside cards. A pane opens with `backgroundColor: 'transparent'`. Single-line bands put two spaces either side of `·`; cards and headers one.
+**Spacing**: one blank row under a pane's tab; stacked cards sit edge to edge, no blank row between (a pane's rows are few); `paddingX={1}` inside cards. A pane opens with `backgroundColor: 'transparent'`. Single-line bands put two spaces either side of `·`; cards and headers one.
 
 ## Capitalisation
 
@@ -161,7 +161,7 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 |-----------|-------|---------|
 | spinner | pulse's band and Bash rows, filetree's running git action | braille, one frame per tick, one turn a second |
 | sweep | filetree's activity shimmer | a soft band (raised-cosine falloff over a four-step ramp) crossing the name with an ease-in-out, about 1.6 s a pass |
-| packets | flightdeck's rails | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
+| packets | flightdeck's connectors, drawn on the upper block's own bottom edge (one cell in from each side, so its rounded corners stay; at rest the line is the edge itself, in its colour) | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
 | glide | flightdeck's meters and sparklines on graphical surfaces | a new reading glides from the last width (a sparkline bar from its last height) on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters and sparklines step, as a cell has no in-between |
 
