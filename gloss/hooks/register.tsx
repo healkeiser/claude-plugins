@@ -9,6 +9,7 @@ import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
 import { editorScheme, refUrl, resolvePath } from './paths'
 import type { FileRef } from './paths'
+import { cardFrame } from './kit'
 import { GLYPH, ROLE, SEP, ascii, asciiTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
@@ -349,7 +350,7 @@ export const register: Register = (on, options) => {
 
       if (part.kind === 'next') {
         return (
-          <Box key={`n${i}`} borderStyle="round" borderColor={ROLE.accent} paddingX={1}>
+          <Box key={`n${i}`} {...cardFrame(ROLE.accent)}>
             <Text>
               <Text color={ROLE.accent} weight="bold">{`${GLYPH.next} Next  `}</Text>
               {spans(part.spans, `n${i}`)}
@@ -361,7 +362,7 @@ export const register: Register = (on, options) => {
       if (part.kind === 'callout') {
         const style = CALLOUT[part.type]
         return (
-          <Box key={`a${i}`} flexDirection="column" borderStyle="round" borderColor={style.color} paddingX={1}>
+          <Box key={`a${i}`} {...cardFrame(style.color)}>
             <Text color={style.color} weight="bold">{style.title}</Text>
             {lines(part.lines, `a${i}`)}
           </Box>

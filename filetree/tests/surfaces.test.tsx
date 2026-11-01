@@ -365,6 +365,28 @@ test('macOS: the Nerd Font probe skips the LastResort placeholder font, asks for
   expect(probe).not.toContain('ls "$HOME"/Library/Fonts')
 })
 
+for (const [version, isNerd] of [['3.4.0', true], ['3.1.1', false], ['', false]] as const)
+  test(`Windows: glyphs auto reads the font folders through $.fs, no sh: ${version ? `Nerd Fonts ${version}` : 'no Nerd Font'} draws ${isNerd ? 'Nerd' : 'Unicode'} icons`, { timeoutMs: 20_000 }, async ($, on) => {
+    const ran: Ran = []
+    const root = 'C:/Users/k/proj'
+    const fonts = 'C:/Windows/Fonts'
+    const clock = world(on, {
+      os: 'win32', env: { OS: 'Windows_NT', USERPROFILE: 'C:\\Users\\k', SystemRoot: 'C:/Windows' }, cwd: 'C:\\Users\\k\\proj', top: root,
+      dirs: { [root]: [['a.ts', 'file']], [fonts]: version ? [['arial.ttf', 'file'], ['MonoLisaNerdFont-Bold.ttf', 'file'], ['MonoLisaNerdFont-Regular.ttf', 'file']] : [['arial.ttf', 'file']] },
+      files: version ? { [`/Windows/Fonts/MonoLisaNerdFont-Regular.ttf`]: `name Nerd Fonts ${version} end` } : {},
+      status: '## main\0', numstat: '',
+    }, ran)
+    await $.session.start({ cwd: 'C:\\Users\\k\\proj', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+    const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+    await clock.settle()
+    const up = JSON.stringify(await ui.drawn({ in: 'button-up' }))
+    expect(up.includes('\u{ebff}')).toBe(isNerd)
+    expect(up.includes('△')).toBe(!isNerd)
+    expect(ran.some(a => a[0] === 'sh')).toBe(false)
+    await ui.unmount()
+  })
+
 test('Windows: backslash paths shimmer, open hands the path to PowerShell as data, no find, sh or cmd', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = 'C:/Users/k/proj'
@@ -451,7 +473,7 @@ test('macOS app: every header button and the search box work on the desktop surf
   await ui.unmount()
 })
 
-test('hovering a header button says what it does left of the buttons where it fits, and the buttons sit a column apart', { timeoutMs: 20_000 }, async ($, on) => {
+test('hovering a header button says what it does in the rule, cut to one row, and each glyph button is three cells, its glyph centred', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/Users/k/proj'
   const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: root, dirs: { [root]: [['.env', 'file'], ['a.ts', 'file']] }, status: '## main\0', numstat: '' }, ran)
@@ -460,20 +482,20 @@ test('hovering a header button says what it does left of the buttons where it fi
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ plugin: 'filetree', surface, component: 'Pane', requestId: 'filetree', props: paneProps(60) })
     await clock.settle()
-    expect(JSON.stringify(await ui.drawn())).toContain('"gap":1')
+    if (surface === 'terminal') expect(JSON.stringify(await ui.drawn({ in: 'button-refresh' }))).toContain('" ↻ "')
     expect(await texts(ui)).not.toContain('reload tree and git')
     await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'button-refresh' })
     await clock.settle()
-    expect(await texts(ui)).toContain('"reload tree and git "')
+    expect(await texts(ui)).toContain('"reload tree and git"')
     await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'button-refresh' })
     await clock.settle()
     expect(await texts(ui)).not.toContain('reload tree and git')
     await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'button-hidden' })
     await clock.settle()
-    expect(await texts(ui)).toContain('"hide hidden files "')
+    expect(await texts(ui)).toContain('"hide hidden files"')
     await ui.press({ key: 'hidden' })
     await clock.settle()
-    expect(await texts(ui)).toContain('"show hidden files "')
+    expect(await texts(ui)).toContain('"show hidden files"')
     await ui.press({ key: 'hidden' })
     await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'button-hidden' })
     await clock.settle()
@@ -483,7 +505,9 @@ test('hovering a header button says what it does left of the buttons where it fi
   await clock.settle()
   await narrow.pointer({ type: 'enter', x: 0, y: 0, in: 'button-refresh' })
   await clock.settle()
-  expect(await texts(narrow)).not.toContain('reload tree and git')
+  // Narrow, the hint is cut inside the header's one row: the header never wraps or grows.
+  expect(JSON.stringify(await narrow.drawn())).toContain('"key":"kit-header","flexDirection":"row","height":1,"overflow":"hidden"')
+  expect(JSON.stringify(await narrow.drawn())).toContain('"wrap":"truncate-end"},"children":["reload tree and git"]')
   await narrow.pointer({ type: 'leave', x: 0, y: 0, in: 'button-refresh' })
   await narrow.unmount()
 })
@@ -664,10 +688,10 @@ test('watches only git metadata, copies paths, clears search, Home and End', { t
   expect(copied).toEqual(['b.txt', `${root}/b.txt`])
   await ui.input({ key: 'q', text: 'b', kind: 'change' })
   await clock.settle()
-  expect(await ui.find({ key: 'clear' })).toBeDefined()
-  await ui.press({ key: 'clear' })
+  expect(await ui.find({ key: 'q-clear' })).toBeDefined()
+  await ui.press({ key: 'q-clear' })
   await clock.settle()
-  expect(await ui.find({ key: 'clear' })).toBeUndefined()
+  expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.post({ key: 'end' }, { in: 'rows' })
   await clock.settle()
   const rowsOf = async () => treeRows(await ui.drawn())
@@ -1891,7 +1915,7 @@ for (const hints of ['on', 'off'] as const) {
     await clock.settle()
     const drawn = await ui.drawn()
     expect(JSON.stringify(drawn).includes('git init')).toBe(hints === 'on')
-    expect(treeRows(drawn).rows.length).toBe(hints === 'on' ? 13 : 14)  // one row less: the blank row under the pane's tab
+    expect(treeRows(drawn).rows.length).toBe(hints === 'on' ? 12 : 13)  // two rows less: the blank rows under the pane's tab and under the header
     await ui.unmount()
   })
 }
@@ -1905,7 +1929,7 @@ test('spacing off and shortcuts off drop the blank lines and the shortcut row, a
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } } })
   await clock.settle()
   const drawn = await ui.drawn()
-  expect(treeRows(drawn).rows.length).toBe(17)  // one row less: the blank row under the pane's tab
+  expect(treeRows(drawn).rows.length).toBe(16)  // two rows less: the blank rows under the pane's tab and under the header
   expect(await ui.find({ key: 'nav-j' })).toBeUndefined()
   expect(await ui.find({ key: 'gap-above' })).toBeUndefined()
   await ui.post({ key: 'j' }, { in: 'rows' })
@@ -1959,7 +1983,7 @@ test('the root row has a folder glyph, k from the first row selects it and k on 
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await clock.settle()
   const footer = (d: unknown) => JSON.stringify(d)
-  expect(footer(await ui.drawn())).toContain('"key":"root","label":"■ proj"')
+  expect(footer(await ui.drawn())).toContain('"children":["Files"]')
   expect(footer(await ui.drawn())).toContain('"key":"nav-help","label":"?: shortcuts"')
   expect(footer(await ui.drawn())).toMatch(/"key":"nav-help"[^\]]*"children":\[\{"type":"Text","props":\{"color":"claude"\},"children":\["\?"\]\}/)
   await ui.press({ key: 'split' })
@@ -1978,8 +2002,6 @@ test('the root row has a folder glyph, k from the first row selects it and k on 
   await clock.settle()
   expect(footer(await ui.drawn())).toContain(`"active":"${root}/src"`)
   await ui.post({ key: 'k' }, { in: 'rows' })
-  await clock.settle()
-  await ui.press({ key: 'root' })
   await clock.settle()
   expect(footer(await ui.drawn())).toContain(`"active":"${root}"`)
   await ui.post({ key: 'k' }, { in: 'rows' })
@@ -2006,7 +2028,9 @@ test('the root row maps the whole root in a fresh session', async ($, on) => {
   await clock.settle()
   await ui.press({ key: 'split' })
   await clock.settle()
-  await ui.press({ key: 'root' })
+  // The root from the tree: Home, then k from the first row.
+  await ui.post({ key: 'home' }, { in: 'rows' })
+  await ui.post({ key: 'k' }, { in: 'rows' })
   await clock.settle()
   const text = mapOf(await ui.drawn())?.rows.map(r => r.left.map(x => x.t).join('')).join('\n') ?? ''
   expect(text).toContain('a.ts')
@@ -2324,7 +2348,7 @@ test('split preview at the top: p shows it under the header with the rule below 
   await ui.post({ key: 'p' }, { in: 'rows' })
   await clock.settle()
   const drawn = await ui.drawn()
-  const split = kids(drawn)[1]
+  const split = kids(drawn)[3]
   const order = JSON.stringify(split)
   expect(order.indexOf('a.md')).toBeLessThan(order.indexOf('╰'))
   expect(peekOf(drawn).preview.markdown).toBe(true)
@@ -2721,7 +2745,7 @@ test('files added and removed outside Claude show in the tree and the treemap wi
   await ui.unmount()
 })
 
-test('restyle: the header is a ruled heading, toggles that are on read in Claude orange, rows name theme keys and the picked root reads as a chip', { timeoutMs: 20_000 }, async ($, on) => {
+test('restyle: the header is the kit header (Files title, folder, rule), toggles that are on read in Claude orange, rows name theme keys', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/proj'
   const clock = world(on, {
@@ -2734,9 +2758,11 @@ test('restyle: the header is a ruled heading, toggles that are on read in Claude
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await clock.settle()
   const shown = JSON.stringify(await ui.drawn())
-  expect(shown).toMatch(/"key":"header-rule"[^\]]*"color":"subtle"\},"children":\["─+"\]/)
-  expect(shown).not.toMatch(/"flexShrink":1,"overflow":"hidden","backgroundColor"/)
-  expect(JSON.stringify(await ui.drawn({ in: 'button-cwd' }))).toContain('{"type":"Text","props":{"color":"claude"},"children":["◎"]}')
+  expect(shown).toMatch(/"key":"kit-rule"[^\]]*"color":"subtle"\},"children":\["─+"\]/)
+  // The title: bold accent text, no fill (a fill read as a pane tab), never a Button, so no hover state.
+  expect(shown).toContain('{"type":"Box","props":{"flexShrink":0},"children":[{"type":"Text","props":{"color":"claude","weight":"bold"},"children":["Files"]}]}')
+  expect(shown).toContain('"children":["proj"]')
+  expect(JSON.stringify(await ui.drawn({ in: 'button-cwd' }))).toContain('{"type":"Text","props":{"color":"claude"},"children":[" ◎ "]}')
   expect(JSON.stringify(await ui.drawn({ in: 'button-up' }))).toContain('"dimColor":true')
   const rows = rowsProps(clientProps(await ui.drawn(), 'rows')).rows
   const seg = (id: string, t: string) => [...(rows.find(r => r.id === id)?.left ?? []), ...(rows.find(r => r.id === id)?.right ?? [])].find(s => s.t === t)
@@ -2744,14 +2770,7 @@ test('restyle: the header is a ruled heading, toggles that are on read in Claude
   expect(seg(`${root}/a.ts`, ' M')?.c).toBe('warning')
   expect(seg(`${root}/b.ts`, ' ?')?.c).toBe('success')
   expect(seg(`${root}/sub`, '■ ')?.c).toBe('claude')
-  await ui.press({ key: 'root' })
-  await clock.settle()
-  expect(JSON.stringify(await ui.drawn())).toContain('{"type":"Text","props":{"weight":"bold","color":"claude","backgroundColor":"userMessageBackground"},"children":["proj"]}')
   await ui.unmount()
-  const narrow = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(20) })
-  await clock.settle()
-  expect(JSON.stringify(await narrow.drawn())).not.toContain('"header-rule"')
-  await narrow.unmount()
 })
 
 test('restyle: the split preview is framed open-sided with a labelled rule and its scrollbar draws a thumb with no track line', { timeoutMs: 20_000 }, async ($, on) => {
@@ -2835,7 +2854,7 @@ test('edit heat: each Edit and Write counts, a row draws its meter and count lef
 test('edit heat without a 256-colour terminal takes the role colours, and the hot view of an unedited tree says so', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/proj'
-  const clock = world(on, { os: 'linux', env: { HOME: '/home/k', TERM: 'xterm' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['a.ts', 'file'], ['b.ts', 'file']] }, status: '## main\0' }, ran)
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k', TERM: 'dumb' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['a.ts', 'file'], ['b.ts', 'file']] }, status: '## main\0' }, ran)
   await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })

@@ -1,6 +1,24 @@
 # Design
 
-One look for the five mods (gloss, pulse, postcard, flightdeck, filetree) and the status line. Each mod carries an identical `hooks/style.ts` with the tokens, glyphs, formatters and motion primitives below. A plugin cannot import from another plugin, so the file is copied; `node scripts/check-style.mjs` fails when the copies drift or a drawn glyph is emoji-capable.
+One look for the five mods (gloss, pulse, postcard, flightdeck, filetree) and the status line.
+
+**One source.** `shared/style.ts` holds the tokens, glyphs, formatters and motion primitives below; `shared/kit.tsx` holds the components every pane and band draws its chrome with (Components). A plugin cannot import from another plugin, so each mod carries copies in `hooks/`, written by `node scripts/check-style.mjs --write`. Edit `shared/`, never a mod's copy. Without `--write` the script fails when a copy drifts, when a mod draws its own search field or card frame instead of the kit's, or when a drawn glyph is emoji-capable.
+
+## Components
+
+Every pane and band draws its chrome through `kit.tsx`; a mod draws only its own content.
+
+| Part | Shape | Used by |
+|------|-------|---------|
+| `header` | One row, never wraps: the **title** (the pane's name, bold in its role colour, no fill: a filled title read as one of Claude Code's own pane tabs just above it, and it is never pressable, so it has no hover state), the detail in chrome (cut from its start), a status, a `─` rule in chrome, the actions right (a lit action is accent, the rest dim). A one-glyph action is three cells (`iconLabel`: a cell of air a side, no gap between them), so the pointer has a wider target and the hover highlight centres on the glyph, which fonts draw narrower than its cell. A hovered action's hint takes the rule's place, cut at its end, so the row never grows or moves. | Files, Prompts, Flightdeck, the Pulse card |
+| `tabs` | As Claude Code marks its own pane tabs: the active tab inverse and bold, the others dim, a cell of air a side. Graphical surfaces: buttons, the active one `primary`. | Pulse (folded and unfolded) |
+| `search` | A rounded card, three rows: `⌕` and the field, the match count and a `×` clear button while there is a query; the border and `⌕` turn accent while it holds one. | Files, Prompts |
+| `bar`, `pct`, `pctColor` | The heat-ramp meter and its right-aligned percentage (Formatting). Every fill meter takes it, flightdeck's context `mix` too: its categories are named in the legend below it, not coloured in the bar. | Pulse, Flightdeck |
+| `card`, `cardFrame` | Rounded border in the role colour (`bold` for a viewed one, dimmed for a finished one), `paddingX` 1; `card` adds the title bold in the role colour with a status right. | every card: postcard's prompts and commands, gloss's callouts and `Next`, flightdeck's blocks and agent cards, the Pulse card |
+| `footer` | One row: key hints read as the engine draws a hotkey button (`o: open`: the key in the accent, the colon and action dim) left, a lead (Files' activity chip), then a label and a status right, the status cut from its start so a path keeps its end. | Files |
+
+**Pane layout**, the same in every pane, top to bottom: `SPACE.top` (1) blank row, the header, `SPACE.block` (1) blank row, then the tabs or the search bar, then the body. So a search bar sits on the same rows in every pane. The search card's border is its own air: the body follows it directly.
+
 
 ## Colour roles
 
@@ -31,7 +49,6 @@ Where a surface cannot take theme keys, fixed colours are allowed and documented
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
 - flightdeck's SVG meters and swimlanes (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
-- flightdeck's context `mix` meter: in a terminal each category takes the theme key `/context` draws it in (the engine's `color`), so it matches `/context`; inside SVG, which cannot name theme keys, a fixed categorical hex set in order of size (`CATEGORY_HEX` in `register.tsx`). Categories are kinds, not roles.
 - The heat ramp of fill meters (see Formatting): the status line's 256-colour ramp, xterm 46 82 118 154 190 226 220 214 208 196 with 239 unlit, as those entries' hex (`HEAT_RAMP`, `HEAT_UNLIT` in `style.ts`). A ramp needs ten fixed steps; a theme has three.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
@@ -85,13 +102,18 @@ const a = 1
 ╰──────────────────────────────────────
 ```
 
-**Header grammar**, for every label row and rule: `label · detail ──── meta`. The label in its role colour and bold, the separator and rule in chrome, the meta in chrome on the right.
+**Header grammar**, for a pane's first row (the kit's `header`): `Title detail ──── actions`, the title bold in its role colour. A card's label row keeps `label · detail ──── meta`, the label in its role colour and bold, the separator and rule in chrome, the meta in chrome on the right.
 
 ```
+Files claude-plugins ───────────────  △  ◎  ↻ 
 GATE · permissions                 141 checks
 ```
 
 **Spacing**: one blank row under a pane's tab, one row between blocks, `paddingX={1}` inside cards. A pane opens with `backgroundColor: 'transparent'`. Single-line bands put two spaces either side of `·`; cards and headers one.
+
+## Capitalisation
+
+One rule everywhere. **Titles are sentence case**: a pane's title (`Files`, `Prompts`, `Flightdeck`), a tab (`Activity`, `Context`, `Turn`, `Git`), a card's label (`You`, `Command`, `Session log`, `Last turn`, `Gate · permissions`), a callout (`Note`, `Tip`). `sentence` in `style.ts` draws them so, and the kit's `header`, `tabs` and `card` and flightdeck's card heads apply it, so a title written in lower case still reads right; a name the person chose in capitals (flightdeck's `gateLabel`) stays as they wrote it. **Everything inside is lower case**: row labels (`ctx`, `5h`, `branch`, `changes`), legends, hints, states (`● working`, `in sync`), button words (`prev`, `edit`, `re-send`), counts (`3 staged`).
 
 ## Formatting
 
@@ -108,7 +130,7 @@ One formatter per kind, in `style.ts`, and the status line matches them.
 | separator | ` · ` in chrome | `effort high · mode auto` |
 | meter | `━` filled in half-cell steps (`╸` the half), each lit cell its own heat step, `─` track unlit; above zero, at least half a cell | `━━━━━━╸───  64%` `╸─────────   3%` |
 
-Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps, as wide as the reading's share and, above zero, at least half a cell (`meterShare`). A terminal that reports neither 24-bit colour (`COLORTERM`, Windows Terminal) nor 256 colours (`TERM`) gets three role colours instead (`heat`): accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
+Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps, as wide as the reading's share and, above zero, at least half a cell (`meterShare`). Every terminal draws the ramp, as `statusline.sh` does, except consoles known to lack 256 colours (`TERM` `dumb`, `linux`, `vt100`, `ansi`), which get three role colours instead (`heat`); an unset `TERM` (Windows) draws the ramp: accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
 
 Text is measured in terminal cells, not characters: `cellWidth` counts East Asian wide and fullwidth characters and emoji as 2, combining marks and variation selectors as 0, and cuts by grapheme (`Intl.Segmenter`), so a cut never splits a character. Truncation ends with `…` inside the width.
 
@@ -154,7 +176,7 @@ Same name, same meaning, wherever a mod has the concern.
 | Option | Values | Meaning | Mods |
 |--------|--------|---------|------|
 | `motion` | `while-active` (default), `off` | animate only while work runs, or never | pulse, flightdeck, filetree |
-| `glyphs` | `auto` (default), `plain`, `text`; filetree adds `nerd` | which glyph set the mod draws: `auto` is filetree's Nerd Font icons when installed and the Unicode set elsewhere, `plain` the Unicode set, `text` ASCII | gloss, postcard, flightdeck, filetree |
+| `glyphs` | `auto` (default), `plain`, `text`; filetree adds `nerd` | which glyph set the mod draws: `auto` is filetree's Nerd Font icons when a Nerd Fonts 3.2+ font is installed (found by `fc-list` or the macOS font folders through `sh`, and on Windows by reading the user and system font folders through `$.fs`, no shell) and the Unicode set elsewhere, `plain` the Unicode set, `text` ASCII | gloss, postcard, flightdeck, filetree |
 | `palette` | flightdeck: `theme`, `pastel`; filetree: `key=#hex` pairs | theme keys, or fixed colours | flightdeck, filetree |
 | `heat` | `session` (default), `sessions`, `off` | count Claude's edits per file this session, or also earlier sessions' (halved each new session, bounded), or not at all; drawn as a heat-ramp meter with its count | filetree |
 

@@ -14,8 +14,38 @@ export type Last = { durationMs: number; tools: number; isAborted: boolean; cost
 /** When a main-thread request last used the prompt cache, and how long the API keeps it. */
 export type Cache = { at: number; ttlMs: number }
 
-/** The session folder's git state, read after edits and turns, never on a draw. */
-export type Repo = { isRepo: boolean; branch: string; added: number; modified: number; deleted: number }
+/** A changed file of the work tree: its porcelain status letter, path and line counts (null for a binary file). */
+export type RepoFile = { path: string; status: string; add: number | null; del: number | null }
+
+/**
+ * The session folder's git state, read after edits and turns, never on a draw.
+ * `upstream` is '' with no tracking branch; `ahead`/`behind` against it. `staged`,
+ * `unstaged`, `untracked`, `conflicted` count files; `add`/`del` count lines
+ * against HEAD; `files` are the most changed, at most 3. `last`: HEAD's commit,
+ * `at` in ms. `op`: a rebase, merge, cherry-pick, revert or bisect under way,
+ * '' otherwise. `startOid`: HEAD when the session first read it, so `commits`
+ * counts the commits made since.
+ */
+export type Repo = {
+  isRepo: boolean
+  branch: string
+  oid: string
+  upstream: string
+  ahead: number
+  behind: number
+  stash: number
+  staged: number
+  unstaged: number
+  untracked: number
+  conflicted: number
+  add: number
+  del: number
+  files: RepoFile[]
+  last: { hash: string; subject: string; at: number } | null
+  op: string
+  startOid: string
+  commits: number
+}
 
 export type Tab = 'activity' | 'context' | 'turn' | 'git'
 
@@ -34,7 +64,8 @@ declare module 'claude-code' {
       calls: Call[]
       last: Last | null
       cache: Cache | null
-      repo: Repo | null
+      /** Tagged `repo-2`: a value stored before its fields grew reads as absent. */
+      repo: Shaped<Repo | null>
       view: View
       second: number
     }

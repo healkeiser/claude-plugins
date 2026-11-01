@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { marks, matches, step } from './register'
@@ -101,7 +101,7 @@ test('search filters as you type, case-insensitive, and lights the match in the 
   await pane.input({ key: 'search', text: 'parser', kind: 'change' })
   // The second prompt shows its matching line, not its first.
   expect(await rows(pane)).toEqual(['#2 for the PARSER too', '#1 Fix the parser'])
-  const lit = (await pane.findAll({ type: 'Text' })).filter(t => t.props.color === 'claude').map(t => t.text)
+  const lit = (await pane.findAll({ type: 'Text' })).filter(t => t.props.color === 'claude' && t.text !== '⌕ ' && t.text !== 'Prompts').map(t => t.text)
   expect(lit).toEqual(['PARSER', 'parser'])
   await pane.input({ key: 'search', text: 'nothing like it', kind: 'change' })
   expect(await rows(pane)).toEqual([])
@@ -182,4 +182,21 @@ test('mobile, which draws no Input, still lists prompts', async ($, on) => {
   const pane = await $.ui.mount({ ...PANE, surface: 'mobile' })
   expect(await pane.find({ type: 'Input' })).toBeUndefined()
   expect(await rows(pane)).toHaveLength(3)
+})
+
+test('a prompt queued while a turn runs is listed once: the queued card is not a prompt of its own', async ($, on) => {
+  engine(on)
+  // Stand in for the engine beneath the plugins: a turn starts, a row is stored, the clock reads.
+  on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+  mock.session(on)
+  mock.clock(on, { now: 0 })
+  await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'a', props: props('Fix the parser') })
+  await $.turn.start({ text: 'Fix the parser', turnId: 'T1' } as never)
+  // Typed while the turn runs: drawn as a queued card, under the queue row's own id.
+  await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'q1', props: props('and the lexer') })
+  // Delivered: stored with door `delivery`, then drawn again as a sent prompt under that uuid.
+  await $.session.append({ message: { type: 'user', role: 'user', content: [{ type: 'text', text: 'and the lexer' }] }, door: 'delivery', origin: { kind: 'composer' }, uuid: 'd1' } as never)
+  await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'd1', props: props('and the lexer') })
+  const pane = await $.ui.mount(PANE)
+  expect(await rows(pane)).toEqual(['#2 and the lexer', '#1 Fix the parser'])
 })

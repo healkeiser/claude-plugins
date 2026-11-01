@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  heatHex, heatRuns, meterShare, packets, padCells, percent, remember, span, spin, sweep, usd,
+  heatHex, heatRuns, meterShare, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -35,6 +35,10 @@ test('cells: wide characters count two, marks none, cuts keep whole graphemes', 
   expect(clip('short', 10)).toBe('short')
   expect(padCells('日本', 6)).toBe('日本  ')
   expect(padCells('7%', 4, 'right')).toBe('  7%')
+})
+
+test('titles in sentence case: the first letter up, the rest as written', () => {
+  expect([sentence('session log'), sentence('git'), sentence('GATE'), sentence('')]).toEqual(['Session log', 'Git', 'GATE', ''])
 })
 
 test('formats', () => {
@@ -116,7 +120,10 @@ test('the heat ramp: one step per 10%, each lit cell its own step', () => {
   expect(heatRuns(100, 5).map(r => r.color)).toEqual([HEAT_RAMP[0], HEAT_RAMP[2], HEAT_RAMP[4], HEAT_RAMP[6], HEAT_RAMP[8]])
   expect(canRamp({ COLORTERM: 'truecolor' })).toBe(true)
   expect(canRamp({ TERM: 'xterm-256color' })).toBe(true)
-  expect(canRamp({ TERM: 'xterm' })).toBe(false)
+  expect(canRamp({ TERM: 'xterm' })).toBe(true)
+  expect(canRamp({})).toBe(true)
+  expect(canRamp({ TERM: 'dumb' })).toBe(false)
+  expect(canRamp({ TERM: 'linux' })).toBe(false)
 })
 
 test('meters and percentages follow the status line: half cells, nothing above zero drawn empty', () => {

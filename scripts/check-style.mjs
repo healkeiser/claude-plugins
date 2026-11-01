@@ -1,19 +1,28 @@
 // Checks the design system across the mods (see DESIGN.md):
-// 1. every mod's hooks/style.ts and hooks/style.test.ts are identical copies;
+// 1. every mod's hooks/style.ts, style.test.ts and kit.tsx are exact copies of
+//    shared/ (the one source; `--write` copies shared/ into every mod);
+// 1b. no mod draws its own search field or card frame: both go through kit.tsx;
 // 2. no hooks file or statusline.sh draws an emoji-capable glyph without U+FE0E;
 // 3. every surface module ticks at style.ts's FRAME_MS.
-// Run: node scripts/check-style.mjs   (exit 1 on any finding)
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+// Run: node scripts/check-style.mjs [--write]   (exit 1 on any finding)
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const MODS = ['gloss', 'pulse', 'postcard', 'flightdeck', 'filetree']
 const problems = []
 
-for (const file of ['style.ts', 'style.test.ts']) {
-  const [first, ...rest] = MODS.map(m => ({ m, text: readFileSync(join(root, m, 'hooks', file), 'utf8') }))
-  for (const other of rest) {
-    if (other.text !== first.text) problems.push(`${other.m}/hooks/${file} differs from ${first.m}/hooks/${file}`)
+const SHARED = ['style.ts', 'style.test.ts', 'kit.tsx']
+const isWrite = process.argv.includes('--write')
+for (const file of SHARED) {
+  const source = readFileSync(join(root, 'shared', file), 'utf8')
+  for (const m of MODS) {
+    const path = join(root, m, 'hooks', file)
+    let copy = ''
+    try { copy = readFileSync(path, 'utf8') } catch {}
+    if (copy === source) continue
+    if (isWrite) writeFileSync(path, source)
+    else problems.push(`${m}/hooks/${file} differs from shared/${file} (edit shared/, then run with --write)`)
   }
 }
 
@@ -53,7 +62,15 @@ for (const path of sources) {
   })
 }
 
-const frame = /export const FRAME_MS = (\d+)/.exec(readFileSync(join(root, 'gloss', 'hooks', 'style.ts'), 'utf8'))?.[1]
+for (const path of sources) {
+  if (/kit\.tsx$/.test(path)) continue
+  readFileSync(path, 'utf8').split(/\r?\n/).forEach((line, i) => {
+    if (/<(els.)?Input|'⌕ /.test(line)) problems.push(`${relative(root, path)}:${i + 1}: draws its own search field; use search() from kit.tsx`)
+    if (/borderStyle(=|: )["']round/.test(line)) problems.push(`${relative(root, path)}:${i + 1}: draws its own card frame; use cardFrame() from kit.tsx`)
+  })
+}
+
+const frame = /export const FRAME_MS = (\d+)/.exec(readFileSync(join(root, 'shared', 'style.ts'), 'utf8'))?.[1]
 for (const path of MODS.flatMap(m => walk(join(root, m, 'hooks')))) {
   const text = readFileSync(path, 'utf8')
   if (!/ClientModule/.test(text)) continue

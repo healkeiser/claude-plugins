@@ -1,6 +1,8 @@
 // The healkeiser mods' shared design tokens: colour roles, glyphs, formatters
-// and motion. DESIGN.md says why. Each mod keeps an identical copy (a plugin
-// cannot import from another); scripts/check-style.mjs fails when they drift.
+// and motion. DESIGN.md says why. The source is shared/style.ts; each mod
+// keeps a copy (a plugin cannot import from another), written by
+// `node scripts/check-style.mjs --write`, and the check fails when one drifts.
+// Edit shared/, never a mod's copy.
 
 // ---------------------------------------------------------------- colour roles
 
@@ -52,7 +54,7 @@ export const GLYPH = {
  */
 export const ASCII: Readonly<Record<string, string>> = Object.fromEntries(
   // Pairs: a glyph, then its stand-in. Keys only, never drawn as they stand.
-  [...'✓v✕x✗x●*○o■#•*◦-‖|↻@⟲<◆+◇-»>…~·-━=╸:─-│|┃|╭+╮+╰+╯+┬+┴+├+┼+┤+↗^⚠!ℹi→>—-⧉+▾v▴^▸>⌕?⌘/⇣v⠋|⠙/⠹-⠸\\⠼|⠴/⠦-⠧\\⠇|⠏/▁_▂.▃:▄-▅=▆+▇*█#◂<'].flatMap((c, i, all) => (i % 2 ? [] : [[c, all[i + 1]!]])), // glyph-lint-ignore
+  [...'×x✓v✕x✗x●*○o■#•*◦-‖|↻@⟲<◆+◇-»>…~·-━=╸:─-│|┃|╭+╮+╰+╯+┬+┴+├+┼+┤+↗^⚠!ℹi→>—-⧉+▾v▴^▸>⌕?⌘/⇣v⇡^⠋|⠙/⠹-⠸\\⠼|⠴/⠦-⠧\\⠇|⠏/▁_▂.▃:▄-▅=▆+▇*█#◂<'].flatMap((c, i, all) => (i % 2 ? [] : [[c, all[i + 1]!]])), // glyph-lint-ignore
 )
 
 /** `s` with every glyph in `ASCII` swapped for its stand-in, variation selectors dropped. */
@@ -203,6 +205,13 @@ export const percent = (pct: number) => `${wholePct(pct)}%`
 /** `$12.45`, `$140`. */
 export const usd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`)
 
+/**
+ * A title in sentence case, as every title is drawn (DESIGN.md, Capitalisation):
+ * its first letter upper case, the rest as written, so `session log` reads
+ * `Session log` and a name the person chose in capitals stays as they wrote it.
+ */
+export const sentence = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
 /** `1 tool`, `3 tools`. */
 export const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`
 
@@ -241,12 +250,13 @@ export function heatRuns(pct: number, cells: number): { text: string; color: str
 }
 
 /**
- * Whether a terminal draws the ramp: 24-bit colour (`COLORTERM`, Windows
- * Terminal's `WT_SESSION`) or 256 colours (`TERM`). Otherwise meters take
- * `heat`'s three role colours.
+ * Whether a terminal draws the ramp. statusline.sh always draws it, so the mods
+ * do too, except on the consoles known to lack 256 colours (`TERM` dumb, linux,
+ * vt100, ansi). An unset `TERM` (Windows) draws it: every console there takes
+ * 24-bit colour. Otherwise meters take `heat`'s three role colours.
  */
 export const canRamp = (env: { COLORTERM?: string; TERM?: string; WT_SESSION?: string }): boolean =>
-  /truecolor|24bit/i.test(env.COLORTERM ?? '') || /256col|direct/i.test(env.TERM ?? '') || !!env.WT_SESSION
+  /truecolor|24bit/i.test(env.COLORTERM ?? '') || !!env.WT_SESSION || !/^(dumb|linux|vt\d+|ansi|cons\d+)$/i.test(env.TERM ?? '')
 
 /**
  * A meter of `cells` as the status line steps it: the filled run (`━`, a last

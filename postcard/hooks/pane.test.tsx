@@ -24,33 +24,32 @@ const keys = async (d: Drawn) => (await d.findAll({ type: 'Button' })).map(b => 
 // Each row's number column, as drawn: the dim, tabular Text that starts with `#` or a pad.
 const numbers = async (d: Drawn) => (await d.findAll({ type: 'Text' })).filter(t => t.props.tabular && /^\s*#\d+$/.test(t.text)).map(t => t.text)
 
-test('the search and the list are rounded cards, one row apart, under one blank row', async $ => {
+test('the pane follows the kit: header chip, one blank row, the search card, then the list', async $ => {
   await prompts($, ['fix the band'])
   const ui = await $.ui.mount(pane(60))
-  const [outer, find, , list] = await boxes(ui)
-  expect(outer).toMatchObject({ paddingTop: 1 })
-  expect(find).toMatchObject({ borderStyle: 'round', borderColor: 'subtle', paddingX: 1, marginBottom: 1 })
-  expect(list).toMatchObject({ borderStyle: 'round', borderColor: 'suggestion', paddingX: 1 })
-  expect(list!.marginTop).toBeUndefined()
+  const all = await boxes(ui)
+  expect(all[0]).toMatchObject({ paddingTop: 1 })
+  expect(all[1]).toMatchObject({ key: 'kit-header', height: 1, overflow: 'hidden' })
+  const find = all.find(b => b.key === 'search-bar')
+  expect(find).toMatchObject({ borderStyle: 'round', borderColor: 'subtle', paddingX: 1 })
+  expect(all.indexOf(find!)).toBeGreaterThan(all.findIndex(b => b.height === 1 && b.key === 'gap-head'))
   expect(await texts(ui)).toContain('⌕ ')
   // The search card turns accent while a query is typed.
   await ui.input({ key: 'search', text: 'band', kind: 'change' } as never)
-  expect((await boxes(ui))[1]).toMatchObject({ borderColor: 'claude' })
+  expect((await boxes(ui)).find(b => b.key === 'search-bar')).toMatchObject({ borderColor: 'claude' })
 })
 
-test('the list card heads with label · count ──── prev · next, the label alone bold', async $ => {
+test('the header is the Prompts title, bold in the accent as in every pane, the count, a rule, then prev and next', async $ => {
   await prompts($, ['Fix the parser', 'ship it', 'parser tests'])
   const ui = await $.ui.mount(pane(60))
   const all = await ui.findAll({ type: 'Text' })
-  const label = all.find(t => t.text === 'prompts')!
-  expect(label.props).toMatchObject({ color: 'suggestion', weight: 'bold' })
-  expect(all.filter(t => t.props.weight === 'bold' || t.props.bold).map(t => t.text)).toEqual(['prompts'])
+  const label = all.find(t => t.text === 'Prompts')!
+  expect(label.props).toMatchObject({ color: 'claude', weight: 'bold' })
+  expect(label.props.backgroundColor).toBeUndefined()
+  expect(all.filter(t => t.props.weight === 'bold' || t.props.bold).map(t => t.text)).toEqual(['Prompts'])
   const t = all.map(x => x.text)
-  const head = t.slice(t.indexOf('prompts'), t.indexOf('prompts') + 4)
-  expect(head.slice(0, 3)).toEqual(['prompts', ' · ', '3'])
-  expect(head[3]).toMatch(/^ ─+ $/)
-  // The header fills the card's inner width: 60 - 4.
-  expect(cellWidth(head.join('')) + cellWidth('prev · next')).toBe(56)
+  expect(t[t.indexOf('Prompts') + 1]).toBe('3')
+  expect(t[t.indexOf('Prompts') + 2]).toMatch(/^─+$/)
   expect((await keys(ui)).slice(0, 2)).toEqual(['prev', 'next'])
 
   await ui.input({ key: 'search', text: 'parser', kind: 'change' } as never)
@@ -116,19 +115,19 @@ test('narrow widths drop the age, then the actions, before cutting the words', a
     await ui.unmount()
     return { hasAge: t.includes('5m'), hasActions: k.includes('e1'), row }
   }
-  // inner = w - 4; a row: mark 2, number 2, gap 1, words, age 1 + 2, actions 13.
-  expect(await at(80)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a fair number of words in it' })
-  expect(await at(41)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a…' })
-  expect(await at(40)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a f…' })
-  expect(await at(38)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a…' })
-  expect(await at(37)).toEqual({ hasAge: false, hasActions: false, row: '#1 a prompt with a fair number…' })
+  // inner = w (no card around the list); a row: mark 2, number 2, gap 1, words, age 1 + 2, actions 13.
+  expect(await at(76)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a fair number of words in it' })
+  expect(await at(37)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a…' })
+  expect(await at(36)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a f…' })
+  expect(await at(34)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a…' })
+  expect(await at(33)).toEqual({ hasAge: false, hasActions: false, row: '#1 a prompt with a fair number…' })
 })
 
 test('the header drops its prev and next before the count', async $ => {
   await prompts($, ['one'])
-  const ui = await $.ui.mount(pane(24))
+  const ui = await $.ui.mount(pane(20))
   expect(await keys(ui)).not.toContain('prev')
-  expect(await texts(ui)).toEqual(expect.arrayContaining(['prompts', ' · ', '1']))
+  expect(await texts(ui)).toEqual(expect.arrayContaining(['Prompts', '1']))
 })
 
 test('a graphical surface draws no box-character rule; the meta sits right by layout', async $ => {

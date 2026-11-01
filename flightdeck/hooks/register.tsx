@@ -87,14 +87,14 @@ import {
   normalizeTrend,
   pushTrend,
   sparkLevels,
-  splitCells,
   splitLabel,
   splitOf,
   svgSpark,
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, meterShare, motionOn, percent } from './style'
+import { SPACE, cardFrame, header, kit, space } from './kit'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, meterShare, motionOn, percent, sentence } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -826,6 +826,7 @@ export const register: Register = (on, options) => {
       $.clock.now(),
     ])
     const isRamp = e.surface !== 'terminal' || (await readRamp($))
+    const k = kit(els, e.surface, { ramp: isRamp, ascii: cfg.ascii })
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
     const W = Math.max(24, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
@@ -930,7 +931,9 @@ export const register: Register = (on, options) => {
     // the bold label with the status on the right. The label keeps what the status leaves.
     type Right = { node: RenderChildren; width: number }
     const right = (spans: Span[]): Right => ({ node: spanText(spans), width: spans.reduce((n, x) => n + cellWidth(x.text), 0) })
-    const head = (w: number, label: string, color: string, r: Right | null = null, o: { dim?: boolean } = {}) => {
+    const head = (w: number, title: string, color: string, r: Right | null = null, o: { dim?: boolean } = {}) => {
+      // Card titles in sentence case, as every title (style.ts sentence).
+      const label = sentence(title)
       const fit = headFit(w, cellWidth(label), r?.width ?? 0)
       return (
         <Box width={w} justifyContent="space-between" columnGap={1} overflow="hidden">
@@ -943,7 +946,7 @@ export const register: Register = (on, options) => {
     }
     // A block's frame: `w` wide outside, its rows `w - 4` inside the border and padding.
     const block = (w: number, color: string, isDim = false) =>
-      ({ flexDirection: 'column', borderStyle: 'round', borderColor: color, paddingX: 1, width: w, ...(isDim ? { borderDimColor: true } : {}) }) as const
+      cardFrame(color, { width: w, isDim })
     // A fill's colour by how full it is: the statusline's ramp step, or where a terminal cannot draw
     // it, three steps in theme colours.
     const heat = (pct: number) => (isRamp ? heatHex(pct) : { calm: C.main, warm: C.amber, hot: C.warn }[heatOf(pct)])
@@ -1015,22 +1018,17 @@ export const register: Register = (on, options) => {
     }
     const pctOf = (pct: number): Span => ({ text: percent(pct), color: heat(pct) })
 
-    // ---- context split: what fills the window, by /context's categories (estimated), a cell each at least
-    // A category's colour: /context's own theme key in a terminal; inside SVG, which cannot name theme keys, a fixed categorical hex.
-    const CATEGORY_HEX = ['#d97757', '#3b82f6', '#8b5cf6', '#14917f', '#d97706', '#db2777', '#0891b2', '#65a30d']
-    const catColor = (i: number) => (isTerminal ? sp?.rows[i]?.color : CATEGORY_HEX[i % CATEGORY_HEX.length])
+    // ---- context split: what fills the window, by /context's categories (estimated)
     const splitUsed = sp ? sp.rows.reduce((n, x) => n + x.tokens, 0) : 0
     const splitRow = (iw: number): Meter | null => {
       if (!sp || sp.rows.length === 0) return null
-      const cells = splitCells(sp, barWOf(iw))
       const pct = (splitUsed / sp.window) * 100
       return {
         key: 'meter-split',
         label: 'mix',
-        bar: [
-          ...sp.rows.map((x, i) => ({ text: GLYPH.fill.repeat(cells[i] ?? 0), color: catColor(i) })),
-          { text: '─'.repeat(cells[cells.length - 1] ?? 0), color: C.faint },
-        ].filter(b => b.text),
+        // A fill meter like ctx: the heat ramp, so every meter reads alike; the legend names what fills it.
+        bar: fillBar(pct, barWOf(iw)),
+        pct,
         value: pctOf(pct),
         d1: { text: 'est.', dim: true },
       }
@@ -1039,12 +1037,7 @@ export const register: Register = (on, options) => {
     const splitLegend = (iw: number) =>
       sp && sp.rows.length > 0
         ? line(
-            sp.rows.map((x, i) => ({
-              spans: [
-                { text: '■', color: catColor(i) },
-                { text: ` ${splitLabel(x.name)} ${kTokens(x.tokens)}`, dim: true },
-              ],
-            })),
+            sp.rows.map(x => ({ spans: [{ text: `${splitLabel(x.name)} ${kTokens(x.tokens)}`, dim: true }] })),
             iw,
             2,
           )
@@ -1345,14 +1338,7 @@ export const register: Register = (on, options) => {
               const [first, rest] = titleLines(cardTitle(c), cardW - 7, cardW - 4)
               const isMax = c.lastStop === 'max_tokens'
               return (
-                <Box
-                  flexDirection="column"
-                  borderStyle={isViewed ? 'bold' : 'round'}
-                  borderColor={isMax ? C.warn : C.agent}
-                  borderDimColor={c.status !== 'running' && !isViewed}
-                  width={cardW}
-                  paddingX={1}
-                >
+                <Box {...cardFrame(isMax ? C.warn : C.agent, { width: cardW, isBold: isViewed, isDim: c.status !== 'running' && !isViewed })}>
                   <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={first} onPress={expandOnPress(c.id)} />
                   <Text weight="bold" wrap="truncate">
                     {rest}
@@ -1786,29 +1772,19 @@ export const register: Register = (on, options) => {
       column(panels, W)
     )
 
-    // One blank row above the header, so the pane does not sit flush against its tab.
+    const badges = [inboxBadge, showArchitect ? { spans: [{ text: cfg.architectLabel, color: C.arch, bold: true }, { text: advising ? ' advising' : ' on call', dim: true }] } : null].filter(x => x !== null)
+    // The kit's pane layout: a blank row, the header, a blank row, then the content.
     return drawn(
-      <Box flexDirection="column" width={W} paddingTop={1}>
-        {/* One compact row, left-aligned like the statusline's header. Below 40 columns the frame's own title names the pane. */}
-        {line(
-          [
-            W >= 40 ? { spans: [{ text: 'flightdeck', color: C.main, bold: true }] } : null,
-            {
-              spans: [
-                ...(W >= 40 ? [sep] : []),
-                { text: modelName, bold: true },
-                { text: m.isRunning ? ' ● working' : ' ○ idle', color: m.isRunning ? C.main : C.dim },
-              ],
-            },
-            inboxBadge,
-            showArchitect
-              ? {
-                  spans: [sep, { text: cfg.architectLabel, color: C.arch, bold: true }, { text: advising ? ' advising' : ' on call', dim: true }],
-                }
-              : null,
-          ],
-          W,
-        )}
+      <Box flexDirection="column" width={W} paddingTop={SPACE.top}>
+        {header(k, {
+          title: 'Flightdeck',
+          role: C.main,
+          // No model yet (before the first turn): no detail, rather than a dash.
+          ...(m.model ? { detail: modelName } : {}),
+          status: <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? `${GLYPH.live} working` : `${GLYPH.idle} idle`}</Text>,
+        })}
+        {space(k, 'gap-head')}
+        {badges.length ? line(badges, W, 2) : null}
         <Box key="legend" columnGap={2} marginBottom={legendGap}>
           {legend.map(l => (
             <Box flexShrink={0}>

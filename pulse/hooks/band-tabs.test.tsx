@@ -5,7 +5,16 @@ import type { Engine } from 'claude-code/testing'
 import { bareEmoji, cellWidth } from './style'
 
 const T0 = 1_000_000
-const STATUS = ['# branch.oid abcdef1234', '# branch.head main', '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts'].join('\n')
+const STATUS = [
+  '# branch.oid abcdef1234', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -0', '# stash 1',
+  '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts',
+].join('\n')
+// What git answers each read: status, the diff against HEAD, the last commit (an hour before T0).
+const GIT_OUT = (argv: readonly string[]) =>
+  argv.includes('status') ? STATUS
+    : argv.includes('--numstat') ? '12\t3\tx.ts\n'
+    : argv.includes('log') ? `abc1234\0fix: token expiry\0${Math.floor((T0 - 3_600_000) / 1000)}\n`
+    : ''
 
 // The world beneath pulse: clock, store, usage, git, and a band row of another mod's.
 // `beneath: 'empty'`: the mod beneath answers with a Box that draws nothing (a hidden band).
@@ -40,7 +49,7 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
   }))
   on('process.run', (_, e) => {
     world.runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: 0, stdout: GIT_OUT(e.argv), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -156,14 +165,13 @@ test('unfolded: a rounded card with a header and each tab', async ($, on) => {
   expect(card).toBeDefined()
 
   let text = mine(await look(ui))
-  expect(text).toContain('pulse · activity')
+  expect(text).toContain('Pulse')
   expect(text).toContain('✓ reading a.ts')
   expect(text).toContain('✕ run the tests')
   expect(text).toContain('editing parse.ts')
 
   await ui.press({ key: 'tab-context' })
   text = mine(await look(ui))
-  expect(text).toContain('pulse · context')
   expect(text).toContain(' 64%')
   expect(text).toContain('640k/1.0M')
   expect(text).toContain('5h')
@@ -184,9 +192,10 @@ test('unfolded: a rounded card with a header and each tab', async ($, on) => {
 
   await ui.press({ key: 'tab-git' })
   text = mine(await look(ui))
-  expect(text).toContain('main')
-  expect(text).toContain('+1')
-  expect(text).toContain('~1')
+  // Branch, upstream and sync, stash; lines and where files stand; the last commit; the most changed file.
+  for (const part of ['main', '→ origin/main', '⇡2', 'stash 1', '+12', '-3', '1 unstaged', '1 untracked', 'abc1234', 'fix: token expiry', 'ago', 'x.ts']) {
+    expect(text).toContain(part)
+  }
   expect(bareEmoji(text)).toEqual([])
 
   // The open tab's own key folds the band again.
@@ -195,14 +204,12 @@ test('unfolded: a rounded card with a header and each tab', async ($, on) => {
   await ui.unmount()
 })
 
-test('the active tab is the accent, the others dim', async ($, on) => {
+test('the active tab is inverse and bold, as Claude Code marks its pane tabs; the others dim', async ($, on) => {
   engine(on)
   const ui = await mount($)
   await ui.press({ key: 'tab-turn' })
-  const buttons = await ui.findAll({ type: 'Button' })
-  expect(buttons.find(b => b.key === 'tab-turn')?.props.dimColor).toBeUndefined()
-  expect(buttons.find(b => b.key === 'tab-git')?.props.dimColor).toBe(true)
-  expect(await ui.find({ type: 'Text', text: /^turn$/ })).toMatchObject({ props: { color: 'claude' } })
+  expect(await ui.find({ type: 'Text', text: ' Turn ' })).toMatchObject({ props: { inverse: true } })
+  expect(await ui.find({ type: 'Text', text: ' Git ' })).toMatchObject({ props: { dimColor: true } })
   await ui.unmount()
 })
 
@@ -211,7 +218,8 @@ test('the open tab and the unfolded state come back from the store in a new sess
   engine(on, store)
   await startSession($)
   const ui = await mount($)
-  expect(mine(await look(ui))).toContain('pulse · git')
+  // The Git tab is open: its rows, or its placeholder while git is still read.
+  expect(mine(await look(ui))).toMatch(/reading git status|branch/)
   await ui.press({ key: 'tab-context' })
   await ui.unmount()
   expect(store.band).toMatchObject({ isOpen: true, tab: 'context' })
@@ -258,7 +266,7 @@ test('unfolded, other bands still draw beneath the card', async ($, on) => {
   await startSession($)
   const ui = await mount($)
   const text = await look(ui)
-  expect(text.indexOf('pulse · activity')).toBeLessThan(text.indexOf('other band'))
+  expect(text.indexOf('Pulse')).toBeLessThan(text.indexOf('other band'))
   await ui.unmount()
 })
 
@@ -266,20 +274,22 @@ test('git is read at start, a second after an edit and at the end of a turn, nev
   const { clock, world } = engine(on)
   await startSession($)
   await clock.settle()
-  expect(world.runs).toHaveLength(1)
-  expect(world.runs[0]).toEqual(['git', '-C', '/repo', '--no-optional-locks', 'status', '--porcelain=v2', '--branch'])
+  // One read: a status, then the diff and the last commit it allows.
+  const reads = () => world.runs.filter(a => a.includes('status')).length
+  expect(reads()).toBe(1)
+  expect(world.runs[0]).toEqual(['git', '-C', '/repo', '--no-optional-locks', 'status', '--porcelain=v2', '--branch', '--show-stash'])
   for (let i = 0; i < 5; i++) {
     const ui = await mount($)
     await ui.press({ key: 'tab-git' })
     await ui.unmount()
   }
-  expect(world.runs).toHaveLength(1)
+  expect(reads()).toBe(1)
   await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' })
   await $.tool.call({ tool: 'Write', file_path: '/repo/b.ts', content: 'x' })
-  expect(world.runs).toHaveLength(1)
+  expect(reads()).toBe(1)
   await clock.advance(1000)
   // Two edits within the second: one read.
-  expect(world.runs).toHaveLength(2)
+  expect(reads()).toBe(2)
 })
 
 test('idle and stilled: nothing moves between ticks; the countdown changes once a second', async ($, on) => {
@@ -317,8 +327,8 @@ test('narrow widths drop the tabs, then the cost and tool count, and never wrap 
     const text = mine(await look(ui))
     const tabs = (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('tab-')).length
     await ui.unmount()
-    // Plain Buttons draw `1: ` before their label.
-    return { text, tabs, cells: cellWidth(text) + tabs * 3 }
+    // The tabs carry no hotkeys, so no `1: ` is drawn before them.
+    return { text, tabs, cells: cellWidth(text) }
   }
   const wide = await at(120)
   expect(wide.tabs).toBe(4)
@@ -355,7 +365,7 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   // Every tab draws on desktop: hover reveals sit inside keyed rows.
   for (const key of ['tab-activity', 'tab-turn', 'tab-git']) {
     await ui.press({ key })
-    expect(await look(ui)).toContain('pulse')
+    expect(await look(ui)).toContain('Pulse')
   }
   await ui.press({ key: 'tab-context' })
   await ui.unmount()
@@ -418,8 +428,8 @@ test('the band takes its own rows and no more: folded one, unfolded the card, no
   const ui = await mount($)
   expect(rowsOf(await ui.drawn())).toBe(1)
   await ui.press({ key: 'tab-turn' })
-  // Border 2, header, tabs, the blank row under the tabs, then last turn, tools, edits, errors, cost.
-  expect(rowsOf(await ui.drawn())).toBe(10)
+  // Border 2, header, a blank row, tabs, a blank row, then last turn, tools, edits, errors, cost.
+  expect(rowsOf(await ui.drawn())).toBe(11)
   await ui.unmount()
 })
 

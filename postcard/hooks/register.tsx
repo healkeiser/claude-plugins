@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { PromptsCursor, PromptsQuery, PromptsSent, PromptsSentAt, PromptsVersion } from '../types'
-import { GLYPH, ROLE, SEP, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
+import { SPACE, actionsWidth, cardFrame, header, kit, search as kitSearch, space } from './kit'
+import { GLYPH, ROLE, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
 const CARD = ROLE.you
@@ -24,8 +25,8 @@ const cursor = atom({ plugin: 'postcard', key: 'cursor' } as const, null as Prom
 const ACTIONS = 13
 // Cells a pane row keeps for the prompt's words before it drops its age, then its actions.
 const MIN_TEXT = 16
-// The header's meta: the prev and next buttons with their separator.
-const META = `prev${SEP}next`
+// The pane's header chip.
+const TITLE = 'Prompts'
 // The engine's paste wrapper, a line of its own: the person never typed it.
 const PASTE_TAG = /^\s*<\/?pasted_content\b[^>]*>\s*$/
 
@@ -199,11 +200,6 @@ export const register: Register = (on, options) => {
     // Only the person's own prompts: typed here, or sent from another device.
     const kind = e.props.origin.kind
     if (kind !== 'composer' && kind !== 'bridge') return next(e)
-    // Listed for the /prompts pane on every surface; a redraw keeps its place.
-    if (prompts.has(e.requestId)) prompts.set(e.requestId, e.props.text)
-    else remember(prompts, e.requestId, e.props.text, KEEP)
-    if (!SURFACES.has(e.surface)) return next(e)
-
     const s = await read($, sent)
     if (!firstSeen.has(e.requestId)) remember(firstSeen, e.requestId, s.turnId, KEEP)
     // shortcut: the row carries no queued flag, so a row new in this turn is
@@ -211,6 +207,13 @@ export const register: Register = (on, options) => {
     // turn ends, when the engine runs it.
     const isQueued = s.turnId !== null && firstSeen.get(e.requestId) === s.turnId && !s.ids.includes(e.requestId) &&
       e.props.text.trim() !== s.opener
+    // Listed for the /prompts pane on every surface; a redraw keeps its place. A queued
+    // card is not listed: once sent, the prompt is drawn again under its stored id, and
+    // listing both showed it twice.
+    if (isQueued) prompts.delete(e.requestId)
+    else if (prompts.has(e.requestId)) prompts.set(e.requestId, e.props.text)
+    else remember(prompts, e.requestId, e.props.text, KEEP)
+    if (!SURFACES.has(e.surface)) return next(e)
 
     const { Box, Text, Code } = $.ui.resolve(e)
     const isCommand = e.props.text.trimStart().startsWith('/')
@@ -220,21 +223,21 @@ export const register: Register = (on, options) => {
     // reads as a sent prompt.
     if (isQueued) {
       return drawn(
-        <Box flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1} marginLeft={4} alignSelf="flex-start">
-          <Text dimColor italic>{`${GLYPH.stop} queued`}</Text>
+        <Box {...cardFrame(ROLE.chrome)} marginLeft={4} alignSelf="flex-start">
+          <Text dimColor italic>{`${GLYPH.stop} Queued`}</Text>
           <Text dimColor>{e.props.text}</Text>
         </Box>
       )
     }
 
     return drawn(
-      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>
-        <Text color={color} weight="bold">{isCommand ? 'command' : 'you'}</Text>
+      <Box {...cardFrame(color)}>
+        <Text color={color} weight="bold">{isCommand ? 'Command' : 'You'}</Text>
         {pieces(e.props.text).map((p, k) =>
           p.language === undefined ? (
             <Text key={`t${k}`}>{p.text}</Text>
           ) : (
-            <Box key={`c${k}`} flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1}>
+            <Box key={`c${k}`} {...cardFrame(ROLE.chrome)}>
               {p.language ? <Text dimColor italic>{p.language}</Text> : null}
               <Code source={p.text} language={p.language || undefined} />
             </Box>
@@ -253,7 +256,7 @@ export const register: Register = (on, options) => {
     const head = `/${e.props.command}${e.props.args ? ` ${e.props.args}` : ''}`
     const body = e.props.text.trim()
     return drawn(
-      <Box flexDirection="column" borderStyle="round" borderColor={e.props.isErrored ? ROLE.error : COMMAND} paddingX={1}>
+      <Box {...cardFrame(e.props.isErrored ? ROLE.error : COMMAND)}>
         <Text color={COMMAND} weight="bold">{e.props.isErrored ? `${GLYPH.fail} ${head}` : head}</Text>
         {body ? (e.props.isErrored ? <Text color={ROLE.error}>{body}</Text> : <Markdown text={body} />) : null}
       </Box>
@@ -269,20 +272,21 @@ export const register: Register = (on, options) => {
     const now = Object.keys(times).length ? await $.clock.now() : 0
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    // Graphical surfaces draw no box-character rule: the meta sits right by layout (DESIGN.md).
-    const isTerminal = e.surface === 'terminal'
+    const k = kit(els, e.surface, { ascii: isAscii })
     const all = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1, age: id in times ? span(Math.max(1, now - times[id]!)) : '' }))
     // Newest first, so the hotkeys 1 to 9 reach the recent ones.
     const list = all.filter(p => matches(p.text, q)).reverse()
     const search = (v: string) => update($, query, () => v)
 
-    // Inside the list card's border and padding.
-    const inner = Math.max(8, e.props.bodyColumns - 4)
-    // Header grammar, label · detail ──── meta: the meta goes first when it does not fit.
+    const inner = Math.max(8, e.props.bodyColumns)
+    // The person's chord for each action (ctrl+up, ctrl+down by default) presses it from the prompt while the pane is open.
+    // The header's actions go first when the title and count do not fit beside them.
     const detail = q ? `${list.length} of ${all.length}` : `${all.length}`
-    const headW = cellWidth(PANE) + cellWidth(SEP) + cellWidth(detail)
-    const hasMeta = inner >= headW + 3 + cellWidth(META)
-    const rule = Math.max(0, inner - headW - 2 - (hasMeta ? cellWidth(META) : 0))
+    const actions = [
+      { id: 'prev', label: 'prev', action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
+      { id: 'next', label: 'next', action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
+    ]
+    const hasMeta = inner >= cellWidth(` ${TITLE} `) + 1 + cellWidth(detail) + 3 + actionsWidth(actions)
     // Row columns: cursor mark, number, words, age, actions. Narrow, the age goes, then the actions, then words.
     const numW = cellWidth(`#${all.length}`)
     const ageW = Math.max(0, ...list.map(p => cellWidth(p.age)))
@@ -292,45 +296,26 @@ export const register: Register = (on, options) => {
     const textW = Math.max(1, room - (hasActions ? ACTIONS : 0) - (hasAge ? ageW + 1 : 0))
 
     return drawn(
-      <Box flexDirection="column" paddingTop={1}>
+      <Box flexDirection="column" paddingTop={SPACE.top}>
+        {header(k, { title: TITLE, detail, actions: hasMeta ? actions : [] })}
+        {space(k, 'gap-head')}
         {/* Mobile draws no Input yet: the list stands there unfiltered. */}
-        {'Input' in els && (
-          <Box key="find" flexDirection="row" borderStyle="round" borderColor={q ? ROLE.accent : ROLE.chrome} paddingX={1} marginBottom={1}>
-            {isAscii ? null : <Text dimColor>{'⌕ '}</Text>}
-            <Box flexGrow={1}>
-              <els.Input
-                key="search"
-                placeholder="search your prompts"
-                value={q}
-                submitLabel="jump"
-                autoFocus
-                onInput={v => void search(v)}
-                onSubmit={async v => {
-                  await search(v)
-                  const first = all.filter(p => matches(p.text, v)).at(-1)
-                  if (first) {
-                    if (await jump($, first.id)) await land($, first.id)
-                  } else $.ui.toast('No prompt matches.')
-                }}
-              />
-            </Box>
-          </Box>
-        )}
-        <Box key="list" flexDirection="column" borderStyle="round" borderColor={CARD} paddingX={1}>
-          <Box flexDirection="row">
-            <Text color={CARD} weight="bold">{PANE}</Text>
-            <Text color={ROLE.chrome}>{SEP}</Text>
-            <Text>{detail}</Text>
-            {isTerminal ? <Text color={ROLE.chrome}>{` ${GLYPH.track.repeat(rule)} `}</Text> : <Box flexGrow={1} />}
-            {/* The person's chord for each action (ctrl+up, ctrl+down by default) presses it from the prompt while the pane is open. */}
-            {hasMeta && (
-              <Box flexDirection="row" flexShrink={0}>
-                <Button key="prev" plain dimColor action="app:diffFileListUp" onPress={() => walk($, ids(), -1)}>prev</Button>
-                <Text color={ROLE.chrome}>{SEP}</Text>
-                <Button key="next" plain dimColor action="app:diffFileListDown" onPress={() => walk($, ids(), 1)}>next</Button>
-              </Box>
-            )}
-          </Box>
+        {kitSearch(k, {
+          value: q,
+          placeholder: 'search your prompts',
+          autoFocus: true,
+          count: detail,
+          onInput: v => void search(v),
+          onClear: () => void search(''),
+          onSubmit: async v => {
+            await search(v)
+            const first = all.filter(p => matches(p.text, v)).at(-1)
+            if (first) {
+              if (await jump($, first.id)) await land($, first.id)
+            } else $.ui.toast('No prompt matches.')
+          },
+        })}
+        <Box key="list" flexDirection="column">
           {all.length === 0 && <Text dimColor>No prompts yet.</Text>}
           {all.length > 0 && list.length === 0 && <Text dimColor>No prompt matches.</Text>}
           {list.map((p, row) => {

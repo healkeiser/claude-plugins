@@ -62,30 +62,69 @@ export const countdown = (ms: number) => seconds(Math.ceil(ms / 1000))
 // ---------------------------------------------------------------- git
 
 /**
- * `git status --porcelain=v2 --branch` read as the status line reads it: the
- * branch (a detached head as its first 7 hex digits in brackets), untracked and
- * newly added files as added, then modified and deleted. Flightdeck's parser.
+ * `git status --porcelain=v2 --branch --show-stash`: the branch (a detached head
+ * as its first 7 hex digits in brackets), its upstream and how far ahead and
+ * behind, the stash, and the files staged, unstaged, untracked and conflicted.
  */
 export function parseGitStatus(out: string) {
-  let oid = ''
-  let branch = ''
-  let added = 0
-  let modified = 0
-  let deleted = 0
+  const r = { branch: '', oid: '', upstream: '', ahead: 0, behind: 0, stash: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0 }
   for (const l of out.split(/\r?\n/)) {
-    if (l.startsWith('# branch.oid ')) oid = l.slice('# branch.oid '.length)
-    else if (l === '# branch.head (detached)') branch = `(${oid.slice(0, 7)})`
-    else if (l.startsWith('# branch.head ')) branch = l.slice('# branch.head '.length)
-    else if (l.startsWith('? ')) added += 1
-    else if (/^[12u] /.test(l)) {
-      const x = l[2]
-      const y = l[3]
-      if (x === 'A') added += 1
-      if (x === 'M' || y === 'M') modified += 1
-      if (x === 'D' || y === 'D') deleted += 1
+    if (l.startsWith('# branch.oid ')) r.oid = l.slice('# branch.oid '.length)
+    else if (l === '# branch.head (detached)') r.branch = `(${r.oid.slice(0, 7)})`
+    else if (l.startsWith('# branch.head ')) r.branch = l.slice('# branch.head '.length)
+    else if (l.startsWith('# branch.upstream ')) r.upstream = l.slice('# branch.upstream '.length)
+    else if (l.startsWith('# branch.ab ')) {
+      const m = /\+(\d+) -(\d+)/.exec(l)
+      r.ahead = Number(m?.[1] ?? 0)
+      r.behind = Number(m?.[2] ?? 0)
+    } else if (l.startsWith('# stash ')) r.stash = Number(l.slice('# stash '.length)) || 0
+    else if (l.startsWith('? ')) r.untracked += 1
+    else if (l.startsWith('u ')) r.conflicted += 1
+    else if (/^[12] /.test(l)) {
+      if (l[2] !== '.') r.staged += 1
+      if (l[3] !== '.') r.unstaged += 1
     }
   }
-  return { branch, added, modified, deleted }
+  if (r.oid === '(initial)') r.oid = ''
+  return r
+}
+
+/** `git status --porcelain=v2` file rows by path: their status letter (worktree first, then index; `?` untracked, `U` conflicted). */
+export function statusLetters(out: string): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const l of out.split(/\r?\n/)) {
+    if (l.startsWith('? ')) m.set(l.slice(2), '?')
+    else if (l.startsWith('u ')) m.set(l.split(' ').slice(10).join(' '), 'U')
+    else if (l.startsWith('1 ')) m.set(l.split(' ').slice(8).join(' '), l[3] !== '.' ? l[3]! : l[2]!)
+    // A rename row ends `new<TAB>old`.
+    else if (l.startsWith('2 ')) m.set(l.split(' ').slice(9).join(' ').split('\t')[0]!, 'R')
+  }
+  return m
+}
+
+/** `git diff HEAD --numstat`: lines added and removed per file (null for a binary file), and the totals. */
+export function parseNumstat(out: string) {
+  const files: { path: string; add: number | null; del: number | null }[] = []
+  let add = 0
+  let del = 0
+  for (const l of out.split(/\r?\n/)) {
+    const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(l)
+    if (!m) continue
+    const a = m[1] === '-' ? null : Number(m[1])
+    const d = m[2] === '-' ? null : Number(m[2])
+    add += a ?? 0
+    del += d ?? 0
+    // A rename reads `dir/{old => new}` or `old => new`: the new path.
+    const path = m[3]!.replace(/\{[^{}]* => ([^{}]*)\}/, '$1').replace(/^.* => /, '').replace(/\/\//g, '/')
+    files.push({ path, add: a, del: d })
+  }
+  return { add, del, files }
+}
+
+/** `git log -1 --format=%h%x00%s%x00%ct`: HEAD's short hash, subject and commit time in ms; null with no commit. */
+export function parseLastCommit(out: string): { hash: string; subject: string; at: number } | null {
+  const [hash, subject, at] = out.trim().split('\0')
+  return hash && at ? { hash, subject: subject ?? '', at: Number(at) * 1000 } : null
 }
 
 // ---------------------------------------------------------------- one-line rows

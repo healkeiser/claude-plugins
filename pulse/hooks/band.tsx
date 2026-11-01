@@ -6,11 +6,12 @@ import type { EngineInterface, On, PluginOptions, RenderChildren } from 'claude-
 
 import type { Call, Repo, Tab, View } from '../types'
 import { took } from './bash'
-import { cacheLeft, cacheUsed, countdown, fit, parseGitStatus, svgMeter } from './glance'
+import { cacheLeft, cacheUsed, countdown, fit, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
+import { SPACE, bar as kitBar, cardFrame, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
-  GLYPH, ROLE, asciiTree, canRamp, cellWidth, clip, count, heat, heatHex, heatRuns, isAsciiGlyphs, isFading, meter, padCells,
+  GLYPH, ROLE, asciiTree, canRamp, cellWidth, clip, count, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
 } from './style'
 
@@ -18,7 +19,12 @@ const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
 const calls = atom({ plugin: 'pulse', key: 'calls' } as const, [])
 const last = atom({ plugin: 'pulse', key: 'last' } as const, null)
 const cache = atom({ plugin: 'pulse', key: 'cache' } as const, null)
-const repo = atom({ plugin: 'pulse', key: 'repo' } as const, null)
+// Tagged: a Repo stored before its fields grew reads as absent, then is read again.
+const repo = atom({ plugin: 'pulse', key: 'repo' } as const, null as Repo | null, { shape: 'repo-2' })
+const NO_REPO: Repo = {
+  isRepo: false, branch: '', oid: '', upstream: '', ahead: 0, behind: 0, stash: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0,
+  add: 0, del: 0, files: [], last: null, op: '', startOid: '', commits: 0,
+}
 const DEFAULT_VIEW: View = { isOpen: false, tab: 'activity' }
 const view = atom({ plugin: 'pulse', key: 'view' } as const, DEFAULT_VIEW)
 const second = atom({ plugin: 'pulse', key: 'second' } as const, 0)
@@ -27,10 +33,10 @@ const STORE_KEY = 'band'
 
 const BAND = new Set(['terminal', 'desktop'])
 const TABS: readonly { id: Tab; key: string; short: string; long: string; title: string }[] = [
-  { id: 'activity', key: '1', short: 'act', long: 'activity', title: 'Activity' },
-  { id: 'context', key: '2', short: 'ctx', long: 'context', title: 'Context & cache' },
-  { id: 'turn', key: '3', short: 'turn', long: 'turn', title: 'Turn' },
-  { id: 'git', key: '4', short: 'git', long: 'git', title: 'Git' },
+  { id: 'activity', key: '1', short: 'Act', long: 'Activity', title: 'Activity' },
+  { id: 'context', key: '2', short: 'Ctx', long: 'Context', title: 'Context & cache' },
+  { id: 'turn', key: '3', short: 'Turn', long: 'Turn', title: 'Turn' },
+  { id: 'git', key: '4', short: 'Git', long: 'Git', title: 'Git' },
 ]
 // Calls that may change the session folder's files: git is read again a second after the last.
 const REPO_TOOLS = new Set(['Bash', 'PowerShell', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
@@ -43,16 +49,61 @@ const base = (path: string) => path.split(/[\\/]/).pop() || path
 const limitName = (kind: string) =>
   kind.replace(/five[_ -]?hours?/i, '5h').replace(/seven[_ -]?days?/i, '7d').replace(/[_-]+/g, ' ').trim()
 
+/** A rebase, merge, cherry-pick, revert or bisect under way, by the marker files git leaves: `rebasing 3/10`, `merging`. */
+async function gitOp($: EngineInterface, dir: string): Promise<string> {
+  // shortcut: a linked worktree keeps these under its own git dir, not `.git/`; read `git rev-parse --git-dir` if that matters.
+  const git = `${dir}/.git`
+  const has = (p: string) => $.fs.exists(`${git}/${p}`).catch(() => false)
+  for (const d of ['rebase-merge', 'rebase-apply']) {
+    if (await has(d)) {
+      const n = await $.fs.read(`${git}/${d}/${d === 'rebase-merge' ? 'msgnum' : 'next'}`).catch(() => '')
+      const of = await $.fs.read(`${git}/${d}/${d === 'rebase-merge' ? 'end' : 'last'}`).catch(() => '')
+      return n.trim() && of.trim() ? `rebasing ${n.trim()}/${of.trim()}` : 'rebasing'
+    }
+  }
+  if (await has('MERGE_HEAD')) return 'merging'
+  if (await has('CHERRY_PICK_HEAD')) return 'cherry-picking'
+  if (await has('REVERT_HEAD')) return 'reverting'
+  if (await has('BISECT_LOG')) return 'bisecting'
+  return ''
+}
+
 /** The session folder's git state, by argument vector, no shell, never on a draw; unchanged, no write. */
 async function readRepo($: EngineInterface) {
   const dir = await $.session.cwd().catch(() => '')
   if (!dir) return
-  const st = await $.process
-    .run(['git', '-C', dir, '--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { cwd: dir, timeoutMs: 3000 })
-    .catch(() => null)
-  const isRepo = st !== null && st.exitCode === 0
-  const found: Repo = { isRepo, ...(st && isRepo ? parseGitStatus(st.stdout) : { branch: '', added: 0, modified: 0, deleted: 0 }) }
-  if (JSON.stringify(await read($, repo)) !== JSON.stringify(found)) await update($, repo, () => found)
+  const git = (...args: string[]) =>
+    $.process.run(['git', '-C', dir, '--no-optional-locks', ...args], { cwd: dir, timeoutMs: 3000 }).catch(() => null)
+  const st = await git('status', '--porcelain=v2', '--branch', '--show-stash')
+  const before = await read($, repo)
+  let found: Repo | null
+  if (st === null || st.exitCode !== 0) found = null
+  else {
+    const s = parseGitStatus(st.stdout)
+    // Lines and the last commit need a commit: a fresh repo has none.
+    const [diff, log] = s.oid ? await Promise.all([git('diff', 'HEAD', '--numstat'), git('log', '-1', '--format=%h%x00%s%x00%ct')]) : [null, null]
+    const n = parseNumstat(diff?.exitCode === 0 ? diff.stdout : '')
+    const letters = statusLetters(st.stdout)
+    const startOid = before?.isRepo && before.startOid ? before.startOid : s.oid
+    const count = startOid && s.oid && startOid !== s.oid ? await git('rev-list', '--count', `${startOid}..${s.oid}`) : null
+    found = {
+      isRepo: true,
+      ...s,
+      add: n.add,
+      del: n.del,
+      // The most changed first; a binary file counts one line.
+      files: n.files
+        .map(f => ({ ...f, status: letters.get(f.path) ?? 'M' }))
+        .sort((a, b) => (b.add ?? 1) + (b.del ?? 1) - ((a.add ?? 1) + (a.del ?? 1)))
+        .slice(0, 3),
+      last: log?.exitCode === 0 ? parseLastCommit(log.stdout) : null,
+      op: await gitOp($, dir),
+      startOid,
+      commits: count?.exitCode === 0 ? Number(count.stdout.trim()) || 0 : 0,
+    }
+  }
+  const value: Repo = found ?? { ...NO_REPO }
+  if (JSON.stringify(before) !== JSON.stringify(value)) await update($, repo, () => value)
 }
 
 // A newer call within the second supersedes an older one.
@@ -164,7 +215,8 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const cacheLeftMs = c ? cacheLeft(c, now) : null
     const cachePct = c ? cacheUsed(c, now) : 0
     const isCacheWarm = cacheLeftMs !== null && cacheLeftMs > 0
-    const pctColor = (pct: number) => (ramp || !isTerm ? heatHex(pct) : heat(pct))
+    const k = kit($.ui.resolve(e), e.surface, { ramp, ascii: isAsciiGlyphs(options.glyphs) })
+    const pctColor = (pct: number) => kitPct(k, pct)
 
     // ---- pieces shared by both forms
 
@@ -176,14 +228,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
         widths.set(key, drawn.width)
         return <Svg source={drawn.source} alt={title} isInteractive />
       }
-      if (ramp) return <Text>{heatRuns(pct, cells).map(run => <Text color={run.color}>{run.text}</Text>)}</Text>
-      const m = meter(pct, cells)
-      return (
-        <Text>
-          <Text color={heat(pct)}>{m.fill}</Text>
-          <Text color={ROLE.chrome}>{m.track}</Text>
-        </Text>
-      )
+      return kitBar(k, pct, cells)
     }
     const spinner = isWorking && moving ? spin(a.frames) : GLYPH.live
     const runMs = a ? (a.startedAt ? now - a.startedAt : a.frames * 100) : 0
@@ -191,19 +236,8 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const lastText = l ? `${l.isAborted ? 'interrupted ' : ''}${elapsed(Math.round(l.durationMs / 1000))}` : ''
     const cacheText = isCacheWarm ? `${GLYPH.reset} ${countdown(cacheLeftMs)}` : `${GLYPH.idle} expired`
 
-    const tabButton = (t: (typeof TABS)[number], label: string) => {
-      const isActive = v.isOpen && v.tab === t.id
-      if (!isTerm) {
-        return (
-          <Button key={`tab-${t.id}`} label={t.title} {...(isActive ? { variant: 'primary' as const } : { dimColor: true })} onPress={() => pressTab($, t.id)} />
-        )
-      }
-      return (
-        <Button key={`tab-${t.id}`} plain {...(isActive ? {} : { dimColor: true })} onPress={() => pressTab($, t.id)}>
-          {isActive ? <Text color={ROLE.accent}>{label}</Text> : label}
-        </Button>
-      )
-    }
+    const tabRow = (label: (t: (typeof TABS)[number]) => string) =>
+      kitTabs(k, { items: TABS.map(t => ({ id: t.id, label: label(t) })), active: v.isOpen ? v.tab : null, onPick: id => void pressTab($, id as Tab) })
     const fold = isTerm ? (
       <Button key="fold" plain label={v.isOpen ? '▾' : '▴'} dimColor onPress={() => pressFold($)} />
     ) : (
@@ -213,7 +247,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     // ---- folded: one row, never wrapped; the least important pieces leave first
 
     const folded = () => {
-      const tabCells = TABS.reduce((n, t) => n + 2 + cellWidth(t.short), 0)
+      const tabCells = SPACE.keys + tabsWidth(TABS.map(t => ({ label: t.short })))
       const left: (Piece & { node: () => RenderChildren })[] = []
       if (isWorking) {
         left.push({ id: 'tools', cells: cellWidth(DOT + plural(a.tools, 'tool')), drop: 3, node: () => <Text dimColor>{DOT + plural(a.tools, 'tool')}</Text> })
@@ -276,11 +310,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           )}
           {left.filter(p => kept.has(p.id)).map(p => p.node())}
           <Box flexGrow={1} />
-          {kept.has('tabs') ? (
-            <Box flexDirection="row" gap={isTerm ? 2 : 1}>
-              {TABS.map(t => tabButton(t, t.short))}
-            </Box>
-          ) : null}
+          {kept.has('tabs') ? tabRow(t => (isTerm ? t.short : t.title)) : null}
           <Box marginLeft={isTerm ? 2 : 1}>{fold}</Box>
         </Box>
       )
@@ -416,71 +446,128 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const gitRows = () => {
       if (!r) return [dim(`${GLYPH.idle} reading git status`)]
       if (!r.isRepo) return [dim(`${GLYPH.idle} not a git repository`)]
-      const changes = r.added + r.modified + r.deleted
-      return [
-        labelled('branch', 'branch', 9, <Text wrap="truncate-end">{r.branch || '(no branch)'}</Text>),
+      const col = 9
+      const sep = (key: string) => <Text key={key} color={ROLE.chrome}>{GLYPH.dot}</Text>
+      const rows: RenderChildren[] = []
+      // A rebase or merge under way, or conflicts: what needs the person, first and in warning.
+      if (r.op || r.conflicted) {
+        const what = [r.op, r.conflicted ? plural(r.conflicted, 'conflict') : ''].filter(Boolean).join(` ${GLYPH.dot} `)
+        rows.push(
+          <Box key="git-alert" flexDirection="row">
+            <Text color={r.conflicted ? ROLE.error : ROLE.warning} wrap="truncate-end">{`${GLYPH.warn} ${what}`}</Text>
+          </Box>,
+        )
+      }
+      // The branch, where it tracks, and how far apart: ⇡ to push, ⇣ to pull.
+      const sync = r.upstream
+        ? [
+            r.ahead ? <Text key="ahead" color={ROLE.success}>{`⇡${r.ahead}`}</Text> : null,
+            r.behind ? <Text key="behind" color={ROLE.warning}>{`⇣${r.behind}`}</Text> : null,
+            !r.ahead && !r.behind ? <Text key="even" color={ROLE.chrome}>in sync</Text> : null,
+          ]
+        : [<Text key="none" color={ROLE.chrome}>no upstream</Text>]
+      rows.push(
         labelled(
+          'git-branch',
+          'branch',
+          col,
+          <Box flexDirection="row" columnGap={1}>
+            <Text wrap="truncate-end">{r.branch || '(no branch)'}</Text>
+            {r.upstream ? <Text color={ROLE.chrome} wrap="truncate-end">{`→ ${r.upstream}`}</Text> : null}
+            {sync}
+            {r.stash ? sep('stash-sep') : null}
+            {r.stash ? <Text key="stash" color={ROLE.chrome}>{`stash ${r.stash}`}</Text> : null}
+          </Box>,
+        ),
+      )
+      // Lines against HEAD, then the files by where they stand.
+      const isClean = !r.staged && !r.unstaged && !r.untracked && !r.conflicted
+      const counts = [
+        r.staged ? `${r.staged} staged` : '',
+        r.unstaged ? `${r.unstaged} unstaged` : '',
+        r.untracked ? `${r.untracked} untracked` : '',
+      ].filter(Boolean)
+      rows.push(
+        labelled(
+          'git-changes',
           'changes',
-          'changes',
-          9,
-          changes === 0 ? (
+          col,
+          isClean ? (
             <Text color={ROLE.success}>{`${GLYPH.ok} clean`}</Text>
           ) : (
-            <Box flexDirection="row" gap={1}>
-              {r.added ? <Text color={ROLE.success}>{`+${r.added}`}</Text> : null}
-              {r.modified ? <Text color={ROLE.warning}>{`~${r.modified}`}</Text> : null}
-              {r.deleted ? <Text color={ROLE.error}>{`-${r.deleted}`}</Text> : null}
+            <Box flexDirection="row" columnGap={1}>
+              {r.add || r.del ? <Text color={ROLE.success}>{`+${count(r.add)}`}</Text> : null}
+              {r.add || r.del ? <Text color={ROLE.error}>{`-${count(r.del)}`}</Text> : null}
+              {(r.add || r.del) && counts.length ? sep('lines-sep') : null}
+              <Text color={ROLE.chrome} wrap="truncate-end">{counts.join(` ${GLYPH.dot} `)}</Text>
             </Box>
           ),
         ),
-      ]
+      )
+      // HEAD's commit and how long ago; the commits made since the session began.
+      if (r.last) {
+        rows.push(
+          labelled(
+            'git-last',
+            'last',
+            col,
+            <Box flexDirection="row" columnGap={1}>
+              <Text color={ROLE.accent}>{r.last.hash}</Text>
+              <Text wrap="truncate-end">{r.last.subject}</Text>
+              <Text color={ROLE.chrome}>{`${span(Math.max(1000, now - r.last.at)) || 'now'} ago`}</Text>
+            </Box>,
+          ),
+        )
+      }
+      if (r.commits) rows.push(labelled('git-session', 'session', col, <Text>{`${plural(r.commits, 'commit')} since it began`}</Text>))
+      // The most changed files: status, path cut from its start, lines.
+      const color = (st: string) => (st === 'U' ? ROLE.error : st === 'D' ? ROLE.error : st === 'A' || st === '?' ? ROLE.success : ROLE.warning)
+      for (const f of r.files) {
+        const lines = f.add === null ? 'bin' : `+${f.add} -${f.del}`
+        rows.push(
+          <Box key={`git-file-${f.path}`} flexDirection="row">
+            <Box width={col} flexShrink={0}>
+              <Text color={color(f.status)}>{f.status}</Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text wrap="truncate-start">{f.path}</Text>
+            </Box>
+            <Box flexShrink={0} marginLeft={2}>
+              <Text color={ROLE.chrome}>{lines}</Text>
+            </Box>
+          </Box>,
+        )
+      }
+      return rows
     }
 
     const unfolded = () => {
       const tab = TABS.find(t => t.id === v.tab) ?? TABS[0]!
       const meta = isWorking ? `${elapsed(Math.floor(runMs / 1000))} ${GLYPH.dot} ${plural(a.tools, 'tool')}` : l ? lastText : 'idle'
-      const label = 'pulse'
-      const detailText = ` ${GLYPH.dot} ${isTerm ? tab.long : tab.title} `
-      const ruleCells = inner - cellWidth(label + detailText) - cellWidth(meta) - 3
-      const hasMeta = ruleCells >= 2
       const metaGlyph = isWorking ? (
         <Text color={ROLE.accent}>{`${spinner} `}</Text>
       ) : lastMark ? (
         <Text color={lastMark.color}>{`${lastMark.glyph} `}</Text>
       ) : (
-        <Text dimColor>{`${GLYPH.idle} `}</Text>
+        <Text color={ROLE.chrome}>{`${GLYPH.idle} `}</Text>
       )
-      const header = (
-        <Box flexDirection="row">
-          <Text bold color={ROLE.accent} {...(isTerm ? {} : { weight: 'semibold' as const })}>{label}</Text>
-          <Text>{detailText}</Text>
-          {isTerm ? <Text color={ROLE.chrome}>{GLYPH.track.repeat(Math.max(0, hasMeta ? ruleCells : inner - cellWidth(label + detailText)))}</Text> : <Box flexGrow={1} />}
-          {hasMeta || !isTerm ? (
-            <Text>
-              <Text>{' '}</Text>
-              {metaGlyph}
-              <Text color={ROLE.chrome}>{meta}</Text>
-            </Text>
-          ) : null}
-        </Box>
+      const status = (
+        <Text>
+          {metaGlyph}
+          <Text color={ROLE.chrome}>{meta}</Text>
+        </Text>
       )
-      const longCells = TABS.reduce((n, t) => n + 2 + cellWidth(t.long), 0)
-      const tabLabel = (t: (typeof TABS)[number]) => (longCells + 3 <= inner ? t.long : t.short)
-      const tabs = (
-        <Box flexDirection="row" alignItems="center">
-          <Box flexDirection="row" gap={isTerm ? 2 : 1}>
-            {TABS.map(t => tabButton(t, tabLabel(t)))}
-          </Box>
-          <Box flexGrow={1} />
-          {fold}
-        </Box>
-      )
+      // The status goes before the tab's name when the row is short of room.
+      const hasMeta = !isTerm || inner >= cellWidth(` Pulse  ${meta}`) + 4 + 3
+      const header = kitHeader(k, { title: 'Pulse', ...(hasMeta ? { status } : {}), actions: [{ id: 'fold', label: isTerm ? '▾' : 'Collapse', onPress: () => pressFold($) }] })
+      const longCells = tabsWidth(TABS.map(t => ({ label: t.long })))
+      const tabs = tabRow(t => (!isTerm ? t.title : longCells <= inner ? t.long : t.short))
       const body = tab.id === 'activity' ? activityRows() : tab.id === 'context' ? contextRows() : tab.id === 'turn' ? turnRows() : gitRows()
       return (
-        <Box flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1} {...(isTerm ? { width } : {})}>
+        <Box {...cardFrame(ROLE.chrome, isTerm ? { width } : {})}>
           {header}
-          {tabs}
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={SPACE.block}>{tabs}</Box>
+          <Box flexDirection="column" marginTop={SPACE.block}>
             {body}
           </Box>
         </Box>

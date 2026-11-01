@@ -10,7 +10,7 @@ const rowTexts = async (pane: Found) => (await pane.findAll({ type: 'Button' }))
 test('a typed prompt draws as a card with a label', async $ => {
   const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', props: props('composer') })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts).toEqual(['you', 'fix the band'])
+  expect(texts).toEqual(['You', 'fix the band'])
 })
 
 test('the prompts pane lists drawn prompts newest first', async $ => {
@@ -24,7 +24,7 @@ test('the pane shows a prompt by its first line with words, cut whole', async $ 
   const pasted = '\n<pasted_content id="1">\r\nsudo ls\r\n</pasted_content id="1">'
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', pasted) })
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: props('composer', '😀'.repeat(20)) })
-  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
+  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 14 } as never })
   expect(await rowTexts(pane)).toEqual([`#2 ${'😀'.repeat(4)}…`, '#1 sudo ls'])
 })
 
@@ -68,7 +68,7 @@ test('a slash command output row draws as a purple card headed by the command', 
 test('a typed slash command prompt is labelled as a command, without a fill', async $ => {
   const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', props: props('composer', '/skill-creator make one') })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts).toContain('command')
+  expect(texts).toContain('Command')
   const boxes = await ui.findAll({ type: 'Box' })
   expect(boxes.some(b => (b as { props?: { backgroundColor?: string } }).props?.backgroundColor)).toBe(false)
 })
@@ -121,6 +121,6 @@ test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyp
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('x /cost')
   expect(((await ui.findAll({ type: 'Box' })) as { props?: Record<string, unknown> }[]).map(b => b.props?.borderStyle)).toEqual(['classic'])
   await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', 'a'.repeat(40)) })
-  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
+  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 14 } as never })
   expect(await rowTexts(pane)).toEqual([`#1 ${'a'.repeat(8)}~`])
 })

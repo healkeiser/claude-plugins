@@ -14,6 +14,7 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
+import { SPACE, footer as kitFooter, header as kitHeader, kit, search as kitSearch, space } from './kit'
 import { canRamp, cellWidth, GLYPH, motionOn } from './style'
 import { bump, decay, heatOf, heatSegs, heatWidth, merge, rollHeat } from './heat'
 import { blockDiff, changeMarks, compareView, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
@@ -1144,6 +1145,31 @@ async function jump($: EngineInterface, query: string): Promise<void> {
   })
 }
 
+// The version FONT_SCRIPT trusts: Nerd Fonts 3.2 or newer has the codicons the header draws.
+const NERD_VERSION = /Nerd Fonts (3\.([2-9]|[1-9][0-9])|[4-9]|[1-9][0-9]+)\./
+/**
+ * Windows has no sh to run FONT_SCRIPT: its user and system font folders are read through
+ * $.fs instead, a `*Nerd*` file (Regular first) trusted when its name table says Nerd Fonts
+ * 3.2 or newer. Reads stop at the first match, at most four files a folder.
+ */
+async function windowsNerd($: EngineInterface): Promise<boolean> {
+  const local = await $.env.get('LOCALAPPDATA')
+  const system = (await $.env.get('SystemRoot')) || 'C:/Windows'
+  const dirs = [...(local ? [`${local}/Microsoft/Windows/Fonts`] : []), `${system}/Fonts`]
+  for (const dir of dirs) {
+    const names = (await $.fs.list(dir).catch(() => []))
+      .filter(e => e.kind === 'file' && /nerd/i.test(e.name) && /\.(ttf|otf)$/i.test(e.name))
+      .map(e => e.name)
+      .sort((a, b) => Number(/regular/i.test(b)) - Number(/regular/i.test(a)))
+    for (const name of names.slice(0, 4)) {
+      // Text is enough: the version is ASCII in the font's name table; a file over 4 MiB rejects.
+      const text = await $.fs.read(`${dir}/${name}`).catch(() => '')
+      if (NERD_VERSION.test(text)) return true
+    }
+  }
+  return false
+}
+
 async function fontState($: EngineInterface, charset: string): Promise<'ok' | 'stale' | 'missing'> {
   try {
     const out = (await $.process.run(['sh', '-c', FONT_SCRIPT, 'sh', charset], { timeoutMs: 5_000 })).stdout.trim()
@@ -1918,11 +1944,6 @@ async function pressHeader($: EngineInterface, id: string): Promise<void> {
   else if (id === 'hot') await toggleHot($)
 }
 
-async function selectRoot($: EngineInterface): Promise<void> {
-  mapLock = null
-  await patch($, cur => ({ cursor: cur.root, selected: cur.root, scroll: null }))
-}
-
 function shortPath(path: string): string {
   return home && inside(home, path) ? `~${path.slice(home.length)}` : path
 }
@@ -1979,7 +2000,7 @@ export const register: Register = (on, options) => {
         }
         try {
           const remote = Boolean((await $.env.get('SSH_CONNECTION')) || (await $.env.get('SSH_TTY')))
-          noNerd = !remote && (windows || (await fontState($, NERD_PROBE)) !== 'ok')
+          noNerd = !remote && (windows ? !(await windowsNerd($)) : (await fontState($, NERD_PROBE)) !== 'ok')
         } catch {
           noNerd = true
         }
@@ -2258,12 +2279,9 @@ export const register: Register = (on, options) => {
     const rowColors = { activeBg: theme.selection, hoverBg: palette.hover ?? (theme.selection.startsWith('#') ? faint(theme.selection) : ''), tones: light ? LIGHT_SHIMMER : SHIMMER, still: isStill }
     nativeScroll = e.surface === 'desktop'
     const button = (b: ButtonProps) => <Client key={`button-${b.id}`} module="./button.tsx" props={{ id: b.id, label: b.label, dim: b.dim } satisfies ButtonProps} />
-    const hint = (buttons: { id: string; label: string; hint: string }[], title: number) => {
-      const text = buttons.find(b => b.id === hovered)?.hint
-      if (!text) return null
-      const room = e.props.bodyColumns - title - buttons.reduce((w, b) => w + cellWidth(b.label) + (e.surface === 'desktop' ? 2 : 1), 0) - 2
-      return text.length <= room ? <Text {...mutedText}>{`${text} `}</Text> : null
-    }
+    // A hovered header button's words: the kit header draws them in the rule's place, cut, never wrapped.
+    const hint = (buttons: { id: string; hint: string }[]) => buttons.find(b => b.id === hovered)?.hint
+    const k = kit(elements, e.surface, { ramp: e.surface === 'desktop' || rampOk, ascii: glyphSetting === 'text' })
     // A dim rule that fills what is left of a header row, as gloss
     // rules a code block's label: one word of dashes, clipped by its box.
     const fill = (key: string) => (
@@ -2285,20 +2303,21 @@ export const register: Register = (on, options) => {
       const win = p?.diff ? diffWindow(p.diff, start, previewRows) : previewLines(p?.text ?? '', start, previewRows, markdown)
       previewLine = win.top + 1
       const name = t.preview !== t.root && inside(t.root, t.preview) ? relative(t.root, t.preview) : shortPath(t.preview)
-      const previewRuled = e.surface === 'terminal' && name.length + 16 <= e.props.bodyColumns
+      const backLabel = unicode ? '← files' : '\u{ea9b} files'
       const external = { id: 'external', label: glyphSetting === 'text' ? 'open' : unicode ? GLYPH.external : '\u{eb14}', dim: true, hint: 'open in default app' }
       return (
         <Box flexDirection="column" paddingTop={TOP_GAP} minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
-          <Box flexDirection="row">
-            <Button key="back" plain hotkey="h" autoFocus={editWithSetting || inTmux || inHerdr ? undefined : true} label={unicode ? '← files' : '\u{ea9b} files'} onPress={() => void closePreview($)} />
-            <Text> </Text>
-            <Box flexShrink={previewRuled ? 0 : 1} flexGrow={previewRuled ? 0 : 1}>
-              <Text weight="bold" wrap="truncate-start">{name}</Text>
-            </Box>
-            {previewRuled ? fill('pv-rule') : null}
-            {hint([external], 8 + name.length)}
-            {button(external)}
-          </Box>
+          {kitHeader(k, {
+            title: 'Files',
+            role: theme.accent,
+            detail: name,
+            hint: hint([external]),
+            actions: [
+              { id: 'back', label: backLabel, node: <Button key="back" plain hotkey="h" autoFocus={editWithSetting || inTmux || inHerdr ? undefined : true} label={backLabel} onPress={() => void closePreview($)} /> },
+              { id: 'external', label: external.label, node: button(external) },
+            ],
+          })}
+          {space(k, 'gap-head')}
           <Box flexDirection="row" gap={2}>
             {([['j', '↓', '\u{ea9a}', 1], ['k', '↑', '\u{eaa1}', -1], ['f', 'page ↓', '\u{ea9a} page', previewRows - 2], ['b', 'page ↑', '\u{eaa1} page', 2 - previewRows]] as const).map(([k, plain, nerd, by]) => {
               const step = (k === 'j' || k === 'k') && (p?.diff || md) ? (md ? 'change' : p?.diff?.some(l => l.kind === '@') ? 'file' : 'hunk') : ''
@@ -2331,12 +2350,12 @@ export const register: Register = (on, options) => {
     const rows = visibleRows(t)
     const body = e.props.scroll?.bodyRows ?? 40
     const footer = t.nodes.find(n => n.id === t.cursor)?.id ?? (t.selected || '')
-    const chrome = TOP_GAP + 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
+    const chrome = TOP_GAP + 1 + SPACE.block + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
     const spare = body - chrome - 5
     const splitRows = t.split && !nativeScroll && spare >= 6 && (treemapSetting !== 'off' || Boolean(peekTarget(t))) ? Math.min(Math.max(6, Math.floor(body * 0.45)), spare) : 0
     splitShown = splitRows > 0
     if (!splitShown) overPeek = false
-    const fixed = TOP_GAP + splitRows + 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
+    const fixed = TOP_GAP + splitRows + 1 + SPACE.block + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
     const room = nativeScroll ? Math.max(1, rows.length) : Math.max(5, (e.props.scroll?.bodyRows ?? 40) - fixed)
     const isLit = (id: string) => bright.has(id) || dimmed.has(id)
     const focus = followClaude && t.flashOn ? ([...t.flash].reverse().find(id => id !== BRANCH_ROW) ?? t.cursor) : t.cursor
@@ -2387,9 +2406,7 @@ export const register: Register = (on, options) => {
     const wordButtons = plainButtons.map(b => ({ ...b, label: WORDS[b.id] ?? b.label }))
     const wordWidth = wordButtons.reduce((w, b) => w + b.label.length + 1, 1)
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
-    const rootGlyph = unicode ? '■' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
     const header = t.top ? [t.top.split('/').pop() ?? t.top, t.prefix.replace(/\/$/, '')].filter(Boolean).join('/') : t.root.split('/').pop() || t.root
-    const headerRuled = e.surface === 'terminal' && cellWidth(header) + 6 + buttons.reduce((w, b) => w + cellWidth(b.label) + 1, 0) <= e.props.bodyColumns
 
     // Edit heat: files against the hottest file, folders (their files summed) against the hottest folder.
     const rolled = heatSetting === 'off' ? { files: {}, dirs: {} } : rollHeat(t.heat, t.root)
@@ -2758,42 +2775,27 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" paddingTop={TOP_GAP} minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
-        <Box flexDirection="row">
-          <Box flexDirection="row" flexShrink={headerRuled ? 0 : 1} overflow="hidden">
-            <Button key="root" plain onPress={() => void selectRoot($).then(() => focusPane($, t.root, treeKey()))}>
-              <Text color={theme.accent}>{`${rootGlyph} `}</Text>
-              {/* The root picked reads as a chip, as gloss draws inline code. */}
-              <Text weight="bold" color={theme.accent} backgroundColor={t.cursor === t.root ? rowColors.activeBg || undefined : undefined}>{header}</Text>
-            </Button>
-          </Box>
-          {headerRuled ? fill('header-rule') : <Box flexGrow={1} />}
-          {hint(buttons, header.length + 2)}
-          <Box flexDirection="row" gap={1} flexShrink={0}>
-            {buttons.map(button)}
-            <Text> </Text>
-          </Box>
-        </Box>
+        {kitHeader(k, {
+          title: 'Files',
+          role: theme.accent,
+          detail: header,
+          hint: hint(buttons),
+          actions: buttons.map(b => ({ id: b.id, label: b.label, node: button(b) })),
+        })}
+        {space(k, 'gap-head')}
+        {/* The search bar right under the header, on the same rows as in every pane. */}
+        {kitSearch(k, {
+          id: 'q',
+          value: t.query,
+          placeholder: 'search',
+          isBare: !searchGap,
+          onInput: v => void search($, v),
+          onSubmit: v => void jump($, v).then(() => $.clock.after(100, park)),
+          onClear: () => void search($, ''),
+        })}
         {splitAt === 'top' ? split : null}
         {branchRow()}
         {!t.top && showHints && <Text {...mutedText}>{unicode ? '± ' : '\u{e702} '}no git repo, git status starts after git init</Text>}
-        {/* A card like postcard's: its borders take the two spacer rows, so the height budget is unchanged. */}
-        <Box
-          flexDirection="row"
-          {...(searchGap ? { borderStyle: 'round', borderColor: t.query ? theme.accent : 'subtle', paddingX: 1 } : {})}
-        >
-          {glyphSetting === 'text' ? null : <Text {...mutedText}>{unicode ? '⌕ ' : '\u{ea6d} '}</Text>}
-          <Box flexGrow={1}>
-            <Input
-              key="q"
-              placeholder="search"
-              submitLabel="jump"
-              value={t.query}
-              onInput={(v: string) => void search($, v)}
-              onSubmit={(v: string) => void jump($, v).then(() => $.clock.after(100, park))}
-            />
-          </Box>
-          {t.query ? <Button key="clear" plain dimColor label={unicode ? '×' : '\u{ea76}'} onPress={() => void search($, '')} /> : null}
-        </Box>
         <Client
           key="rows"
           module="./rows.tsx"
@@ -2802,31 +2804,23 @@ export const register: Register = (on, options) => {
         <Box flexGrow={1} />
         {splitAt === 'bottom' ? split : null}
         {(footer || latest || shortcutsShown || shortcutsSetting === 'auto') && (
-          <Box flexDirection="row" height={1} overflow="hidden">
-            {keys.length ? (
-              <Box flexDirection="row" flexShrink={0} gap={2}>
-                {keys.map(k => k.key === 'jkhl'
-                  ? <Text key="nav-move" dimColor><Text color={theme.accent}>j k h l</Text>: move</Text>
-                  : k.key === '[ ]'
-                  ? <Button key="nav-page" plain dimColor label={`[ ]: ${k.label}`} onPress={k.act}><Text color={theme.accent}>[ ]</Text>{`: ${k.label}`}</Button>
-                  : k.key === '?'
-                  ? <Button key="nav-help" plain dimColor label={`?: ${k.label}`} onPress={() => { toggleShortcuts($); park() }}><Text color={theme.accent}>?</Text>{`: ${k.label}`}</Button>
-                  : <Button key={`nav-${k.key}`} plain dimColor autoFocus={k.key === 'o' && shortcutsSetting === 'always' ? true : undefined} hotkey={k.key} label={k.label} onPress={k.act} />)}
-              </Box>
-            ) : shortcutsSetting === 'auto' ? (
-              <Box flexShrink={0}>
-                <Button key="nav-help" plain dimColor label="?: shortcuts" onPress={() => { toggleShortcuts($); park() }}><Text color={theme.accent}>?</Text>: shortcuts</Button>
-              </Box>
-            ) : null}
-            <Box flexGrow={1} />
-            {latest && chip(latest)}
-            {footerName ? <Box flexShrink={0} marginLeft={2}><Text {...mutedText}>selected: </Text></Box> : null}
-            {footerName ? (
-              <Box flexShrink={1}>
-                <Text {...mutedText} wrap="truncate-start">{footerName}</Text>
-              </Box>
-            ) : null}
-          </Box>
+          kitFooter(k, {
+            keys: keys.length
+              ? keys.map(x =>
+                  x.key === 'jkhl'
+                    ? { id: 'nav-move', key: 'j k h l', label: x.label }
+                    : x.key === '[ ]'
+                      ? { id: 'nav-page', key: '[ ]', label: x.label, onPress: x.act }
+                      : x.key === '?'
+                        ? { id: 'nav-help', key: '?', label: x.label, onPress: () => { toggleShortcuts($); park() } }
+                        : { id: `nav-${x.key}`, key: x.key, label: x.label, hotkey: x.key, onPress: x.act, autoFocus: x.key === 'o' && shortcutsSetting === 'always' },
+                )
+              : shortcutsSetting === 'auto'
+                ? [{ id: 'nav-help', key: '?', label: 'shortcuts', onPress: () => { toggleShortcuts($); park() } }]
+                : [],
+            ...(latest ? { lead: chip(latest) } : {}),
+            ...(footerName ? { status: footerName, statusLabel: 'selected: ' } : {}),
+          })
         )}
         <Box key="hotkeys" height={0} overflow="hidden" flexDirection="row">
           {shortcutsSetting === 'always' ? null : <Button key="hk-tree" plain autoFocus label="o" onPress={() => void navigate($, 'return')} />}

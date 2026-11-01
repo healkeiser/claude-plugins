@@ -72,7 +72,6 @@ import {
   normalizeTrend,
   pushTrend,
   sparkLevels,
-  splitCells,
   splitOf,
   svgSpark,
   jumpTo,
@@ -309,7 +308,7 @@ test('a fresh session draws on every surface and width, empty panels hidden', as
     for (const cols of [40, 60, 86, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       expect(await ui.find({ text: /· main$/ })).toBeDefined()
-      expect(await ui.find({ text: /session log/ })).toBeDefined()
+      expect(await ui.find({ text: /Session log/ })).toBeDefined()
       expect(await ui.find({ text: /agents ·/ })).toBeUndefined() // no subagents: no agents panel
       expect(await ui.find({ text: /permissions/ })).toBeUndefined() // no checks yet: no gate panel
       await ui.unmount()
@@ -331,7 +330,7 @@ test('inline above the prompt, the pane is a summary of at most 8 rows', async (
     expect((root.children ?? []).filter(Boolean).length <= 8).toBe(true)
     expect(await ui.find({ text: /\+2 more agents/ })).toBeDefined()
     expect(await ui.find({ text: /1 allowed/ })).toBeDefined()
-    expect(await ui.find({ text: /session log/ })).toBeUndefined()
+    expect(await ui.find({ text: /Session log/ })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -402,13 +401,13 @@ test('the server-side advisor is read from assistant rows: consulting, then on c
       .catch(() => undefined) // the test has no transcript to store rows in
   await row([{ type: 'server_tool_use', id: 'srv1', name: 'advisor', input: {} }])
   const mid = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await mid.find({ text: /ARCHITECT · advising/ })).toBeDefined()
+  expect(await mid.find({ text: /Architect · advising/ })).toBeDefined()
   expect(await mid.find({ text: /◆ before a plan/ })).toBeDefined()
   await mid.unmount()
 
   await row([{ type: 'advisor_tool_result', tool_use_id: 'srv1', content: { type: 'advisor_redacted_result' } }])
   const after = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await after.find({ text: /ARCHITECT · on call/ })).toBeDefined()
+  expect(await after.find({ text: /Architect · on call/ })).toBeDefined()
   expect(await after.find({ text: /^1$/ })).toBeDefined()
   await after.unmount()
 })
@@ -462,7 +461,7 @@ test('a consult whose start and result share one row closes, and its review flag
     })
     .catch(() => undefined)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /ARCHITECT · on call/ })).toBeDefined()
+  expect(await ui.find({ text: /Architect · on call/ })).toBeDefined()
   expect(await ui.find({ text: /◆ before done/ })).toBeDefined()
   expect(await ui.find({ text: /reviewing before done/ })).toBeUndefined()
   await ui.unmount()
@@ -471,7 +470,7 @@ test('a consult whose start and result share one row closes, and its review flag
 test('with no architect anywhere, the panel, legend entry and status field stay hidden', async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /ARCHITECT/ })).toBeUndefined()
+  expect(await ui.find({ text: /Architect/ })).toBeUndefined()
   expect(await ui.find({ text: /^ architect$/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -507,6 +506,8 @@ test("a background architect's advice is read from its hand-back", async ($, on)
 })
 
 test('each rate-limit window shows the time to its reset where the main panel has room', async ($, on) => {
+  // The fallback colours: a console without 256 colours.
+  mock.env(on, { TERM: 'dumb' })
   engine(on)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   const at = (ms: number) => new Date(ms).toISOString()
@@ -722,6 +723,8 @@ const compactHost = (on: On, o: { window: () => number; compact: number | null; 
 }
 
 test('the gauge, status and inline summary measure against the compaction window, read once per model window', { options: { statusLine: true } }, async ($, on) => {
+  // The fallback colours: a console without 256 colours.
+  mock.env(on, { TERM: 'dumb' })
   mock.clock(on)
   let status: string | undefined
   on('ui.status', (_$, e) => {
@@ -1234,6 +1237,8 @@ const boxesIn = (n: unknown, out: Drawn[] = []): Drawn[] => {
 }
 
 test('panels are full rounded blocks in theme colours, cards are rounded boxes in the agents block', { options: { motion: 'off' } }, async ($, on) => {
+  // The fallback colours: a console without 256 colours.
+  mock.env(on, { TERM: 'dumb' })
   engine(on)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'd1' ? 'deny' : e.tool_use_id === 'a1' ? 'ask' : 'allow' }))
@@ -1289,7 +1294,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   expect(fan.every(t => t.props?.color === 'subtle')).toBe(true)
   expect(first(/^● running$/)?.props?.color).toBe('planMode')
   expect(first(/^✓ done$/)?.props?.color).toBe('success')
-  expect(first(/^turn$/)?.props?.color).toBe('claude')
+  expect(first(/^Turn$/)?.props?.color).toBe('claude')
   await ui.unmount()
 
   // The finished turn: its time on the right of the label, ✓ in the success colour, the block dimmed.
@@ -1297,7 +1302,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   const done = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const drawn = await done.drawn()
   const after = textsIn(drawn)
-  expect(after.find(t => textOf(t) === 'last turn')?.props?.dimColor).toBe(true)
+  expect(after.find(t => textOf(t) === 'Last turn')?.props?.dimColor).toBe(true)
   expect(after.find(t => textOf(t) === '✓ 1m 35s')?.props?.color).toBe('success')
   // Main, the dimmed last turn, then the trends its finish began.
   expect(boxesIn(drawn).filter(b => b.props?.borderStyle && b.props?.borderColor === 'claude').map(b => b.props?.borderDimColor === true)).toEqual([false, true, false])
@@ -1395,7 +1400,7 @@ test('the header is one compact row and the legend uses ■ swatches', async ($,
   engine(on)
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const texts = textsIn(await ui.drawn())
-  expect(texts.find(t => textOf(t) === 'flightdeck')?.props?.color).toBe('claude')
+  expect(texts.find(t => textOf(t) === 'Flightdeck')?.props?.color).toBe('claude')
   expect(texts.filter(t => textOf(t) === '■').map(t => t.props?.color)).toEqual(['claude', 'planMode', 'suggestion'])
   await ui.unmount()
 })
@@ -1712,23 +1717,10 @@ test('a graphical sparkline glides each bar to its new height on the meters\' ea
   expect(svgSpark([7, 7, null], colors, 3, a.heights, true).source).not.toContain('<animate')
 })
 
-test('the context split keeps what fills the window, largest first, and its cells add up', () => {
+test('the context split keeps what fills the window, largest first', () => {
   const sp = splitOf(BREAKDOWN as never, 5)
   expect(sp?.rows.map(r => r.name)).toEqual(['Messages', 'System tools', 'MCP tools', 'Memory files', 'System prompt', 'Skills'])
   expect([sp?.window, sp?.at]).toEqual([1_000_000, 5])
-  if (!sp) return
-  for (const cells of [1, 5, 6, 10, 20, 40]) {
-    const c = splitCells(sp, cells)
-    expect(c.length).toBe(sp.rows.length + 1)
-    expect(c.reduce((a, b) => a + b, 0)).toBe(cells)
-    // The lit cells are the fill's own share, as the ctx meter's: 35.6% of the bar.
-    expect(cells - (c[c.length - 1] ?? 0)).toBe(Math.max(1, Math.round(0.356 * cells)))
-  }
-  expect(splitCells(sp, 10)).toEqual([1, 1, 1, 1, 0, 0, 6]) // four lit cells: the four largest keep one each
-  expect(splitCells(sp, 40)).toEqual([9, 1, 1, 1, 1, 1, 26]) // every category keeps a cell, messages the rest
-  // Past the window, the bar is all lit; nothing in it, all track.
-  expect(splitCells({ rows: [{ name: 'Messages', tokens: 300, color: 'x' }], window: 200, at: 0 }, 10)).toEqual([10, 0])
-  expect(splitCells({ rows: [], window: 200, at: 0 }, 10)).toEqual([10])
   expect(splitOf(null, 0)).toBeNull()
   expect(splitOf({ rawMaxTokens: 1000 } as never, 0)).toBeNull() // a host with no categories
 })
@@ -1777,24 +1769,15 @@ test('the main block splits the context by category, with a legend, and the spli
     expect(texts[0]).toBe('mix')
     expect(texts).toContain('36%')
     expect(texts).toContain('est.')
+    // A fill meter like ctx: the heat ramp per lit cell, 4 of 10 lit; the categories are the legend's.
     if (surface === 'terminal') {
-      // Each category in /context's own colour, the free rest as the track: 4 lit cells of 10.
-      expect(textsIn(row).filter(t => /^[━─]+$/.test(textOf(t))).map(t => [textOf(t), t.props?.color])).toEqual([
-        ['━━━━──────', undefined],
-        ['━', 'purple_FOR_SUBAGENTS_ONLY'],
-        ['━', 'inactive'],
-        ['━', 'cyan_FOR_SUBAGENTS_ONLY'],
-        ['━', 'claude'],
-        ['──────', 'subtle'],
-      ])
-    } else {
-      const svg = String((row?.children ?? []).flatMap(c => (isDrawn(c) ? [c] : [])).map(c => JSON.stringify(c)).join(''))
-      expect(svg).toContain('#d97757')
+      const lit = textsIn(row).filter(t => /^[━╸]+$/.test(textOf(t))).map(t => t.props?.color)
+      expect(lit).toEqual(['#00ff00', '#5fff00', '#87ff00', '#afff00'])
     }
     // The legend, largest first, with each category's tokens.
     const all = textsIn(tree).map(textOf).join('|')
-    expect(all).toContain(' messages 320k')
-    expect(all.indexOf(' messages 320k') < all.indexOf(' system tools ')).toBe(true)
+    expect(all).toContain('messages 320k')
+    expect(all.indexOf('messages 320k') < all.indexOf('system tools ')).toBe(true)
     expect(all).not.toContain('free space')
     expect(all).not.toContain('deferred')
     await ui.unmount()
@@ -1802,6 +1785,8 @@ test('the main block splits the context by category, with a legend, and the spli
 })
 
 test('the trends block draws a sparkline per figure over the last turns, the fill in its heat', async ($, on) => {
+  // The fallback colours: a console without 256 colours.
+  mock.env(on, { TERM: 'dumb' })
   const clock = engine(on)
   let cost = 1
   splitHost(on, () => cost)
@@ -1905,7 +1890,7 @@ test('the inbox gathers failures, refusals, API errors, interrupts and faults, n
   expect(rows[0]?.startsWith(fmtClockOf(3_604_000))).toBe(true)
   // The count in the pane's header and the block's label; the block in the error colour.
   expect(await ui.find({ text: /^✕ 4$/ })).toBeDefined()
-  expect(await ui.find({ text: /^inbox · 4$/ })).toBeDefined()
+  expect(await ui.find({ text: /^Inbox · 4$/ })).toBeDefined()
   expect(boxesIn(tree).some(b => b.props?.borderStyle === 'round' && b.props?.borderColor === 'error')).toBe(true)
   // A row whose call is in the transcript jumps there; the others are plain text.
   expect(keyed(tree, 'inbox-f1')?.type).toBe('Button')

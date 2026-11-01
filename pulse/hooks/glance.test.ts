@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, fit, parseGitStatus, svgMeter } from './glance'
+import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, fit, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 
 test('the cache TTL: Claude Code switches first, then an hour for a subscription, else five minutes', () => {
   expect(cacheTtl({}, true)).toBe(CACHE_1H)
@@ -22,10 +22,51 @@ test('the countdown: time left after the last request, rounded up, never below z
   expect(cacheUsed(c, 1_000_000 + 2 * CACHE_5M)).toBe(100)
 })
 
-test('git status reads as the status line reads it', () => {
-  const out = ['# branch.oid abcdef1234', '# branch.head main', '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts', '1 D. N... 100644 0 0 a b gone.ts'].join('\n')
-  expect(parseGitStatus(out)).toEqual({ branch: 'main', added: 1, modified: 1, deleted: 1 })
+// A porcelain v2 sample: ahead 2, behind 1, a stash, one staged, one unstaged, one both, a rename, an untracked file, a conflict.
+const STATUS = [
+  '# branch.oid abcdef1234567',
+  '# branch.head main',
+  '# branch.upstream origin/main',
+  '# branch.ab +2 -1',
+  '# stash 3',
+  '1 M. N... 100644 100644 100644 aaa bbb src/staged.ts',
+  '1 .M N... 100644 100644 100644 aaa bbb src/edited.ts',
+  '1 MM N... 100644 100644 100644 aaa bbb src/both.ts',
+  '2 R. N... 100644 100644 100644 aaa bbb R100 src/new name.ts\tsrc/old.ts',
+  'u UU N... 100644 100644 100644 100644 aaa bbb ccc src/clash.ts',
+  '? notes.md',
+].join('\n')
+
+test('git status: branch, upstream, ahead and behind, stash, and files staged, unstaged, untracked and conflicted', () => {
+  expect(parseGitStatus(STATUS)).toEqual({
+    branch: 'main', oid: 'abcdef1234567', upstream: 'origin/main', ahead: 2, behind: 1, stash: 3,
+    staged: 3, unstaged: 2, untracked: 1, conflicted: 1,
+  })
   expect(parseGitStatus('# branch.oid abcdef1234\n# branch.head (detached)').branch).toBe('(abcdef1)')
+  // A fresh repo: no commit yet, no upstream.
+  expect(parseGitStatus('# branch.oid (initial)\n# branch.head main')).toMatchObject({ oid: '', upstream: '', ahead: 0, behind: 0 })
+  expect([...statusLetters(STATUS)]).toEqual([
+    ['src/staged.ts', 'M'], ['src/edited.ts', 'M'], ['src/both.ts', 'M'], ['src/new name.ts', 'R'], ['src/clash.ts', 'U'], ['notes.md', '?'],
+  ])
+})
+
+test('numstat counts lines per file and in all, a binary file as null, a rename by its new path', () => {
+  const out = ['40\t3\tsrc/api.ts', '-\t-\tlogo.png', '5\t5\tsrc/{old => new}.ts', '1\t0\ta.ts => b.ts'].join('\n')
+  expect(parseNumstat(out)).toEqual({
+    add: 46, del: 8,
+    files: [
+      { path: 'src/api.ts', add: 40, del: 3 },
+      { path: 'logo.png', add: null, del: null },
+      { path: 'src/new.ts', add: 5, del: 5 },
+      { path: 'b.ts', add: 1, del: 0 },
+    ],
+  })
+  expect(parseNumstat('')).toEqual({ add: 0, del: 0, files: [] })
+})
+
+test('the last commit: short hash, subject, time in ms; none in a repo with no commit', () => {
+  expect(parseLastCommit('a1b2c3d\0fix: token expiry\x001700000000\n')).toEqual({ hash: 'a1b2c3d', subject: 'fix: token expiry', at: 1_700_000_000_000 })
+  expect(parseLastCommit('')).toBeNull()
 })
 
 test('a row drops its least important pieces first and keeps the ones marked 0', () => {

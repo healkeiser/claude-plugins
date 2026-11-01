@@ -140,8 +140,8 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
   const cols = typeof o.paneColumns === 'number' && Number.isFinite(o.paneColumns) ? Math.round(o.paneColumns) : 66
   return {
     architect: safeRegExp(str('architectPattern', ''), 'advisor|architect'),
-    architectLabel: str('architectLabel', 'ARCHITECT'),
-    gateLabel: str('gateLabel', 'GATE'),
+    architectLabel: str('architectLabel', 'Architect'),
+    gateLabel: str('gateLabel', 'Gate'),
     panels: panels.length > 0 ? [...new Set(panels)] : [...PANELS],
     motion: str('motion', 'while-active') !== 'off',
     moments: bool('moments', true),
@@ -838,19 +838,6 @@ export const splitOf = (
         at,
       }
     : null
-
-/**
- * How `cells` share between a split's rows and the free rest (the last entry). The lit cells are the fill's
- * own share of the bar (above zero, at least one), so the bar reads as the ctx meter does; they go to the
- * rows in proportion, every row keeping a cell while the lit cells allow, the largest first. The cells sum to `cells`.
- */
-export const splitCells = (sp: Split, cells: number): number[] => {
-  const used = sp.rows.reduce((n, r) => n + r.tokens, 0)
-  const width = Math.max(0, cells)
-  const lit = used <= 0 || width === 0 ? 0 : Math.min(width, Math.max(1, Math.round((used / sp.window) * width)))
-  const seg = segments(sp.rows.slice(0, lit).map(r => r.tokens), lit)
-  return [...sp.rows.map((_, i) => seg[i] ?? 0), width - lit]
-}
 
 /** A category's short name for the legend: `System prompt` → `system prompt`, cut at 14 cells. */
 export const splitLabel = (name: string) => shorten(name.toLowerCase(), 14)
