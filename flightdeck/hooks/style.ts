@@ -67,24 +67,83 @@ export const isAsciiGlyphs = (option: unknown): boolean => option === 'text'
 const KEEP_TEXT = new Set(['Code', 'Markdown', 'Svg', 'Client', 'Raster', 'Image', 'Input', 'Select'])
 
 /**
- * A drawn tree for `glyphs: text`: every text and label through `ascii`, and
- * rounded or bold borders drawn `classic` (`+`, `-`, `|`). Code, Markdown,
- * pictures and fields keep what they hold.
+ * The Nerd Font set (Nerd Fonts 3.2+ codicons) for each glyph of the vocabulary that has one, drawn
+ * when `glyphs` is `nerd`, or `auto` in a terminal with a Nerd Font. One cell each, sized alike: the
+ * large circles keep live and idle the same size. Box drawing, meters, list bullets and the spinner
+ * stay Unicode: they are structure, and a Nerd Font draws them the same.
  */
-export function asciiTree<T>(node: T): T {
-  if (typeof node === 'string') return ascii(node) as T
-  if (Array.isArray(node)) return node.map(asciiTree) as T
+export const NERD: Readonly<Record<string, string>> = {
+  '✓': '\u{eab2}', // check
+  '✕': '\u{ea76}', // close
+  '●': '\u{ebb4}', // circle-large-filled
+  '○': '\u{ebb5}', // circle-large-outline
+  '↻': '\u{eb37}', // refresh
+  '⌕': '\u{ea6d}', // search
+  '⚠': '\u{ea6c}', // warning (a key, never drawn: glyph-lint-ignore)
+  'ℹ': '\u{ea74}', // info (a key, never drawn: glyph-lint-ignore)
+  '↗': '\u{eb14}', // link-external (a key, never drawn: glyph-lint-ignore)
+  '»': '\u{ea9c}', // arrow-right
+  '‖': '\u{ead1}', // debug-pause
+  '◆': '\u{eb59}', // star-full
+  '⇡': '\u{eaa1}', // arrow-up
+  '⇣': '\u{ea9a}', // arrow-down
+  '⟲': '\u{ea98}', // archive: compacted
+  '⌘': '\u{ea85}', // terminal: a shell call
+  '◇': '\u{ea7b}', // file: a read
+  '⧉': '\u{ebcc}', // copy
+}
+
+/** `s` with every glyph that has a Nerd stand-in swapped for it, a variation selector after one dropped. */
+export function nerd(s: string): string {
+  let out = ''
+  const chars = [...s]
+  for (let i = 0; i < chars.length; i += 1) {
+    const mapped = NERD[chars[i]!]
+    if (mapped === undefined) {
+      out += chars[i]
+      continue
+    }
+    out += mapped
+    if (chars[i + 1] === '︎' || chars[i + 1] === '️') i += 1
+  }
+  return out
+}
+
+/** Which glyph set a mod draws: `text` ASCII, `nerd` Nerd Font icons, `plain` the Unicode set. */
+export type GlyphSet = 'plain' | 'text' | 'nerd'
+
+/**
+ * The `glyphs` option read for one draw: `text` and `plain` as named; `nerd`, and `auto` where a Nerd
+ * Font was found, draw Nerd icons on the terminal alone (a graphical surface has its own type).
+ */
+export const glyphSet = (option: unknown, hasNerd: boolean, surface: string): GlyphSet =>
+  option === 'text' ? 'text' : option === 'plain' ? 'plain' : surface === 'terminal' && (option === 'nerd' || hasNerd) ? 'nerd' : 'plain'
+
+// Swaps every text and label of a tree through `swap`; Code, Markdown, pictures and fields keep theirs.
+function swapTree<T>(node: T, swap: (s: string) => string, isClassic: boolean): T {
+  if (typeof node === 'string') return swap(node) as T
+  if (Array.isArray(node)) return node.map(n => swapTree(n, swap, isClassic)) as T
   if (node === null || typeof node !== 'object') return node
   const el = node as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
   if (typeof el.type === 'string' && KEEP_TEXT.has(el.type)) return node
   const props = el.props && {
     ...el.props,
-    ...(typeof el.props.label === 'string' ? { label: ascii(el.props.label) } : {}),
-    ...(el.props.borderStyle === 'round' || el.props.borderStyle === 'bold' ? { borderStyle: 'classic' } : {}),
-    ...(el.props.children !== undefined ? { children: asciiTree(el.props.children) } : {}),
+    ...(typeof el.props.label === 'string' ? { label: swap(el.props.label) } : {}),
+    ...(isClassic && (el.props.borderStyle === 'round' || el.props.borderStyle === 'bold') ? { borderStyle: 'classic' } : {}),
+    ...(el.props.children !== undefined ? { children: swapTree(el.props.children, swap, isClassic) } : {}),
   }
-  return { ...el, ...(props ? { props } : {}), ...(el.children !== undefined ? { children: asciiTree(el.children) } : {}) } as T
+  return { ...el, ...(props ? { props } : {}), ...(el.children !== undefined ? { children: swapTree(el.children, swap, isClassic) } : {}) } as T
 }
+
+/**
+ * A drawn tree for `glyphs: text`: every text and label through `ascii`, and
+ * rounded or bold borders drawn `classic` (`+`, `-`, `|`). Code, Markdown,
+ * pictures and fields keep what they hold.
+ */
+export const asciiTree = <T,>(node: T): T => swapTree(node, ascii, true)
+
+/** A drawn tree in the glyph set given: Nerd icons, ASCII stand-ins, or as it is. */
+export const glyphTree = <T,>(node: T, set: GlyphSet): T => (set === 'text' ? asciiTree(node) : set === 'nerd' ? swapTree(node, nerd, false) : node)
 
 /** ` · `, the separator inside cards and headers; bands use two spaces a side. */
 export const SEP = ` ${GLYPH.dot} `

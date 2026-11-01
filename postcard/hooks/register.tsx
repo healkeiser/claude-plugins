@@ -3,9 +3,9 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { PromptsCursor, PromptsQuery, PromptsQueue, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion, QueuedPrompt } from '../types'
 import { isQueueable, moveQueued } from './queue'
-import { SPACE, actionsWidth, card, cardFrame, header, kit, search as kitSearch, space, tabs } from './kit'
+import { SPACE, actionsWidth, card, cardFrame, header, kit, nerdFont, search as kitSearch, space, tabs } from './kit'
 import type { Kit } from './kit'
-import { GLYPH, ROLE, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
+import { GLYPH, ROLE, glyphSet, glyphTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
 const CARD = ROLE.you
@@ -33,6 +33,8 @@ let queueSeq = 0
 // Shell commands the Shell tab keeps, and the cells its row gives ` copy run`.
 const SHELL_KEEP = 200
 const SHELL_ACTIONS = 9
+// The cells the engine draws a row's hotkey in, `1: `, before its label.
+const HOTKEY = 3
 // Cells a pane row gives its ` edit re-send` buttons.
 const ACTIONS = 13
 // Cells a pane row keeps for the prompt's words before it drops its age, then its actions.
@@ -231,9 +233,11 @@ export function pieces(text: string): { text: string; language?: string }[] {
 }
 
 export const register: Register = (on, options) => {
-  // glyphs: text draws every tree of ours through asciiTree (DESIGN.md, Options).
+  // Every tree of ours is drawn in the glyph set `glyphs` and the font call for (glyphTree, DESIGN.md Options).
   const isAscii = isAsciiGlyphs(options?.glyphs)
-  const drawn = <T,>(tree: T): T => (isAscii ? asciiTree(tree) : tree)
+  // Whether a Nerd Font draws here (kit's nerdFont), read once a session: `glyphs: auto` draws its icons.
+  let hasNerd = false
+  const drawn = <T,>(tree: T, surface = 'terminal'): T => glyphTree(tree, glyphSet(options?.glyphs, hasNerd, surface))
   // The person's prompts in transcript order, as their rows were drawn. A row is
   // drawn again after a reload, so the list fills back up by itself.
   const prompts = new Map<string, string>()
@@ -247,16 +251,33 @@ export const register: Register = (on, options) => {
   // A prompt typed while Claude works waits in postcard's queue, not the engine's: it can be seen,
   // reordered, edited, held or dropped, and the next is sent when the turn ends. If this hook fails,
   // the prompt goes on to the engine's queue: it is never lost.
+  // When a prompt the person sent was let through, until its turn starts: in that gap (its
+  // UserPromptSubmit hooks run) no turn is running yet, but the next prompt must wait all the same.
+  // 10 s at most, so a prompt that never starts a turn cannot hold the queue.
+  let sentAtMs: number | null = null
   on('prompt.submit', async ($, e, next) => {
-    if (!isOurQueue || e.turnId === undefined || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
+    if (!isOurQueue || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
     const at = await $.clock.now()
+    const isBusy = e.turnId !== undefined || (sentAtMs !== null && at - sentAtMs < 10_000)
+    if (!isBusy) {
+      sentAtMs = at
+      return next(e)
+    }
     const item: QueuedPrompt = { id: `q${at}-${(queueSeq += 1)}`, text: e.text, at }
     await setQueue($, q => ({ ...q, items: [...q.items, item] }))
-    return { drop: 'Queued: postcard sends it when Claude finishes. Reorder, edit or hold it above the prompt.' }
+    // A dropped prompt stays in the box: once the drop has landed, empty it, but only while it still
+    // holds exactly what was queued, so nothing else the person typed is ever wiped.
+    void $.clock
+      .sleep(30)
+      .then(() => $.prompt.read())
+      .then(box => (box.text.trim() === e.text.trim() ? $.prompt.fill({ text: '' }) : undefined))
+      .catch(() => undefined)
+    return { drop: 'Queued.' }
   }).catch(($, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      sentAtMs = null
       await land($, undefined)
       await update($, sent, s => ({ ...s, turnId: e.turnId, opener: e.text.trim() }))
     }
@@ -280,6 +301,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.start', async ($, e, next) => {
+    hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     // A queue left by an earlier session comes back held: nothing is sent without the person.
     const saved = (await $.store.get(QUEUE_STORE).catch(() => undefined)) as Partial<PromptsQueue> | undefined
     if (saved && Array.isArray(saved.items) && saved.items.length) {
@@ -365,10 +387,9 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     // Only the person's own prompts: typed here, or sent from another device.
-    const origin = e.props.origin as { kind: string; name?: string }
-    const kind = origin.kind
-    const isFromQueue = kind === 'plugin' && origin.name === 'postcard'
-    if (kind !== 'composer' && kind !== 'bridge' && !isFromQueue) return next(e)
+    // A prompt postcard's queue sent stays the engine's to draw: Claude Code names the plugin that sent it, by design.
+    const kind = e.props.origin.kind
+    if (kind !== 'composer' && kind !== 'bridge') return next(e)
     const s = await read($, sent)
     if (!firstSeen.has(e.requestId)) remember(firstSeen, e.requestId, s.turnId, KEEP)
     // shortcut: the row carries no queued flag, so a row new in this turn is
@@ -467,7 +488,8 @@ export const register: Register = (on, options) => {
     // Row columns: cursor mark, number, words, age, actions. Narrow, the age goes, then the actions, then words.
     const numW = cellWidth(`#${all.length}`)
     const ageW = Math.max(0, ...list.map(p => cellWidth(p.age)))
-    const room = inner - 2 - numW - 1
+    // The engine draws a row's hotkey before it (`1: `): three cells the words do not have.
+    const room = inner - 2 - HOTKEY - numW - 1
     const hasActions = room - ACTIONS >= MIN_TEXT
     const hasAge = ageW > 0 && room - ACTIONS - ageW - 1 >= MIN_TEXT
     const textW = Math.max(1, room - (hasActions ? ACTIONS : 0) - (hasAge ? ageW + 1 : 0))
@@ -476,7 +498,7 @@ export const register: Register = (on, options) => {
     const shellList = (rows: readonly PromptsShellRun[], total: number, at: number) => {
       const ageOf = (r: PromptsShellRun) => (r.state === 'running' ? 'running' : span(Math.max(1, at - r.at)))
       const ageW2 = Math.max(0, ...rows.map(r => cellWidth(ageOf(r))))
-      const room2 = inner - 2
+      const room2 = inner - 2 - HOTKEY
       const hasRun = room2 - SHELL_ACTIONS >= MIN_TEXT
       const hasAge2 = room2 - SHELL_ACTIONS - ageW2 - 1 >= MIN_TEXT
       const cmdW = Math.max(1, room2 - (hasRun ? SHELL_ACTIONS : 0) - (hasAge2 ? ageW2 + 1 : 0))
@@ -495,7 +517,7 @@ export const register: Register = (on, options) => {
             return (
               <Box key={`sh-${r.id}`} flexDirection="row">
                 <Text color={m.color}>{`${m.glyph} `}</Text>
-                <Box width={cmdW} flexShrink={0}>
+                <Box width={HOTKEY + cmdW} flexShrink={0}>
                   <Button key={`c${row}`} plain hotkey={row < 9 ? String(row + 1) : undefined} onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>
                     {marks(clip(line, cmdW), q).map(x => (x.isMatch ? <Text color={ROLE.accent}>{x.text}</Text> : x.text))}
                   </Button>
@@ -577,7 +599,7 @@ export const register: Register = (on, options) => {
             return (
               <Box key={`r${p.n}`} flexDirection="row">
                 <Text {...(isAt ? { color: ROLE.accent } : {})}>{isAt ? `${GLYPH.live} ` : '  '}</Text>
-                <Box width={numW + 1 + textW} flexShrink={0}>
+                <Box width={HOTKEY + numW + 1 + textW} flexShrink={0}>
                   <Button key={`p${p.n}`} plain hotkey={row < 9 ? String(row + 1) : undefined} onPress={async () => { if (await jump($, p.id)) await land($, p.id) }}>
                     <Text tabular {...(isAt ? { color: ROLE.accent } : { dimColor: true })}>{padCells(`#${p.n}`, numW, 'right')}</Text>
                     {' '}
@@ -601,7 +623,8 @@ export const register: Register = (on, options) => {
           })}
         </Box>
         )}
-      </Box>
+      </Box>,
+      e.surface,
     )
   })
 }

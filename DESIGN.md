@@ -81,6 +81,8 @@ All single-cell, text presentation. A glyph a terminal may draw as a colour emoj
 | `ℹ︎` | note callout |
 | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | the spinner |
 
+**Nerd Font set.** Where a Nerd Font (3.2 or newer) is installed, `glyphs: auto` draws each status glyph above as its Nerd codicon instead (`NERD` in `style.ts`, applied by `glyphTree` over a mod's whole drawing, on the terminal only): check, close, the large filled and outline circles (live and idle the same size), refresh, search, warning, info, link-external, arrow-right, pause, star, arrow-up and -down, archive (compacted), terminal, file and copy for pulse's kinds. Box drawing, meters, list bullets and the spinner stay Unicode: they are structure, and a Nerd Font draws them the same. One detection for all mods (`nerdFont` in `kit.tsx`): `fc-list` or the macOS font folders through `sh`, and on Windows the user and system font folders read through `$.fs`.
+
 Glyphs the mods already use for kinds (pulse's `◇ ⌕ ⌘ ⇣ ⧉`, filetree's file and git icons, `▾ ▴ ▸` for folds) are text-presentation and stay. The lint (`bareEmoji` in `style.ts`, run by `scripts/check-style.mjs` over every hooks file and `statusline.sh`, and by each mod's `style.test.ts` over what it draws) fails on any `Emoji`-property code point not followed by U+FE0E.
 
 ## Shapes

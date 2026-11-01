@@ -2,7 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
+  ASCII, GLYPH, HEAT_RAMP, NERD, glyphSet, glyphTree, nerd, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
   LIMIT_WINDOW_MS, clockAt, forecast, forecastLabel, paceLabel, heatHex, heatRuns, meterShare, pace, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
 } from './style'
 
@@ -178,4 +178,18 @@ test('pace and forecast read as the status line: 1.0× calm, above it warning, f
   expect(paceLabel(1.5)).toEqual({ text: '1.5×', role: 'error' })
   expect(forecastLabel(5, 10)).toBe('full now')
   expect(forecastLabel(3_600_000 + 10, 10)).toMatch(/^full \d\d:\d\d$/)
+})
+
+test('the Nerd set: every status glyph has one; text keeps the rest; Code keeps its own; only the terminal draws it', () => {
+  for (const g of [GLYPH.ok, GLYPH.fail, GLYPH.live, GLYPH.idle, GLYPH.reset, GLYPH.warn, GLYPH.info, GLYPH.external, GLYPH.next, GLYPH.stop, GLYPH.key, GLYPH.compact]) {
+    const n = nerd(g)
+    expect([g, n.length > 0 && n !== g && /^[\u{e000}-\u{f8ff}\u{f0000}-\u{fffff}]$/u.test(n)]).toEqual([g, true])
+  }
+  // A variation selector after a swapped glyph goes with it; other text stays.
+  expect(nerd(`${GLYPH.warn} Warning ━━─ 64%`)).toBe(`${NERD['⚠']} Warning ━━─ 64%`)
+  const tree = { type: 'Box', props: {}, children: [{ type: 'Text', props: {}, children: ['✓ done'] }, { type: 'Code', props: { source: '✓' }, children: [] }] }
+  expect(JSON.stringify(glyphTree(tree, 'nerd'))).toContain(`${NERD['✓']} done`)
+  expect(JSON.stringify(glyphTree(tree, 'nerd'))).toContain('"source":"✓"')
+  expect(glyphTree(tree, 'plain')).toBe(tree)
+  expect([glyphSet('auto', true, 'terminal'), glyphSet('auto', true, 'desktop'), glyphSet('auto', false, 'terminal'), glyphSet('nerd', false, 'terminal'), glyphSet('text', true, 'terminal')]).toEqual(['nerd', 'plain', 'plain', 'nerd', 'text'])
 })

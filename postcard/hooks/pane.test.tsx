@@ -116,12 +116,12 @@ test('narrow widths drop the age, then the actions, before cutting the words', a
     await ui.unmount()
     return { hasAge: t.includes('5m'), hasActions: k.includes('e1'), row }
   }
-  // inner = w (no card around the list); a row: mark 2, number 2, gap 1, words, age 1 + 2, actions 13.
-  expect(await at(76)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a fair number of words in it' })
-  expect(await at(37)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a…' })
-  expect(await at(36)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a f…' })
-  expect(await at(34)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a…' })
-  expect(await at(33)).toEqual({ hasAge: false, hasActions: false, row: '#1 a prompt with a fair number…' })
+  // inner = w (no card around the list), 3 cells of it the hotkey's `1: `; a row: mark 2, number 2, gap 1, words, age 1 + 2, actions 13.
+  expect(await at(79)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a fair number of words in it' })
+  expect(await at(40)).toEqual({ hasAge: true, hasActions: true, row: '#1 a prompt with a…' })
+  expect(await at(39)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a f…' })
+  expect(await at(37)).toEqual({ hasAge: false, hasActions: true, row: '#1 a prompt with a…' })
+  expect(await at(36)).toEqual({ hasAge: false, hasActions: false, row: '#1 a prompt with a fair number…' })
 })
 
 test('the header drops its prev and next before the count', async $ => {

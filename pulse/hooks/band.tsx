@@ -11,9 +11,9 @@ import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
-import { SPACE, bar as kitBar, cardFrame, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
+import { SPACE, bar as kitBar, cardFrame, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
-  GLYPH, LIMIT_WINDOW_MS, ROLE, asciiTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
+  GLYPH, LIMIT_WINDOW_MS, ROLE, glyphSet, glyphTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
 } from './style'
 
@@ -149,6 +149,9 @@ export function afterTurn($: EngineInterface) {
     .catch(() => {})
 }
 
+/** Whether a Nerd Font draws here (kit's nerdFont), read at session start: the band and the tool rows' `glyphs: auto`. */
+export const font = { hasNerd: false }
+
 // ---------------------------------------------------------------- plan
 
 /** After one of Claude's task tools ran in the main loop (register's `tool.call` hook): the plan it left. */
@@ -235,6 +238,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
   const isHidden = (v: View) => hiddenBy(v, options.band)
 
   on('session.start', async ($, e, next) => {
+    font.hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     await $.command
       .register({ name: 'pulse', description: 'Show, hide or toggle the pulse band above the prompt', argumentHint: 'band on|off|toggle' })
       .catch(() => {})
@@ -693,12 +697,25 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           'git-branch',
           'branch',
           col,
-          <Box flexDirection="row" columnGap={1} overflow="hidden">
-            <Text wrap="truncate-end">{r.branch || '(no branch)'}</Text>
-            {r.upstream ? <Text color={ROLE.chrome} wrap="truncate-end">{`→ ${r.upstream}`}</Text> : null}
-            {sync}
+          // The branch and its sync keep their cells; the upstream, then the extras, give way.
+          <Box flexDirection="row" columnGap={1} overflow="hidden" flexGrow={1}>
+            <Box flexShrink={0}>
+              <Text>{r.branch || '(no branch)'}</Text>
+            </Box>
+            {r.upstream ? (
+              <Box flexShrink={1} overflow="hidden">
+                <Text color={ROLE.chrome} wrap="truncate-end">{`→ ${r.upstream}`}</Text>
+              </Box>
+            ) : null}
+            <Box flexShrink={0} flexDirection="row" columnGap={1}>
+              {sync}
+            </Box>
             {extras.length ? sep('extras-sep') : null}
-            {extras.length ? <Text color={ROLE.chrome} wrap="truncate-end">{extras.join(` ${GLYPH.dot} `)}</Text> : null}
+            {extras.length ? (
+              <Box flexShrink={2} overflow="hidden">
+                <Text color={ROLE.chrome} wrap="truncate-end">{extras.join(` ${GLYPH.dot} `)}</Text>
+              </Box>
+            ) : null}
           </Box>,
         ),
       )
@@ -733,10 +750,17 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
             'git-last',
             'last',
             col,
-            <Box flexDirection="row" columnGap={1} overflow="hidden">
-              <Text color={ROLE.accent}>{r.last.hash}</Text>
-              <Text wrap="truncate-end">{r.last.subject}</Text>
-              <Text color={ROLE.chrome}>{ago(r.last.at)}</Text>
+            // Only the subject gives way: the hash and the age are never cut or wrapped.
+            <Box flexDirection="row" columnGap={1} overflow="hidden" flexGrow={1}>
+              <Box flexShrink={0}>
+                <Text color={ROLE.accent}>{r.last.hash}</Text>
+              </Box>
+              <Box flexShrink={1} overflow="hidden">
+                <Text wrap="truncate-end">{r.last.subject}</Text>
+              </Box>
+              <Box flexShrink={0}>
+                <Text color={ROLE.chrome}>{ago(r.last.at)}</Text>
+              </Box>
             </Box>,
           ),
         )
@@ -822,7 +846,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
 
     const drawn = v.isOpen ? unfolded() : folded()
     // `glyphs: text` draws ASCII stand-ins and a classic border.
-    const mine = isAsciiGlyphs(options.glyphs) ? asciiTree(drawn) : drawn
+    const mine = glyphTree(drawn, glyphSet(options.glyphs, font.hasNerd, e.surface))
     return (
       <Box flexDirection="column">
         {mine}

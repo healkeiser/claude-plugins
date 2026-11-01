@@ -9,8 +9,8 @@ import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
 import { editorScheme, refUrl, resolvePath } from './paths'
 import type { FileRef } from './paths'
-import { cardFrame } from './kit'
-import { GLYPH, ROLE, SEP, ascii, asciiTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
+import { cardFrame, nerdFont } from './kit'
+import { GLYPH, ROLE, SEP, ascii, glyphSet, glyphTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
 // included, which `$.config.list` only reports as "auto". The chip is the
@@ -70,7 +70,10 @@ export const register: Register = (on, options) => {
   const found = new Map<string, boolean>()
   let env: Promise<{ scheme: string; home: string }> | undefined
 
+  // Whether a Nerd Font draws here (kit's nerdFont), read once a session: `glyphs: auto` draws its icons.
+  let hasNerd = false
   on('session.start', async ($, e, next) => {
+    hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     const result = await next(e)
     await $.command.register({ name: 'gloss', description: 'Copy the nth code block of the last reply (the last by default)', argumentHint: 'copy [n]' })
     return result
@@ -467,6 +470,6 @@ export const register: Register = (on, options) => {
       </Box>
       </Box>
     )
-    return isAscii ? asciiTree(tree) : tree
+    return glyphTree(tree, glyphSet(options?.glyphs, hasNerd, e.surface))
   })
 }

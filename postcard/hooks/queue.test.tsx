@@ -8,8 +8,8 @@ const PANE = { plugin: 'postcard', surface: 'terminal', component: 'Pane', reque
 
 // Stands in for the engine: turns, the store, the prompt box, and what is submitted or toasted.
 function engine(on: On, draft = '') {
-  const seen = { submitted: [] as string[], filled: [] as string[], toasts: [] as string[], store: {} as Record<string, unknown> }
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
+  const seen = { clock, submitted: [] as string[], filled: [] as string[], toasts: [] as string[], store: {} as Record<string, unknown> }
   mock.session(on)
   on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
   on('turn.complete', () => ({ text: '' }) as never)
@@ -104,4 +104,41 @@ test('queue: engine leaves every prompt to Claude Code', { options: { queue: 'en
   await $.turn.start({ text: 'go', turnId: 'T3' })
   await $.prompt.submit(typed('later', 'T3'))
   expect(seen.submitted).toEqual(['later'])
+})
+
+test('a queued prompt leaves the prompt box empty, but never wipes something else typed there', async ($, on) => {
+  // The engine leaves a dropped prompt in the box: here it still holds it.
+  const seen = engine(on, 'and the lexer')
+  const { clock } = seen
+  await $.turn.start({ text: 'go', turnId: 'T5' })
+  await $.prompt.submit(typed('and the lexer', 'T5'))
+  await clock.advance(50)
+  expect(seen.filled).toEqual([''])
+  // The box holds other words by then: left as it is.
+  await $.prompt.submit(typed('something else', 'T5'))
+  await clock.advance(50)
+  expect(seen.filled).toEqual([''])
+})
+
+test('a prompt the queue sent is left to the engine, which names the plugin that sent it', async ($, on) => {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine row</Text>
+  })
+  const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm-q', props: { text: 'say two', origin: { kind: 'plugin', name: 'postcard', asUser: true }, isExpanded: false } as never })
+  expect(await texts(ui)).toEqual(['engine row'])
+})
+
+test('a prompt typed before the one just sent has started its turn waits too; one sent later, once idle, goes', async ($, on) => {
+  const seen = engine(on)
+  const { clock } = seen
+  // Sent while idle: through to the engine. Its turn has not started yet (its hooks run).
+  await $.prompt.submit(typed('first'))
+  const second = await $.prompt.submit(typed('second'))
+  expect(seen.submitted).toEqual(['first'])
+  expect('drop' in second).toBe(true)
+  // Its turn never started (a failed submit): past 10 s, the next goes through.
+  await clock.advance(11_000)
+  await $.prompt.submit(typed('third'))
+  expect(seen.submitted).toEqual(['first', 'third'])
 })

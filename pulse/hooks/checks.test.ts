@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { checkKind, ghProblem, parsePr, parseRuns, runState, touchesCi } from './checks'
+import { checkKind, checkKinds, ghProblem, parsePr, parseRuns, runState, touchesCi } from './checks'
 
 test('commands that run a test, a type check, a lint or a build are known; reading a test file is not one', () => {
   const cases: [string, ReturnType<typeof checkKind>][] = [
@@ -38,6 +38,15 @@ test('commands that run a test, a type check, a lint or a build are known; readi
     ['echo hi', null],
   ]
   for (const [command, kind] of cases) expect([command, checkKind(command)]).toEqual([command, kind])
+})
+
+test('one command line can run several kinds of check, each named by its own part', () => {
+  expect(checkKinds('node scripts/check-style.mjs; echo "exit=$?"; sleep 20; claude plugin test ./postcard 2>&1 | tail -3')).toEqual([
+    { kind: 'lint', segment: 'node scripts/check-style.mjs' },
+    { kind: 'test', segment: 'claude plugin test ./postcard 2>&1' },
+  ])
+  expect(checkKinds('npm test && npm test')).toEqual([{ kind: 'test', segment: 'npm test' }])
+  expect(checkKinds('echo hi')).toEqual([])
 })
 
 test('a push or a gh command on runs or pull requests may change CI', () => {

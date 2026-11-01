@@ -409,3 +409,65 @@ export function space(k: Kit, key: string, rows: number = SPACE.block): RenderCh
   const { Box } = k.els
   return <Box key={key} height={rows} flexShrink={0} />
 }
+
+// ---------------------------------------------------------------- the Nerd Font
+
+// fc-list (Linux), then the macOS and Windows font folders (Git Bash paths).
+const FONT_SCRIPT =
+  'if command -v fc-list >/dev/null 2>&1; then f=$(fc-list ":charset=$1" file | grep -vi lastresort | head -n1 | cut -d: -f1); fi; ' +
+  '[ -n "$f" ] || for g in "$HOME"/Library/Fonts/*Nerd* /Library/Fonts/*Nerd* "$HOME"/AppData/Local/Microsoft/Windows/Fonts/*Nerd* /c/Windows/Fonts/*Nerd*; do [ -f "$g" ] && LC_ALL=C grep -aqE "Nerd Fonts (3\\.([2-9]|[1-9][0-9])|[4-9]|[1-9][0-9]+)\\." "$g" && { f=$g; break; }; done; ' +
+  '[ -n "$f" ] || { echo missing; exit 0; }; m=$(stat -c %Z "$f" 2>/dev/null || stat -f %c "$f"); p=$PPID; ' +
+  'while [ -n "$p" ] && [ "$p" -gt 1 ]; do c=$(ps -o comm= -p "$p" 2>/dev/null); c=$(basename "$c" 2>/dev/null | tr -d " "); case "$c" in ' +
+  'ghostty|kitty|alacritty|Alacritty|foot|footclient|wezterm-gui|konsole|gnome-terminal-|xterm|urxvt|st|Terminal|iTerm2) ' +
+  'e=$(ps -o etime= -p "$p" 2>/dev/null | awk -F\'[-:]\' \'{n=NF; s=$n+60*$(n-1); if (n>2) s+=3600*$(n-2); if (n>3) s+=86400*$(n-3); print s}\'); [ -n "$e" ] && [ $(( $(date +%s) - e )) -lt "$m" ] && echo stale || echo ok; exit 0;; esac; ' +
+  'p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d " "); done; echo ok'
+const NERD_PROBE = 'f04eb ebff ebf6 ec01'
+
+// The version FONT_SCRIPT trusts: Nerd Fonts 3.2 or newer has the codicons the header draws.
+const NERD_VERSION = /Nerd Fonts (3\.([2-9]|[1-9][0-9])|[4-9]|[1-9][0-9]+)\./
+/**
+ * Windows has no sh to run FONT_SCRIPT: its user and system font folders are read through
+ * $.fs instead, a `*Nerd*` file (Regular first) trusted when its name table says Nerd Fonts
+ * 3.2 or newer. Reads stop at the first match, at most four files a folder.
+ */
+async function windowsNerd($: EngineInterface): Promise<boolean> {
+  const local = await $.env.get('LOCALAPPDATA')
+  const system = (await $.env.get('SystemRoot')) || 'C:/Windows'
+  const dirs = [...(local ? [`${local}/Microsoft/Windows/Fonts`] : []), `${system}/Fonts`]
+  for (const dir of dirs) {
+    const names = (await $.fs.list(dir).catch(() => []))
+      .filter(e => e.kind === 'file' && /nerd/i.test(e.name) && /\.(ttf|otf)$/i.test(e.name))
+      .map(e => e.name)
+      .sort((a, b) => Number(/regular/i.test(b)) - Number(/regular/i.test(a)))
+    for (const name of names.slice(0, 4)) {
+      // Text is enough: the version is ASCII in the font's name table; a file over 4 MiB rejects.
+      const text = await $.fs.read(`${dir}/${name}`).catch(() => '')
+      if (NERD_VERSION.test(text)) return true
+    }
+  }
+  return false
+}
+
+async function fontState($: EngineInterface, charset: string): Promise<'ok' | 'stale' | 'missing'> {
+  try {
+    const out = (await $.process.run(['sh', '-c', FONT_SCRIPT, 'sh', charset], { timeoutMs: 5_000 })).stdout.trim()
+    return out === 'stale' || out === 'missing' ? out : 'ok'
+  } catch {
+    return 'missing'
+  }
+}
+
+/**
+ * Whether a Nerd Font (3.2 or newer, with the codicons) draws here: `ok`, `stale` (installed after
+ * the terminal started, which has not loaded it yet) or `missing`. Over SSH the font is the far
+ * terminal's, which cannot be asked: `ok`. Read once a session; `glyphs: auto` draws Nerd icons on `ok`.
+ */
+export async function nerdFont($: EngineInterface): Promise<'ok' | 'stale' | 'missing'> {
+  try {
+    if ((await $.env.get('SSH_CONNECTION')) || (await $.env.get('SSH_TTY'))) return 'ok'
+    if ((await $.env.get('OS')) === 'Windows_NT') return (await windowsNerd($)) ? 'ok' : 'missing'
+    return await fontState($, NERD_PROBE)
+  } catch {
+    return 'missing'
+  }
+}

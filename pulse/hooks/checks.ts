@@ -50,17 +50,22 @@ function segmentKind(segment: string): CheckKind | null {
 }
 
 /**
- * What kind of check a shell command runs, or null: the first segment that is
- * one, so `npm run lint && npm test` is a lint. A command that only reads
- * files that name a test (`cat tests/a.py`, `git diff -- test/`) is none.
+ * Every kind of check a shell command runs, each once, with the part of the
+ * command that runs it: `npm run lint && npm test` is a lint (`npm run lint`)
+ * and a test (`npm test`). A command that only reads files that name a test
+ * (`cat tests/a.py`, `git diff -- test/`) runs none.
  */
-export function checkKind(command: string): CheckKind | null {
+export function checkKinds(command: string): { kind: CheckKind; segment: string }[] {
+  const out: { kind: CheckKind; segment: string }[] = []
   for (const segment of command.split(/&&|\|\||;|\||\r?\n/)) {
     const kind = segmentKind(segment)
-    if (kind) return kind
+    if (kind && !out.some(x => x.kind === kind)) out.push({ kind, segment: segment.trim() })
   }
-  return null
+  return out
 }
+
+/** The first kind of check a shell command runs, or null. */
+export const checkKind = (command: string): CheckKind | null => checkKinds(command)[0]?.kind ?? null
 
 /** Whether a command may change what GitHub reports: a push, or `gh` acting on runs or pull requests. */
 export const touchesCi = (command: string): boolean => /\bgit\s+push\b|\bgh\s+(pr|run|workflow)\b/.test(command)

@@ -96,8 +96,8 @@ import {
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { SPACE, cardFrame, header, kit, space } from './kit'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, asciiTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence } from './style'
+import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -327,6 +327,8 @@ async function readRepo($: EngineInterface) {
 }
 // Claude Code's Reduce motion setting, read at session start and at each main turn.
 let isStill = false
+// Whether a Nerd Font draws here (kit's nerdFont), read at session start: `glyphs: auto` draws its icons.
+let hasNerd = false
 async function readMotion($: EngineInterface) {
   const rows = await Promise.resolve().then(() => $.config.list()).catch(() => [])
   isStill = !motionOn('while-active', rows)
@@ -368,6 +370,7 @@ export const register: Register = (on, options) => {
   const callLoop = new Map<string, string | null>()
 
   on('session.start', async ($, e, next) => {
+    hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     await $.command.register({
       name: 'flightdeck',
       description: 'Flightdeck, the live agent dashboard: open, close, reset, or set the layout',
@@ -630,8 +633,10 @@ export const register: Register = (on, options) => {
       return ran
     }
     const hasFailed = didRun && ran.isError === true
-    // Timed when it ran without a permission prompt: a prompt's wait is the person's, not the tool's.
-    if (didRun && !isSettled) await update($, tools, l => noteToolTime(normalizeTools(l), String(e.tool), tookMs, hasFailed))
+    // Timed unless the person answered a permission prompt for it: that wait is theirs, not the tool's.
+    // In auto mode the classifier answers, quickly, so those calls are timed.
+    const wasAsked = isSettled && (await getMain($)).mode !== 'auto'
+    if (didRun && !wasAsked) await update($, tools, l => noteToolTime(normalizeTools(l), String(e.tool), tookMs, hasFailed))
     const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
     const t0 = await getTurn($)
     if (isEdit || hasFailed || (!e.agentId && t0.errorStreak > 0)) {
@@ -1756,8 +1761,8 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
-    // glyphs: text draws the pane through asciiTree (DESIGN.md, Options).
-    const drawn = <T,>(tree: T): T => (cfg.ascii ? asciiTree(tree) : tree)
+    // The pane in the glyph set `glyphs` and the font call for (glyphTree, DESIGN.md Options).
+    const drawn = <T,>(tree: T): T => glyphTree(tree, glyphSet(options?.glyphs, hasNerd, e.surface))
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = `${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`

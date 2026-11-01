@@ -31,54 +31,40 @@
 </div>
 
 
-
 <!-- TABLE OF CONTENTS -->
-## Table of Contents
+## Contents
 
-- [About](#about)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [gloss](#gloss)
-  - [pulse](#pulse)
-  - [postcard](#postcard)
-  - [flightdeck](#flightdeck)
-  - [filetree](#filetree)
-  - [Status line](#status-line)
-- [Dev skills](#dev-skills)
-- [Documentation skills](#documentation-skills)
+- [At a glance](#at-a-glance)
+- [Install](#install)
+- [The mods](#the-mods): [gloss](#gloss) · [pulse](#pulse) · [postcard](#postcard) · [flightdeck](#flightdeck) · [filetree](#filetree)
+- [Status line](#status-line)
+- [One design](#one-design)
+- [Skills](#dev-skills)
 - [Security](#security)
 - [Development](#development)
 - [Credits and inspiration](#credits-and-inspiration)
-- [License](#license)
-- [Contact](#contact)
 
 
 
-<!-- ABOUT -->
-## About
+<!-- GLANCE -->
+## At a glance
 
-Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code): small TypeScript modules that redraw parts of its terminal interface. Each one works on its own, so install only the ones you want.
+Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code), small TypeScript modules that redraw parts of its interface, and a matching status line. Install only the ones you want: each works on its own.
 
-| Mod | What it changes |
-|-----|-----------------|
-| **gloss** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
-| **pulse** | A band above the prompt: the turn while Claude works, the context, prompt cache, last turn and git at a glance while it waits, unfolding into tabs (activity, context and limits with a forecast, the turn, git with upstream, stash, the session's commits and the most changed files, and checks: the last test, type check, lint and build Claude ran, the branch's CI runs and pull request); the folded tool rows, compact shell command rows, and the footer that closes each turn |
-| **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them, with a Shell tab of the commands Claude ran to copy or run again |
-| **flightdeck** | A live dashboard pane beside the transcript: the main model's vitals, an on-call architect, every permission check, subagent cards and swimlanes, the turn receipt, how long each tool takes, and a session log. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) |
-| **filetree** | An IDE-style file tree pane: what Claude reads, writes and changes, git status, previews, a treemap and diffs. A restyled fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) |
+| Mod | In one line |
+|-----|-------------|
+| [**gloss**](#gloss) | Claude's replies, easier to read: code blocks with a copy button, tables, callouts, a `Next` box |
+| [**pulse**](#pulse) | A band above the prompt: what Claude is doing now, and context, limits, git and checks at a glance |
+| [**postcard**](#postcard) | Your prompts as cards, a queue for what you type while Claude works, and a pane to find any prompt or shell command again |
+| [**flightdeck**](#flightdeck) | A dashboard pane: the model's vitals, permissions, subagents, tool timings, trends |
+| [**filetree**](#filetree) | An IDE-style file tree of what Claude reads, writes and changes |
 
-A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
-
-All five and the status line share one design: the same colour roles, glyphs, card shapes, number formats and motion, written down in [DESIGN.md](./DESIGN.md). Where Claude Code's desktop app, VS Code extension or mobile app already draws a part well (replies, prompts, tool rows), the mods leave it to them and change only the terminal.
-
-The repository also ships [documentation skills](#documentation-skills): each one gives Claude a local, searchable copy of one software release's official docs.
+The screenshots are Windows Terminal with MonoLisa Nerd Font. In the desktop app, VS Code and on mobile, the mods leave what those draw well (replies, prompts, tool rows) to them, and draw their panes in the surface's own type.
 
 
 
 <!-- INSTALLATION -->
-## Installation
-
-Add this repository as a plugin marketplace, then install the mods you want at user scope:
+## Install
 
 ``` shell
 claude plugin marketplace add healkeiser/claude-plugins
@@ -89,7 +75,7 @@ claude plugin install flightdeck@healkeiser --scope user
 claude plugin install filetree@healkeiser --scope user
 ```
 
-Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
+New sessions load them; in an open one, run `/reload-plugins`. Update with `claude plugin marketplace update healkeiser`, then `claude plugin update <mod>@healkeiser`.
 
 > [!IMPORTANT]
 > Mods need Claude Code **2.1.299** or later.
@@ -97,169 +83,178 @@ Run `/reload-plugins` in a session that is already open; new sessions load them 
 
 
 <!-- USAGE -->
-## Usage
+## The mods
 
 ### gloss
 
-Redraws each block of Claude's reply that has something to gain; plain prose keeps Claude Code's own look.
+<p align="center"><img src="docs/images/gloss.png" alt="gloss: a reply with a code block, a table, Tip and Warning callouts, a task item and the Next box"></p>
 
-- **Code blocks** draw between a top rule, carrying their language and a copy menu, and a bottom rule, with no side border, so a mouse selection copies the code alone. The menu reads `⧉ copy · fenced · one line`: the code as it stands, the code inside its ` ``` ` fence and language, and, for a shell block of several commands, those commands joined into one line to paste at a prompt (`\` and PowerShell's backtick continuations joined, `$ ` prompts and comments dropped, `&&` between commands, `;` for PowerShell or a block with its own `if`/`for`; not offered for a heredoc). On a narrow window the menu drops from its end. Past 20 lines a block folds to 12 with a `▾ show all N lines` button.
-- **`/gloss copy [n]`** copies the nth code block of the last reply, the last one when `n` is left out, as `⧉ copy` would.
-- **Inline code** becomes a chip on the theme's own prompt tint, in the normal text colour, so it reads on light and dark themes alike, `auto` included.
-- **`file:line` references** in prose or inline code (`src/a.ts:42`, `./pkg/mod.rs:3:7`, `C:\x\y.py:10`) become links when the file exists, resolved against the session's folder. With VS Code, Cursor, Windsurf or VSCodium as `VISUAL` or `EDITOR` (or in VS Code's terminal) the link opens the file at that line and column; otherwise it is a `file:` link, which opens the file. A reference to a file that is not there, a time (`10:30`), a port or a URL stays plain text. Open a link the way your terminal opens links (often ctrl+click).
-- **Mermaid fences** (` ```mermaid `) draw as a text diagram in the block: flowcharts (`graph`/`flowchart`, `TD`, `TB` or `LR`) as boxes joined by lines and `▾ ▸` arrowheads with their labels, and sequence diagrams as participants over lifelines with their messages (`─` solid, `·` dashed, `✕` lost), notes and `loop`/`alt` rows. Another kind of diagram, `RL` and `BT` flowcharts, or a diagram too wide for the window shows its source with a note saying why. The copy menu copies the source either way.
-- **Lists** change bullet by depth (`•`, `◦`, `■`; the first level in Claude orange, deeper ones dim) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✓`.
-- **Quotes** that are not callouts draw with a dim `│` bar on every line, one per nesting level, rather than a box.
-- **Rules** (`---`, `***`, `___` alone on a line) draw as a dim line across the window.
-- **Strikethrough** (`~~text~~`) draws struck through.
-- **Diff fences** (` ```diff `) draw in red and green, a hunk header added when the fence has none.
-- **Tables** draw in a rounded border with a bold header row and a `⧉ md · tsv` menu beside the bottom border, which copies the table as Markdown or as tab-separated values to paste into a spreadsheet; a table too wide for the window narrows its widest column and wraps it. Widths are counted in terminal cells, so Chinese, Japanese and Korean text and emoji keep the borders straight.
-- **Headings** (`##` lines and bold-only lines such as `**What changed:**`) draw in the accent colour with a rule under them.
-- **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon: `ℹ` blue, `✓` green, `◆` orange, `⚠` yellow, `✕` red.
-- A paragraph opening with **`Next:`** draws in its own box, led by `»`, so the action a reply ends on is easy to spot.
-- In the desktop app, VS Code and on mobile, replies keep Claude Code's own drawing, which already does all of this, save a reply with a mermaid flowchart or sequence diagram: that diagram draws as a picture, with a button that copies its source, and the rest of the reply stays native.
-- Option (in `/plugin`, or `pluginConfigs` under `gloss@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins (`v`, `x`, `*`, `+-|` borders) for a terminal or font that cannot show the Unicode ones.
+Claude's replies in the terminal, restyled to read at a glance.
+
+- **Code blocks** open-sided with their language, a `copy` button and a menu (as written, fenced, as one line); mermaid diagrams drawn as text.
+- **Tables** in rounded frames, copyable as Markdown or TSV.
+- **Callouts** (`> [!TIP]`, `[!WARNING]`, `[!NOTE]`, `[!IMPORTANT]`, `[!CAUTION]`) and the closing `Next:` line as boxes.
+- **Inline code** as theme-aware chips, `file:line` references as links, nested lists, task items, quotes, rules, diffs in colour.
+
+<details>
+<summary>Options</summary>
+
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+
+Set them with `/plugin`, the mod's Configure entry.
+
+</details>
 
 ### pulse
 
-- A band sits above the prompt, folded to one row. While a turn runs it reads `⠹ editing parse.ts  ·  3 tools  ·  42s`: a spinner, the current action (fading in as it changes), the tool count and the elapsed time. Between turns it reads the last turn (`✓` and how long it took, its tool count and what it cost), the context window as a small meter with its percentage, and how long the prompt cache still holds the conversation, `cache ↻ 4m 12s`, which warms from green to red as it runs out and reads `○ expired` once it has. Tab buttons and `▴` on the right unfold it. On a narrow terminal the tabs leave first, then the cost, the tool count, the cache and the context meter; the row never wraps.
-- Unfolded, the band is a card with four tabs. Click a tab, or focus the band with `ctrl+x tab` and use the arrows and Enter; clicking the open tab, or `▾`, folds it again. There are no digit hotkeys, so typing `1` into an empty prompt stays typing. **activity** lists the turn's tool calls, each with a spinner, `✓` and how long it took, or `✕`. **context** has meters for the context window, the 5-hour and 7-day limits with their reset times, and the prompt cache's countdown. **turn** has the turn's duration, its tools by kind, the files it edited, its errors and its cost beside the session's. **git** has the branch and the counts of added, modified and deleted files. The open tab and whether the band is unfolded are remembered across sessions.
-- Meters use the status line's colour ramp, green to red, one colour per cell, with the percentage in the colour of its tenth; a terminal without 256 colours gets the three role colours instead.
-- The cache countdown starts at the end of a turn that read or wrote the prompt cache. Claude Code does not say which lifetime the API gave the cache, so pulse takes an hour on a subscription (a session that reports rate limits) and five minutes with an API key, and follows `FORCE_PROMPT_CACHING_5M`, `ENABLE_PROMPT_CACHING_1H` and `DISABLE_PROMPT_CACHING` when they are set. It redraws once a second; nothing else in the band moves between turns.
-- In the desktop app the band draws its meters as SVG that glide to a new reading, lights a row's details under the pointer (a meter's tooltip says it in words) and has wider buttons named for their tabs.
-- `/pulse band off` hides the band, and the choice is remembered across sessions; `/pulse band on` brings it back and `/pulse band toggle` switches. Bands from other mods stay below it, and a survey takes its place while it runs.
-- Folded tool rows read `◇ 3 reads  ·  ⌕ 2 searches  ·  ⌘ 1 shell`, dim, with failures in red.
-- The footer of a turn that used tools reads `✻ Baked for 29s  ·  6 tools  ·  2 files edited`.
-- A shell command that stands on its own row draws in three short lines:
+<p align="center"><img src="docs/images/pulse.png" alt="pulse: the Context tab, with context, 5h and 7d meters, a forecast and the prompt cache"></p>
 
-  ```
-  ● Rebase the vfx branch onto main                          ✓ 1.4s
-    $ cd ~/…/claude-plugins-vfx && git show main:.claude-plugin/marketpl…
-    └ bb43e7c feat(vfx): bundle the documentation skills into one vfx…  +3 lines
-  ```
+A band above the prompt. While Claude works, one row says what it is doing; while it waits, the context, prompt cache and last turn. Unfold it (`▾`) for five tabs:
 
-  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✓` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `‖ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing. The desktop app, VS Code and mobile keep their own tool rows.
-- Options (in `/plugin`, or `pluginConfigs` under `pulse@healkeiser`): `band` (`on`, `off`): off hides the band until `/pulse band on`. `motion` (`while-active`, `off`): off, nothing spins, and the time and the cache countdown still count; Claude Code's **Reduce motion** setting stills it too. `glyphs` (`auto`, `plain`, `text`): text draws the band in ASCII stand-ins with a classic border, for a font that lacks the glyphs.
+| Tab | Shows |
+|-----|-------|
+| **Activity** | Claude's plan as a progress meter (`3/7`, the step under way), then the turn's tool calls |
+| **Context** | context and the 5h and 7d limits as heat meters, the prompt cache countdown, and `full 21:40` in red when a limit will fill before it resets |
+| **Turn** | the last turn: time, tools by kind, edits, errors, cost |
+| **Git** | branch, upstream and `⇡ahead ⇣behind`, last fetch, stash, worktrees; lines changed and staged, unstaged, untracked files; the last commit; commits this session; a rebase or merge under way; the most changed files |
+| **Checks** | the last test, type check, lint and build Claude ran, with how each ended; the branch's GitHub Actions runs and pull request (with `gh`), and a toast when a run finishes |
+
+<p align="center"><img src="docs/images/pulse-git.png" alt="pulse: the Git tab, the state left and the changed files right"></p>
+
+<p align="center"><img src="docs/images/pulse-checks.png" alt="pulse: the Checks tab, a test and a lint Claude ran"></p>
+
+It also folds runs of tool calls into one line (`◇ 3 reads · ⌕ 2 searches`), draws shell commands as compact rows, and closes each turn with a summary. `/pulse band on|off` shows or hides the band.
+
+<details>
+<summary>Options</summary>
+
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `motion` | `while-active` `off` | `while-active` | while-active: the band's spinner and the Bash rows' turn while Claude works, and a new action fades in. |
+| `band` | `on` `off` | `on` | on: the band above the prompt shows at all times, folded to one row until you unfold it. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+
+Set them with `/plugin`, the mod's Configure entry.
+
+</details>
 
 ### postcard
 
-- Each prompt you send draws as a blue card, so your messages stand out when you scroll.
-- Each slash command you run (`/diff`, `/theme`, a skill) draws its output as a purple card headed by the command. The line you typed stays as the engine draws it: mods cannot restyle it, and a command that prints nothing has no card.
-- A fenced code block in a prompt draws as a grey box inside the card, with its language and syntax colours.
-- A prompt sent while Claude is still working draws as a narrow grey `‖ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
-- `/prompts` opens a pane listing your prompts, newest first, in a card headed `prompts · 12` with the **prev** and **next** buttons on the right. Each row shows the prompt's number, its first line, how long ago you sent it (`2m`, `1h 05m`) and its actions; the row you last jumped to is marked `●`. On a narrow pane the age goes first, then the actions, before the prompt's words are cut. Pick a row to scroll the transcript back to it; once the pane has the focus, the arrows and Enter walk the list and `1` to `9` reach the nine newest.
-- The pane opens on a search card above the list: type to keep only the prompts that contain the text (case does not matter), with the match lit in the accent colour and the header counting `3 of 12`; Enter jumps to the newest match.
-- Each row has **edit**, which puts that prompt in the prompt box for you to change and send (it never writes over a draft you have there), and **re-send**, which sends it again as it was. Nothing is sent unless you press re-send.
-- `/prompts prev` and `/prompts next` step to the prompt before or after the one you last jumped to; a new turn starts again from the bottom. The pane's **prev** and **next** buttons do the same, and while the pane is open your keys for Claude Code's `app:diffFileListUp` and `app:diffFileListDown` actions (`ctrl+up` and `ctrl+down` by default, rebindable in `keybindings.json`) press them from the prompt, except while the diff panel is open and uses them. No bare digit or letter does anything from the prompt.
-- It ships a `postcard` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
-- The cards are drawn in the terminal; the desktop app, VS Code and mobile keep their own message bubbles, and `/prompts` works there too (mobile has no search field yet).
-- Option (in `/plugin`, or `pluginConfigs` under `postcard@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins and `+-|` card borders.
+<p align="center"><img src="docs/images/postcard.png" alt="postcard: a prompt drawn as a You card"></p>
+
+Your prompts as cards: blue for a prompt, purple for a slash command.
+
+**A queue for what you type while Claude works.** Instead of Claude Code's own queue, a prompt typed mid-turn waits above the prompt, where you can reorder it (`↑ ↓`), take it back to edit, drop it (`✕`), or `hold` the whole queue. The next one goes when the turn ends; after you interrupt Claude, the queue holds until you resume it. It survives a restart, held.
+
+<p align="center"><img src="docs/images/queue.png" alt="postcard: the queue above the prompt, one prompt waiting"></p>
+
+**`/prompts`** opens a pane to search every prompt you sent, jump back to it in the transcript, re-send or edit it; a **Queue** tab; and a **Shell** tab of the commands Claude ran, to copy or run again (`run` puts `!command` in the prompt box, it never runs anything itself). `/prompts prev` and `next` step between prompts.
+
+<p align="center"><img src="docs/images/prompts.png" alt="postcard: the /prompts pane, your prompts newest first"></p>
+
+<p align="center"><img src="docs/images/shell.png" alt="postcard: the Shell tab, the commands Claude ran"></p>
 
 > [!NOTE]
-> Clicking a button (copy, fold, a row of the `/prompts` pane) needs Claude Code's fullscreen layout, where the terminal reports clicks. The pane's hotkeys work either way.
+> Slash commands, prompts with `@file` mentions or pasted images, and prompts typed within a second of the one before still go to Claude Code's own queue: a plugin's prompt cannot expand mentions or images, and the very first keystrokes after Enter reach Claude Code before any mod. A prompt the queue sends shows in the transcript as *Prompt from the postcard plugin*: Claude Code always names who sent a prompt. Set `queue` to `engine` to leave every prompt to Claude Code.
+
+<details>
+<summary>Options</summary>
+
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `queue` | `postcard` `engine` | `postcard` | postcard: a prompt you type while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+
+Set them with `/plugin`, the mod's Configure entry.
+
+</details>
 
 ### flightdeck
 
-A pane that follows the session as it runs, built on [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.5.1 by Stephen Casella (MIT) and redrawn in the look of the other mods: full rounded blocks like postcard's cards, a main block that reads like the status line, and pulse's `✓ 1.4s` timing. The pane asks for a transparent backdrop, so your terminal's own background shows through, and keeps a blank row above its first line.
+<p align="center"><img src="docs/images/flightdeck.png" alt="flightdeck: the main block, the gate, the last turn, tool timings, trends and the session log" width="640"></p>
 
-```
-╭────────────────────────────────────────────────────────────╮
-│ Opus 5.5 · claude-plugins ↗ · main ~2            ● working │
-│ ctx  ━━━━━━╸───   64%   640k/1.0M                          │
-│ 5h   ━━━━━━━━──   82%   ↻ 4h 51m   21:05                   │
-│ 7d   ━━━━──────   40%   ↻ 3d 22h   Thu 14:41               │
-│ effort high · mode auto · 12 req · $12.45 · ttft 1.2s      │
-╰────────────────────────────────────────────────────────────╯
-──────────────────────────────────────────────────────────────
-╭────────────────────────────────────────────────────────────╮
-│ GATE · permissions                              141 checks │
-│ all  ━━━━━━━━━━   141                                      │
-│ 115 allowed · 0 you · 26 pending · 0 denied                │
-│ file 40  shell 80  other 21                                │
-╰────────────────────────────────────────────────────────────╯
+A live dashboard beside the transcript (`/flightdeck`; `ctrl+x tab` focuses it).
 
-╭────────────────────────────────────────────────────────────╮
-│ agents · 1 running · 2 total                    1-2 expand │
-│ ──────────────┬────────────────────────────┬────────────── │
-│ ╭──────────────────────────╮ ╭──────────────────────────╮  │
-│ │ 1: Write the loader      │ │ 2: Map every call site   │  │
-│ │ tests                    │ │                          │  │
-│ │ general-purpose          │ │ Explore                  │  │
-│ │ ctx 124k · out 900 · 6…  │ │ ctx 40k · out 2k · 3 st  │  │
-│ │ ● running 0:42           │ │ ✓ done 0:30              │  │
-│ ╰──────────────────────────╯ ╰──────────────────────────╯  │
-╰────────────────────────────────────────────────────────────╯
-```
+- **Main**: the model, folder and branch; context, its estimated mix, and the 5h and 7d limits as heat meters with pace and forecast; effort, mode, requests, cost and time to first token.
+- **Gate**: every permission check, who decided it (you, a rule, the classifier) and what it was.
+- **Agents**: subagent cards side by side, swimlanes past a few; an on-call **architect** (an advisor agent) when one runs.
+- **Tools**: per tool, its calls, average and slowest time and failures; a call that waited on your answer is not timed.
+- **Turn**, **Trends** (sparklines over the last turns), **Inbox** (failures and refusals, a row jumps to its call) and the **Session log**.
 
-- **Blocks**: main (the status line's header: the folder and its origin as links, the branch and its `+added ~modified -deleted` counts, zeros left out; then its meters for context and each rate limit, with the time to each reset and its wall-clock time, then a `mix` meter of what fills the context window, with a legend, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), inbox (what needs a look, newest first), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt, trends and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
-- **Context mix**: the `mix` row splits the window by the categories `/context` lists (system prompt, system tools, MCP tools, custom agents, memory files, skills, messages), each in `/context`'s own colour, largest first, the legend giving each one's tokens. The figures are Claude Code's own estimates (`est.`), read once per main turn from a local summary that sends no request. Claude Code counts the conversation, tool results and attachments together as `messages`, so the pane does too rather than invent a split.
-- **Inbox**: failed tool calls and refused ones (with the first line of the reason), API errors (`rate limit · Too many requests`), interrupted and refused turns, and faults of the pane's own animations, each with its time and source, newest first; the pane's header and the block's label count them. Focus a row of the main loop's calls and press Enter, or click it, to scroll the transcript to that call; `c` (or the `clear` button) empties the inbox. Empty, the block is hidden.
-- **Trends**: one-row sparklines (`▁▂▃▄▅▆▇█`) over the last turns, up to 30, for the context fill (in the heat ramp, against 100%), each turn's cost, its length and its output tokens, the latest value on the right. Each line scales from zero, so a flat line reads flat and a turn above zero always shows.
-- Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off`, or Claude Code's **Reduce motion** setting, keeps them still.
-- The context and rate-limit meters use the status line's heat ramp, each lit cell its own step from green to red and the percentage in the step of its tens, in terminals with 256 colours or more; elsewhere they take three colours (orange, yellow from 60%, red from 80%).
-- Colours follow the shared roles: the main block in Claude orange, agents and loops in the agent colour, the architect in the info colour, the gate in the colour of your own prompts, with checks allowed by a rule green, pending yellow and denied red.
-- In the desktop app, VS Code and on mobile the meters are drawn as SVG bars that glide to each new reading, the heat meters filled with the ramp as a gradient, the sparklines as SVG bars that glide to their new heights, and the agents get an SVG time axis.
-- Status glyphs are plain text (`✓ ✕ ● ○ ■`), never ones a terminal such as Warp draws as colour emoji, and each takes the colour of the words it marks.
-- Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
-- `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card, `f`, `s`, `o` open the gate's rows and `c` clears the inbox.
-- Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels` (`inbox` and `trends` are new in 1.6.0: a list you set before then gains them only when you add them), `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `glyphs` (`auto`, `plain`, `text`: ASCII stand-ins, `_.:-=+*#` sparklines and `+-|` borders), `openOnStart`, `statusLine`.
-- `statusLine` is off by default, so it leaves your own status line alone; turn it on for a `ctx 36% · agents 1/3 · denied 2` entry.
+Blocks sit edge to edge; while work flows, packets run along the bottom edge of the block it flows from. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck).
 
-Credit: Flightdeck is © 2026 Stephen Casella, with contributions from Alejandro Remior, @vihrea1337 and others listed in its changelog. See [`flightdeck/NOTICE`](./flightdeck/NOTICE) and [`flightdeck/LICENSE`](./flightdeck/LICENSE).
+<details>
+<summary>Options</summary>
+
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `architectPattern` | string | `advisor|architect` | Regular expression (case-insensitive) for the agent types and server tools that count as the on-call architect, e.g. |
+| `architectLabel` | string | `Architect` | Name shown for the architect role. |
+| `gateLabel` | string | `Gate` | Name shown for the permission panel. |
+| `panels` | string | `main,architect,gate,inbox,agents,loops,receipt,tools,trends,log` | Comma-separated panels in display order: main, architect, gate, inbox, agents, loops, receipt, tools, trends, log. |
+| `motion` | `while-active` `off` | `while-active` | Animate the connectors while real work flows, or keep them still. |
+| `moments` | boolean | `True` | Show the inferred moment of each consult (before a plan, error repeats, before done). |
+| `matchDescriptions` | boolean | `False` | Also count an agent type as the architect when its description (not just its name) matches the pattern. |
+| `maxCards` | number | `3` | Agent cards drawn side by side; more agents than this switch to swimlanes (1-6). |
+| `paneColumns` | number | `66` | Columns the pane asks for when docked beside a fullscreen transcript, 40 or more. |
+| `layout` | `auto` `compact` `wide` `mini` | `auto` | auto: a summary of at most 8 rows when the pane sits inline above the prompt, two columns from 110 columns when docked, one column otherwise. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+| `palette` | `theme` `pastel` | `theme` | theme follows your Claude Code theme (light, dark, colour-blind); pastel is fixed colours tuned for dark terminals. |
+| `openOnStart` | boolean | `True` | Open the pane when a session starts. |
+| `statusLine` | boolean | `False` | Show context, agents, consults and denials in the status line. |
+
+Set them with `/plugin`, the mod's Configure entry.
+
+</details>
 
 ### filetree
 
-`filetree` is a fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) 0.5.4 by Kurt Buhler (MIT), restyled to match the mods above. It is an IDE-style file tree in a pane beside the chat that shows what Claude reads, writes and changes. Every feature, keyboard shortcut, setting and platform branch (Windows, macOS, Linux) comes from upstream; the credits for its contributors are in [`filetree/ACKNOWLEDGEMENTS.md`](./filetree/ACKNOWLEDGEMENTS.md).
+<p align="center"><img src="docs/images/filetree.png" alt="filetree: the tree with git status, the Files header and the search bar" width="640"></p>
 
-``` shell
-claude plugin install filetree@healkeiser --scope user
-```
+An IDE-style file tree pane (`/filetree`): what Claude reads, writes and changes shimmers as it happens; git status and line counts per file; an edit heat count; a preview split with syntax highlighting, images, PDFs and office documents; a treemap of folder sizes; diffs by Claude Code's own diff view; and Markdown before and after. Nerd Font icons when a Nerd Font is installed. A restyled fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree).
 
-- **The tree** shows the working folder, or one pinned with `/filetree <path>`, with search across folders not yet opened. Each file and folder carries its git status and line counts; the branch row under the header shows the branch, its upstream and how far ahead or behind it is.
-- **Claude's activity** shimmers in the tree: reads in purple, writes in orange, commits and other git actions in green. Collapsed folders open to show the file, and the last action stays as a chip at the bottom of the pane. The `motion` option (`while-active`, `off`), or Claude Code's **Reduce motion** setting, holds each name at its colour instead.
-- **The split preview** (`p`) shows the file under the cursor (highlighted code, rendered Markdown, images, video frames, PDF and Word pages turned with `[` and `]`) or a treemap of the folder, sized by bytes or by lines.
-- **`d`** shows the diff of a file, or of every changed file in a folder. Files open in their default app, in an editor in a tmux or herdr pane, or in any command set in the plugin options.
-- **Edit heat** counts how often Claude edits or writes each file (Edit, Write, NotebookEdit) and draws a short meter and the count left of its git status, in the status line's heat ramp; a folder sums its files. The header button (`≋`, or `hot` with text glyphs) shows only the edited files and their folders, hottest first. The `heat` option keeps this session's counts (`session`, the default), also earlier sessions' with each new session halving them (`sessions`, at most 300 files in the plugin's store), or turns it off (`off`).
-- **`m`** on a changed Markdown file shows it rendered before and after: before is the last commit (`HEAD`), as `d` diffs against it, so a file not yet committed starts empty; after is the file now. The two versions sit side by side from 90 columns, labelled, and stack below that, an old block dim over its new one. A changed block carries `~` in yellow, an added one `+` in green, a removed one `-` in red; `j` and `k` jump between changes, `m` goes back to the file and `d` to the diff. It is also a button in the file preview, in the diff of the file, and in the split preview's title when the file has changed.
-- `/filetree` shows or hides the pane; `/filetree open` opens it without hiding it. `?` lists the shortcuts.
+<details>
+<summary>Options</summary>
 
-What the restyle changes from upstream:
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `activity` | `reads and writes` `writes` `reads` `none` | `reads and writes` | Which of Claude's file activity shimmers in the tree: files read with the Read tool or Bash readers (rg, grep, find, cat) in purple, writes in orange and git actions in green. |
+| `motion` | `while-active` `off` | `while-active` | while-active: Claude's activity shimmers across the names it touches and a running git action spins. |
+| `glyphs` | `auto` `nerd` `plain` `text` | `auto` | Icon set: auto uses Nerd Font icons when Nerd Fonts 3.2 or newer is installed here, except in the desktop app, and plain Unicode otherwise; plain uses Unicode only; text is plain with the header buttons as words (up, cwd, sync, dots, size, fold, split, clear), falling back to plain glyphs when the pane is too narrow. |
+| `follow` | `on` `off` | `on` | on: the tree scrolls to what Claude reads, writes or commits. |
+| `start` | `on` `off` | `on` | on: the pane opens when a session starts. |
+| `focus` | `on` `off` | `on` | on: /filetree moves the keyboard into the tree when it opens it. |
+| `column` | `date` `age` `size` `loc` | `date` | What the right column shows by default: date (last modified), age (time since last modified, short: now, 12m, 3h, 5d, then Oct 9 past a week and the year past a year), size (files in bytes, folders as disk usage computed in the background) or loc (non-blank lines in code, markup, config and docs files, folders as the sum, counted in the background; pictures, video, binaries and data files show nothing). |
+| `heat` | `session` `sessions` `off` | `session` | How often Claude edited or wrote each file (Edit, Write, NotebookEdit), shown as a short heat meter and count beside the git status, folders summing their files; the header button shows only the hot files, hottest first. |
+| `hints` | `on` `off` | `on` | on: outside a git repo, a line under the header says git status starts after git init. |
+| `spacing` | `on` `off` | `on` | on: a blank line above and below the search bar. |
+| `shortcuts` | `auto` `always` `off` | `auto` | auto: the footer shows a ?: shortcuts hint until you press ? in the tree, then the shortcuts show at the left of the footer row for 10 seconds, the selected entry staying at the right; ? again hides them. |
+| `open` | string | - | What a double-click or Enter does with a file. |
+| `binaries` | `Open with` `default app` | `Open with` | What a double-click or Enter does with an image, audio, video, PDF, office document, archive, font or compiled file when Open with names an editor or command. |
+| `edit` | string | - | What e does in the preview: open the file at the top line shown. |
+| `diff` | string | - | What d does on a changed file, in the tree or the preview. |
+| `target` | `auto` `pane right` `pane below` `tab` `workspace` | `auto` | Where Open with: editor, e in the preview and a Diff with command start their terminal program inside tmux or herdr. |
+| `ignore` | string | - | File and folder names to leave out of the tree, its search and its shimmer, separated by spaces or commas. |
+| `split` | `bottom` `top` | `bottom` | Where the split preview of the file under the cursor sits when the header button or p shows it: bottom (under the tree, above the status line) or top (under the header). |
+| `treemap` | `auto` `image` `cells` `off` | `auto` | What the split preview shows on a folder. |
+| `palette` | string | - | Your own colors, laid over the Omarchy, light or default theme: key=#hex pairs separated by spaces. |
 
-- **Colours** are Claude theme keys rather than ANSI palette indices, so the pane follows light, dark and `auto` themes: Claude orange for the accent, green, yellow, blue and red from the theme for git status, and the prompt tint behind the selected row.
-- **Headers** read as compact headings: the folder name in orange, a dim rule across the rest of the row, and the header toggles drawn orange while they are on and dim while they are off. The root row, when picked, reads as a chip instead of a half-row fill.
-- **Motion** runs on the same clock as the other mods: the shimmer glides across a name and fades rather than blinking.
-- **The split preview** draws like a code block: a labelled rule above with the file name and line range, a plain rule below, and no side border. The scrollbar is a thumb with no track line, so a mouse selection of a preview or a path copies text, not borders.
-- **Diffs** head each file with a labelled rule.
+Set them with `/plugin`, the mod's Configure entry.
 
-The `Palette` option still overrides any colour with a hex value. Two things keep upstream's fixed colours, because a theme key cannot express them: the activity shimmer, which needs a light and a dark four-step ramp per colour, and the treemap, which paints pixels and so works from RGB values of the theme's colours.
-
-> [!IMPORTANT]
-> `filetree` needs Claude Code **2.1.306** or later. In the terminal it shows in the right sidebar, which needs the fullscreen layout (`/tui fullscreen`) and a window at least **110 columns** wide. It also draws in the desktop app; VS Code and mobile cannot show it, as it draws through surface modules they do not run.
+</details>
 
 
 
+<!-- STATUSLINE -->
+## Status line
 
-### Status line
+<p align="center"><img src="docs/images/statusline.png" alt="the status line: model, folder, branch, and the ctx, 5h and 7d meters with pace and forecast" width="560"></p>
 
-`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace, and when a limit will be full if that comes before it resets.
+`statusline/statusline.sh` draws the status line as the same rounded card: the model, folder and branch, then a heat meter each for the context window and the 5-hour and 7-day limits, with their reset, pace (`1.0×` finishes the window at exactly 100%) and, when a limit will fill before it resets, `full 21:40`.
 
-```
-╭─ Opus 5.5 · claude-plugins ↗ · main +5 ~4 ─────────────────────╮
-│ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k              │
-│ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1×             │
-│ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8×  full 19:40 │
-╰────────────────────────────────────────────────────────────────╯
-```
-
-Each bar is a heat ramp, one step per tenth from green through yellow and orange to red, each lit cell in its own step, so the last lit cell shows how close the limit is; the percentage takes the colour of its own tenth. The unlit track is a dim grey. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`. When the pace so far fills a limit before it resets, `full 19:40` in red says when; flightdeck and pulse forecast the same way.
-
-The ramp suits a dark background by default. Set `STATUSLINE_THEME=light` for darker, more saturated steps that keep at least 3:1 contrast on white, with a lighter track; `auto`, the default, picks light when `COLORFGBG` reports a white background. The other colours are the terminal's own green, yellow, red and grey, and Claude orange for the model. Set `NO_COLOR` to drop every escape code, the folder and repository links included.
-
-When Claude Code passes `COLUMNS`, the card fits it: the wall clock, pace and token counts go first, then the reset times, and the header drops the link and changes, then the branch, then the folder. Below the narrowest card, about 25 columns, it falls back to one line: the model and the context percentage in its heat colour.
-
-The git status and origin URL are cached for 5 seconds per folder in the temp directory, so frequent refreshes do not run git each time; changing folder reads git afresh, and an unwritable temp directory only turns the cache off.
-
-Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
+Copy it into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
 
 ``` json
 "statusLine": {
@@ -268,8 +263,14 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 }
 ```
 
-> [!IMPORTANT]
-> The script needs `bash` 4.2 or later, `jq` and `git`. On Windows, Git Bash brings all of them except `jq`; on macOS, the system `bash` is 3.2, so install a newer one.
+It needs `bash` 4.2+, `jq` and `git` (on Windows, Git Bash has all but `jq`; on macOS, install a newer `bash`). `STATUSLINE_THEME=light` suits a light background; `NO_COLOR` drops colour; given `COLUMNS`, it drops the clock, pace and token counts, then details, to fit.
+
+
+
+<!-- DESIGN -->
+## One design
+
+All five mods and the status line share one design: the same colour roles, glyphs, header, tabs, search bar, meters and motion, in [DESIGN.md](./DESIGN.md). It is written once, in `shared/` (`style.ts` for tokens and formats, `kit.tsx` for the components), and copied into each mod, since a plugin cannot import from another. The `glyphs` option of every mod draws Nerd Font icons where a Nerd Font is installed (`auto`), the Unicode set (`plain`), or ASCII (`text`).
 
 
 
@@ -285,7 +286,6 @@ The `dev` plugin holds coding-convention skills, shown as `dev:<skill>`.
 ``` shell
 claude plugin install dev@healkeiser --scope user
 ```
-
 
 
 <!-- SKILLS -->
@@ -313,38 +313,44 @@ The docs themselves are not in this repository: they belong to their publishers.
 Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also needs `git`, because it builds the docs from the rez release tag. `houdini-22` builds its help from an installed Houdini 22.0 (sidefx.com's robots.txt disallows crawling the versioned docs), found via `$HFS` or SideFX's default install path.
 
 
-
 <!-- SECURITY -->
 ## Security
 
-Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. gloss and postcard only draw and count; neither runs a command, reads your files, or makes a network call. pulse draws and counts too, and runs one read-only git command in the session folder for its band's git tab, `git status --porcelain=v2 --branch` (by argument vector, no shell, with `--no-optional-locks`), at start, a second after a Bash, PowerShell, Edit or Write call and at the end of each turn; it reads the session's own usage figures and a few environment variables (the prompt cache switches above, and `COLORTERM`, `TERM` and `WT_SESSION` for the colour depth) through the mod API, and makes no network call. flightdeck runs two read-only git commands in the session folder, `git status --porcelain=v2 --branch` and `git remote get-url origin` (by argument vector, no shell, with `--no-optional-locks` so it never takes the index lock), at start, on a change of folder, a second after a Bash, Edit or Write call and at the end of each turn; it writes nothing and makes no network call. It also reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
+Mods are not sandboxed: they run with Claude Code's own access to your machine. Read `hooks/` before installing, as for any plugin. What each one does beyond drawing:
 
-`filetree` does more than draw: it lists and reads files under the folder it shows, runs `git` for status and diffs, local converters such as `ffmpeg`, `pdftoppm` and `soffice` for previews when they are installed, and opens files in the programs its options name. It makes no network call of its own.
+| Mod | Runs | Reads | Network |
+|-----|------|-------|---------|
+| gloss | nothing | nothing | none |
+| postcard | nothing | its own store (the queue) | none |
+| pulse | `git` read-only (status, diff, log, rev-list, worktree list), `gh run list` and `gh pr view` | the session's usage, `.git` marker files | `gh` talks to GitHub |
+| flightdeck | `git status`, `git remote get-url` | the session's usage | none |
+| filetree | `git`, and preview converters (`ffmpeg`, `pdftoppm`, `soffice`) when installed; opens files in the programs its options name | the folder it shows, font folders | none |
 
-The `vfx` skills run no hooks. Their crawlers make network requests to the docs sites listed above and write only inside the plugin's data folder.
+Every command runs by argument vector with no shell, git with `--no-optional-locks` so it never takes the index lock, and none runs while drawing. flightdeck redacts credentials from the tool inputs it keeps. The `vfx` skills run no hooks; their crawlers fetch the docs sites listed above and write only inside the plugin's data folder.
 
 
 
 <!-- DEVELOPMENT -->
 ## Development
 
-Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, and the hooks module `hooks/register.tsx`, with its tests beside it. The documentation skills live in `vfx/skills/<name>/`: `SKILL.md`, the crawler in `scripts/`, and test cases in `evals/` that `claude plugin eval` can run.
-
 ``` shell
 git clone https://github.com/healkeiser/claude-plugins
 cd claude-plugins
-claude plugin marketplace add ./
-claude plugin validate ./gloss
-claude plugin test ./gloss
+claude --plugin-dir ./gloss --plugin-dir ./pulse --plugin-dir ./postcard --plugin-dir ./flightdeck --plugin-dir ./filetree
 ```
 
-A marketplace added from a local folder is read in place: edit a mod, run `/reload-plugins`, and the session picks it up with no reinstall.
+A session started with `--plugin-dir` reloads a mod each time you save it. Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, the hooks module `hooks/register.tsx` and its tests.
 
-The mods share one design system, described in [DESIGN.md](./DESIGN.md): colour roles, glyphs, shapes, formats, motion and what each mod does on graphical surfaces. Its tokens live in `hooks/style.ts`, one identical copy per mod, since a plugin cannot import from another. After changing one copy, copy it to the other four and run the check, which also fails on any drawn glyph a terminal may show as a colour emoji:
+The design lives in `shared/`: edit it there, never in a mod's copy, then copy it out and check:
 
 ``` shell
-node scripts/check-style.mjs
+node scripts/check-style.mjs --write   # copy shared/ into every mod
+node scripts/check-style.mjs           # fails on a drifted copy, a hand-drawn search bar or card, an emoji-capable glyph
+claude plugin test ./pulse             # each mod's tests
+claude plugin validate ./pulse
 ```
+
+
 
 <!-- CREDITS -->
 ## Credits and inspiration

@@ -2,12 +2,12 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Call } from '../types'
-import { afterTool, afterTurn, checksSoon, endCheck, notePlan, registerBand, startCheck } from './band'
-import { checkKind, touchesCi } from './checks'
+import { afterTool, afterTurn, checksSoon, endCheck, font, notePlan, registerBand, startCheck } from './band'
+import { checkKinds, touchesCi } from './checks'
 import { clip, commandLine, preview, took } from './bash'
 import { cacheLeft, cacheTtl } from './glance'
 import { describe, elapsed, summarize } from './label'
-import { FRAME_MS, GLYPH, ROLE, motionOn, plural, remember, spin } from './style'
+import { FRAME_MS, GLYPH, ROLE, motionOn, plural, remember, spin, glyphSet, nerd } from './style'
 
 const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
 const durations = atom({ plugin: 'pulse', key: 'durations' } as const, null)
@@ -86,12 +86,13 @@ export const register: Register = (on, options) => {
       .catch(() => 0)
     // A test, type check, lint or build Claude runs in the main loop: the Checks tab's last of its kind.
     const command = (e.tool === 'Bash' || e.tool === 'PowerShell') && isMain ? String((e as { command?: unknown }).command ?? '') : ''
-    const kind = command ? checkKind(command) : null
-    const checkAt = kind ? startCheck($, kind, command).catch(() => null) : null
+    // Each kind it runs is its own check, named by the part of the command that runs it.
+    const kinds = command ? checkKinds(command) : []
+    const checkRuns = kinds.map(x => ({ kind: x.kind, at: startCheck($, x.kind, x.segment).catch(() => null) }))
     const ran = await next(e)
     afterTool($, e.tool)
-    if (kind && checkAt) {
-      void checkAt.then(at => (at === null ? undefined : endCheck($, kind, at, ran.deny === undefined && !ran.isError))).catch(() => {})
+    for (const s of checkRuns) {
+      void s.at.then(at => (at === null ? undefined : endCheck($, s.kind, at, ran.deny === undefined && !ran.isError))).catch(() => {})
     }
     // Claude's plan, as its task tools leave it.
     if (isMain && (e.tool === 'TodoWrite' || e.tool === 'TaskCreate' || e.tool === 'TaskUpdate') && ran.deny === undefined && !ran.isError) {
@@ -214,10 +215,12 @@ export const register: Register = (on, options) => {
     const { Text } = $.ui.resolve(e)
     const { text, failed } = summarize(e.props.calls)
     const isRunning = e.props.calls.some(c => c.isRunning)
+    // The kinds' glyphs in the set `glyphs` and the font call for.
+    const g = (s: string) => (glyphSet(options.glyphs, font.hasNerd, e.surface) === 'nerd' ? nerd(s) : s)
     return (
       <Text>
-        <Text dimColor>{`  ${text}${isRunning ? `  ${GLYPH.more}` : ''}`}</Text>
-        {failed ? <Text color={ROLE.error}>{`  ${GLYPH.dot}  ${GLYPH.fail} ${failed} failed`}</Text> : null}
+        <Text dimColor>{`  ${g(text)}${isRunning ? `  ${GLYPH.more}` : ''}`}</Text>
+        {failed ? <Text color={ROLE.error}>{`  ${GLYPH.dot}  ${g(GLYPH.fail)} ${failed} failed`}</Text> : null}
       </Text>
     )
   })
@@ -260,7 +263,8 @@ export const register: Register = (on, options) => {
             {headline}
           </Text>
           <Box flexShrink={0}>
-            <Text color={color}>{`  ${status}`}</Text>
+            {/* The status in the set `glyphs` and the font call for; the row's ● stays, beside the engine's own. */}
+            <Text color={color}>{`  ${glyphSet(options.glyphs, font.hasNerd, e.surface) === 'nerd' ? nerd(status) : status}`}</Text>
           </Box>
         </Box>
         <Text dimColor>{`  ${commandLine(command, width)}`}</Text>
