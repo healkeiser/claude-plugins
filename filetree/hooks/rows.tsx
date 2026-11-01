@@ -1,5 +1,7 @@
 import type { ClientModule, RenderElement } from 'claude-code'
 
+import { FRAME_MS, SPINNER, sweep } from './style'
+
 export type Seg = { t: string; c?: string; b?: boolean; s?: boolean; i?: boolean; sh?: string; dim?: boolean; one?: boolean; spin?: boolean; bg?: string; tab?: string }
 export type RowSpec = { id: string; left: Seg[]; right: Seg[] }
 export type RowsProps = {
@@ -17,27 +19,15 @@ export type RowsProps = {
 }
 type Local = { hover: number; phase: number; drag: boolean; ref: { stop?: () => void; unpoint?: () => void } }
 
-// The shared frame (style.ts FRAME_MS): ten ticks a second.
-const TICK_MS = 100
 const TREE_BUDGET = 70_000
 const MAX_ROWS = 1_500
 // The scrollbar draws its thumb alone, no track line: a mouse selection of a
 // preview or a path then picks up a blank column, not a border.
 const THUMB = '┃'
-const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-// style.ts `sweep`, copied as a surface module stands alone: a soft band crossing
-// the name with an ease-in-out, its glow falling off on a raised cosine over
-// three cells, so a name glows and fades rather than blinks.
-function shimmer(i: number, phase: number, len: number, palette: string[]): string {
-  const path = len + 8
-  const ticks = Math.max(1, Math.round(path / 1.6))
-  const t = (phase % ticks) / ticks
-  const at = (0.5 - Math.cos(Math.PI * t) / 2) * path - 4
-  const d = i < 0 ? Math.abs(len / 2 - at) / Math.max(1, len / 4) : Math.abs(i - at)
-  const glow = d >= 3 ? 0 : (1 + Math.cos((Math.PI * d) / 3)) / 2
-  return palette[glow > 0.6 ? 3 : glow > 0.3 ? 2 : glow > 0.08 ? 1 : 0] ?? palette[0] ?? '#f97316'
-}
+// style.ts `sweep`: a soft band crossing the name, so a name glows and fades rather than blinks.
+const shimmer = (i: number, phase: number, len: number, palette: string[]): string =>
+  palette[sweep(i, phase, len)] ?? palette[0] ?? '#f97316'
 
 const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
   const { Box, Text } = surface.elements
@@ -49,7 +39,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
   let visible = props.rows.length
   const lit = !props.still && props.rows.some(r => r.left.some(s => s.sh || s.spin) || r.right.some(s => s.sh || s.spin))
   if (lit && !state.ref.stop) {
-    state.ref.stop = surface.every(TICK_MS, () => {
+    state.ref.stop = surface.every(FRAME_MS, () => {
       const cur = surface.state
       if (cur) surface.setState({ ...cur, phase: cur.phase + 1 })
     })
@@ -142,7 +132,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
       </Column>
     )
   }
-  const frames = props.spinner?.length ? props.spinner : FRAMES
+  const frames = props.spinner?.length ? props.spinner : SPINNER
   const draw = (s: Seg) => {
     if (s.spin) {
       return (

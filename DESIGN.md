@@ -139,7 +139,7 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
 | glide | flightdeck's meters on graphical surfaces | a new reading glides from the last width on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters step, as a 10-cell bar has no in-between |
 
-- **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`. No element starts a timer of its own.
+- **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`, imported from `style.ts` (a surface module imports its plugin's files like the hooks module does, so it keeps no copies). No element starts a timer of its own.
 - **Ease, never blink**: positions move on `easeInOut`, intensities fall off on a raised cosine, so nothing switches on and off.
 - **Motion stops** when work is idle (the timer is cancelled, not left running), when it finishes (the spinner becomes `✓`), with the mod's `motion: off`, and when Claude Code's **Reduce motion** setting (`/config`) is on. Stilled, a spinner draws `●` in its colour and a shimmer draws its solid colour.
 

@@ -2,6 +2,8 @@
 // and it rests as a plain dim line otherwise. Only this region redraws; the pane does not.
 import type { ClientModule, RenderChildren } from 'claude-code'
 
+import { FRAME_MS, packets } from './style'
+
 type Props = {
   active: boolean
   width: number
@@ -16,8 +18,6 @@ type Props = {
 type Ref = { phase: number; active: boolean }
 type State = { ref: Ref }
 
-// The shared frame (style.ts FRAME_MS): one cell a tick, ten a second.
-const STEP_MS = 100
 /** Dashes drawn past the line's end and clipped by its box, so the right end is the box's edge. */
 const SPARE = 4
 
@@ -27,7 +27,7 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   ref.active = props.active
   if (surface.state === undefined) {
     surface.setState({ ref })
-    surface.every(STEP_MS, () => {
+    surface.every(FRAME_MS, () => {
       if (ref.active) {
         ref.phase += 1
         surface.setState({ ref })
@@ -58,12 +58,7 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   }
 
   // Two packets per 24 cells, a bright head and a trailing dot, moving left to right.
-  const lit = new Map<number, string>()
-  for (let base = 0; base < width + 24; base += 24) {
-    const head = (base + ref.phase) % (width + 24)
-    if (head < width) lit.set(head, '●')
-    if (head - 1 >= 0 && head - 1 < width) lit.set(head - 1, '•')
-  }
+  const lit = packets(width, ref.phase)
   // Runs, not cells: consecutive cells of one kind share a Text, a handful of nodes per frame.
   const runs: { text: string; isLit: boolean }[] = []
   cells.forEach((ch, i) => {
