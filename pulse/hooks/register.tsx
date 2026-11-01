@@ -8,8 +8,11 @@ import { FRAME_MS, GLYPH, ROLE, isFading, motionOn, plural, remember, spin } fro
 
 const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
 const durations = atom({ plugin: 'pulse', key: 'durations' } as const, null)
-// Drawn on the terminal, desktop and VS Code; mobile keeps the engine's look.
-const SURFACES = new Set(['terminal', 'desktop', 'vscode'])
+// Tool rows are the terminal's: desktop, VS Code and mobile draw them well
+// already, so they stay native (DESIGN.md). The band, which no surface has,
+// draws on the terminal and desktop, the two that raise AbovePrompt.
+const ROWS = new Set(['terminal'])
+const BAND = new Set(['terminal', 'desktop'])
 
 type TurnStats = { tools: number; files: Set<string> }
 
@@ -98,7 +101,7 @@ export const register: Register = (on, options) => {
 
   // `◇ 3 reads  ·  ⌕ 2 searches`, dim, so the replies stand out.
   on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
-    if (!SURFACES.has(e.surface)) return next(e)
+    if (!ROWS.has(e.surface)) return next(e)
     if (e.props.isExpanded || e.props.calls.length === 0) return next(e)
     const { Text } = $.ui.resolve(e)
     const { text, failed } = summarize(e.props.calls)
@@ -116,7 +119,7 @@ export const register: Register = (on, options) => {
   //   └ Successfully rebased and updated…  +3 lines
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     // ctrl+o and --verbose show the engine's full drawing.
-    if (!SURFACES.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded) return next(e)
+    if (!ROWS.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const { isRunning, isErrored, isInterrupted, output } = e.props
     const input = (e.props.input ?? {}) as { command?: unknown; description?: unknown }
@@ -169,7 +172,7 @@ export const register: Register = (on, options) => {
   // The compact Bash row above previews the output, so its result block would
   // say it twice; an error keeps the engine's block, its full text.
   on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
-    if (!SURFACES.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
+    if (!ROWS.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
@@ -177,8 +180,7 @@ export const register: Register = (on, options) => {
   // The band is shared: other mods' rows come from `next(e)` and stay under
   // ours, in a column Box given no width, height or position of its own.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // Raised on the terminal and desktop.
-    if (!SURFACES.has(e.surface)) return next(e)
+    if (!BAND.has(e.surface)) return next(e)
     const a = await read($, activity)
     if (e.props.hasSurvey || !e.props.isWorking || a === null) return next(e)
 

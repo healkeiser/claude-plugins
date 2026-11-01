@@ -70,20 +70,45 @@ test('a typed slash command prompt is labelled as a command, without a fill', as
   expect(boxes.some(b => (b as { props?: { backgroundColor?: string } }).props?.backgroundColor)).toBe(false)
 })
 
-test('desktop and VS Code draw the same cards, in the you and command roles', async $ => {
-  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
-    const ui = await $.ui.mount({ plugin: 'postcard', surface, component: 'UserMessage', props: props('composer') })
-    const card = (await ui.findAll({ type: 'Box' }))[0] as { props?: Record<string, unknown> }
-    expect(card.props?.borderStyle).toBe('round')
-    expect(card.props?.borderColor).toBe('suggestion')
-    await ui.unmount()
-    const out = await $.ui.mount({
-      plugin: 'postcard', surface, component: 'CommandOutput',
-      props: { command: 'cost', args: '', text: 'Total: $1.20', isErrored: false } as never,
-    })
-    const texts = (await out.findAll({ type: 'Text' })).map(t => t.text ?? '')
-    expect(texts).toContain('/cost')
-    expect(bareEmoji(texts.join(''))).toEqual([])
-    await out.unmount()
+test('cards take the you and command roles, in text-presentation glyphs', async $ => {
+  const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', props: props('composer') })
+  const card = (await ui.findAll({ type: 'Box' }))[0] as { props?: Record<string, unknown> }
+  expect(card.props?.borderStyle).toBe('round')
+  expect(card.props?.borderColor).toBe('suggestion')
+  await ui.unmount()
+  const out = await $.ui.mount({
+    plugin: 'postcard', surface: 'terminal', component: 'CommandOutput',
+    props: { command: 'cost', args: '', text: 'Total: $1.20', isErrored: true } as never,
+  })
+  const texts = (await out.findAll({ type: 'Text' })).map(t => t.text ?? '')
+  expect(texts).toContain('✕ /cost')
+  expect(bareEmoji(texts.join(''))).toEqual([])
+  await out.unmount()
+})
+
+test('graphical surfaces keep their own prompt and command drawing', async ($, on) => {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine row</Text>
+  })
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    for (const [component, p] of [
+      ['UserMessage', props('composer')],
+      ['CommandOutput', { command: 'cost', args: '', text: 'x', isErrored: false }],
+    ] as const) {
+      const ui = await $.ui.mount({ plugin: 'postcard', surface, component, props: p as never } as never)
+      expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
+      await ui.unmount()
+    }
   }
+})
+
+test('prompts drawn natively on desktop still fill the /prompts pane there', async ($, on) => {
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine row</Text>
+  })
+  await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'UserMessage', requestId: 'd1', props: props('composer', 'from the app') })
+  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 60 } as never })
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['#1 from the app'])
 })

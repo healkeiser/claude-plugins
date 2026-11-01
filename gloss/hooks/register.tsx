@@ -49,11 +49,9 @@ export const register: Register = on => {
   const parsed = new Map<string, { text: string; parts: Part[] }>()
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    // The terminal draws cell-exact; desktop and VS Code draw in a proportional
-    // face, so there borders come from borderStyle and what is padded by hand
-    // (tables, rules) is the engine's Markdown. Mobile keeps the engine's look.
-    if (e.surface !== 'terminal' && e.surface !== 'desktop' && e.surface !== 'vscode') return next(e)
-    const isTerminal = e.surface === 'terminal'
+    // Desktop, VS Code and mobile draw replies well already (proportional type,
+    // their own code blocks and tables): gloss leaves them native. DESIGN.md.
+    if (e.surface !== 'terminal') return next(e)
     const cached = parsed.get(e.requestId)
     const parts = cached?.text === e.props.text ? cached.parts : parse(e.props.text)
     // Bounded: a long or resumed session must not keep every reply's parse.
@@ -108,8 +106,7 @@ export const register: Register = on => {
     const quote = (list: QuoteLine[], at: string) =>
       list.flatMap((line, j) => {
         const bars = `${GLYPH.bar} `.repeat(line.level)
-        // A proportional face wraps by itself; only the terminal is wrapped by hand.
-        const rows = isTerminal ? wrapSpans(line.spans, Math.max(8, room - bars.length - line.prefix.length)) : [line.spans]
+        const rows = wrapSpans(line.spans, Math.max(8, room - bars.length - line.prefix.length))
         return rows.map((row, k) => (
           <Text key={`${at}.${j}.${k}`}>
             <Text dimColor>{bars}</Text>
@@ -125,7 +122,7 @@ export const register: Register = on => {
       if (part.kind === 'markdown') return <Markdown key={`m${i}`} text={part.text} />
 
       if (part.kind === 'rule') {
-        return isTerminal ? <Text key={`r${i}`} dimColor>{GLYPH.track.repeat(Math.max(1, room))}</Text> : <Markdown key={`r${i}`} text="---" />
+        return <Text key={`r${i}`} dimColor>{GLYPH.track.repeat(Math.max(1, room))}</Text>
       }
 
       if (part.kind === 'quote') {
@@ -140,13 +137,10 @@ export const register: Register = on => {
         return (
           <Box key={`h${i}`} flexDirection="column">
             <Text color={ROLE.accent} weight="bold">{spans(part.spans, `h${i}`)}</Text>
-            {isTerminal ? <Text dimColor>{GLYPH.track.repeat(Math.max(0, Math.min(room, widthOf(part.spans))))}</Text> : null}
+            <Text dimColor>{GLYPH.track.repeat(Math.max(0, Math.min(room, widthOf(part.spans))))}</Text>
           </Box>
         )
       }
-
-      // Padded by hand in cells, which a proportional face cannot keep: there the engine's table.
-      if (part.kind === 'table' && !isTerminal) return <Markdown key={`t${i}`} text={part.source} />
 
       if (part.kind === 'table') {
         const widths = part.header.map((h, k) =>
@@ -261,19 +255,6 @@ export const register: Register = on => {
             }
           />
         ) : null
-        // A graphical surface draws its border apart from the text, so a selection copies the code alone there too.
-        if (!isTerminal) {
-          return (
-            <Box key={`c${i}`} flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1}>
-              <Box flexDirection="row" justifyContent="space-between">
-                <Text dimColor italic>{label}</Text>
-                {copy}
-              </Box>
-              {body}
-              {fold}
-            </Box>
-          )
-        }
         return (
           <Box key={`c${i}`} flexDirection="column">
             <Box flexDirection="row">

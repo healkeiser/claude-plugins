@@ -11,8 +11,9 @@ const COMMAND = ROLE.command
 const PANE = 'prompts'
 // Prompts the pane lists, and rows seen, kept per session: the newest 500.
 const KEEP = 500
-// Drawn on the terminal, desktop and VS Code; mobile keeps the engine's look.
-const SURFACES = new Set(['terminal', 'desktop', 'vscode'])
+// Prompt and command cards are the terminal's: desktop, VS Code and mobile draw
+// your messages well already, so they stay native (DESIGN.md). The pane is everywhere.
+const SURFACES = new Set(['terminal'])
 
 const version = atom({ plugin: 'postcard', key: 'version' } as const, 0 as PromptsVersion)
 const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
@@ -93,13 +94,13 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    if (!SURFACES.has(e.surface)) return next(e)
     // Only the person's own prompts: typed here, or sent from another device.
     const kind = e.props.origin.kind
     if (kind !== 'composer' && kind !== 'bridge') return next(e)
-    // A redraw keeps the prompt's place in transcript order.
+    // Listed for the /prompts pane on every surface; a redraw keeps its place.
     if (prompts.has(e.requestId)) prompts.set(e.requestId, e.props.text)
     else remember(prompts, e.requestId, e.props.text, KEEP)
+    if (!SURFACES.has(e.surface)) return next(e)
 
     const s = await read($, sent)
     if (!firstSeen.has(e.requestId)) remember(firstSeen, e.requestId, s.turnId, KEEP)

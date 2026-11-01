@@ -29,38 +29,32 @@ test('the copy button puts the block source on the clipboard', async ($, on) => 
   expect(copied).toEqual(['npm test'])
 })
 
-test('mobile keeps its own drawing', async ($, on) => {
+test('graphical surfaces keep their own drawing', async ($, on) => {
   // Stands in for the engine's own drawing beneath the plugin.
   on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>engine row</Text>
   })
-  const ui = await $.ui.mount({
-    plugin: 'gloss',
-    surface: 'mobile',
-    component: 'AssistantMessage',
-    props: { text: '| a | b |\n|---|---|\n| 1 | 2 |', isFirstOfReply: true },
-  })
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
-})
-
-test('desktop and VS Code: boxed code, the engine table, chips and callouts', async $ => {
-  for (const surface of ['desktop', 'vscode'] as const) {
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({
-      plugin: 'gloss', surface, component: 'AssistantMessage',
-      props: { text: 'Run `ls`.\n\n```sh\nls -la\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> [!NOTE]\n> Read me.', isFirstOfReply: true },
+      plugin: 'gloss',
+      surface,
+      component: 'AssistantMessage',
+      props: { text: 'Run `ls`.\n\n```sh\nls\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> [!NOTE]\n> Read me.', isFirstOfReply: true },
     } as never)
-    const boxes = (await ui.findAll({ type: 'Box' })) as Drawn[]
-    expect(boxes.some(b => b.props?.borderStyle === 'round' && b.props?.borderColor === 'subtle')).toBe(true)
-    expect(boxes.some(b => b.props?.borderColor === 'ide')).toBe(true)
-    const all = (await ui.findAll({ type: 'Text' })) as Drawn[]
-    expect(all.some(t => t.text === ' ls ' && t.props?.backgroundColor === 'userMessageBackground')).toBe(true)
-    // No hand-drawn rules where the face is proportional.
-    expect(all.some(t => t.text?.startsWith('╭─'))).toBe(false)
-    expect((await ui.findAll({ type: 'Markdown' })).length).toBeGreaterThan(0)
-    expect(bareEmoji(all.map(t => t.text ?? '').join(''))).toEqual([])
+    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
     await ui.unmount()
   }
+})
+
+test('every glyph gloss draws is text presentation', async $ => {
+  const ui = await $.ui.mount({
+    plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
+    props: { text: '## Head\n\n- [x] done\n- [ ] open\n\n> [!NOTE]\n> a\n\n> [!WARNING]\n> b\n\n> [!IMPORTANT]\n> c\n\n```sh\nls\n```\n\nNext: ship it', isFirstOfReply: true },
+  } as never)
+  const all = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('')
+  expect(all).toContain('ℹ\uFE0E Note')
+  expect(bareEmoji(all)).toEqual([])
 })
 
 test('a message redrawn with new text is parsed again', async $ => {

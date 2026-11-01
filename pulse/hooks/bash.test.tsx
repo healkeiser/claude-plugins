@@ -129,15 +129,17 @@ test('pieces of the row', () => {
   expect(took(125_000)).toBe('2m 05s')
 })
 
-test('desktop and VS Code draw the same compact row', async $ => {
-  for (const surface of ['desktop', 'vscode'] as const) {
-    const ui = await $.ui.mount({
-      plugin: 'pulse', surface, component: 'ToolUse', requestId: 'b1', viewport: VIEWPORT,
-      props: { ...ROW, isRunning: true },
-    } as never)
-    const all = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
-    await ui.unmount()
-    expect(all).toContain('Show working tree status')
-    expect(all).toContain('$ git status')
+test('graphical surfaces keep their own tool rows', async ($, on) => {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine row</Text>
+  })
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    for (const component of ['ToolUse', 'ToolResult', 'ToolGroup'] as const) {
+      const props = component === 'ToolGroup' ? { calls: [{ tool: 'Read', isErrored: false, isRunning: false }], isExpanded: false } : { ...ROW, isRunning: true }
+      const ui = await $.ui.mount({ plugin: 'pulse', surface, component, requestId: 'b1', viewport: VIEWPORT, props } as never)
+      expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
+      await ui.unmount()
+    }
   }
 })
