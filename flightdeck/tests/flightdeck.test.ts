@@ -737,7 +737,7 @@ test('the gauge, status and inline summary measure against the compaction window
   // Past 80% of the compaction window the gauge warns, though the model's window has room.
   await measure(340_000)
   const warn = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect((await warn.find({ type: 'Text', text: /^━+$/ }))?.props.color).toBe('error')
+  expect((await warn.find({ type: 'Text', text: /^━+╸?$/ }))?.props.color).toBe('error')
   expect(await warn.find({ text: /(^| )85%/ })).toBeDefined()
   await warn.unmount()
   // A model with a smaller window: read again, and a compaction window above it no longer counts.
@@ -1200,7 +1200,7 @@ test("a block's label row gives the label its room first, the status only where 
   expect(headFit(16, 15, 12)).toEqual({ label: 15, showRight: false })
   expect(ruleLine(8, [3, 6])).toBe('───┴──┴─')
   expect(ruleLine(5, [2], '┬')).toBe('──┬──')
-  expect(gauge(64, 10)).toEqual({ on: '━━━━━━', off: '────' })
+  expect(gauge(64, 10)).toEqual({ on: '━━━━━━╸', off: '───' })
   expect([heatOf(30), heatOf(64), heatOf(82)]).toEqual(['calm', 'warm', 'hot'])
 })
 
@@ -1258,7 +1258,7 @@ test('panels are full rounded blocks in theme colours, cards are rounded boxes i
   expect(first(/^● working$/)?.props?.color).toBe('claude')
   // Fills heat up as the statusline's bars do: 64% in the warning colour, 82% in the error colour, value alike.
   const meter = (key: string) => textsIn(keyed(tree, key)).map(t => [textOf(t), t.props?.color])
-  expect(meter('meter-ctx')).toEqual([['ctx', undefined], ['━━━━━━────', undefined], ['━━━━━━', 'warning'], ['────', 'subtle'], ['64%', 'warning'], ['128k/200k', undefined]])
+  expect(meter('meter-ctx')).toEqual([['ctx', undefined], ['━━━━━━╸───', undefined], ['━━━━━━╸', 'warning'], ['───', 'subtle'], ['64%', 'warning'], ['128k/200k', undefined]])
   expect(meter('meter-five_hour').slice(4, 5)).toEqual([['82%', 'error']])
   // The gate meter: allowed, pending and denied in their colours, no row of marks.
   expect(meter('meter-gate').slice(2, 5)).toEqual([['━━━━', 'success'], ['━━━', 'warning'], ['━━━', 'error']])
@@ -1523,10 +1523,11 @@ test('a terminal with 256 colours or more draws the status line heat ramp, one s
   await measured($, on)
   const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
   const meter = textsIn(keyed(await ui.drawn(), 'meter-ctx')).map(t => [textOf(t), t.props?.color])
-  // 64% of ten cells: six lit, each its own ramp step, the rest unlit; the value in its tens' step.
+  // 64% of ten cells: six and a half lit, each its own ramp step, the rest unlit; the value in its tens' step.
   expect(meter.slice(2)).toEqual([
     ...['#00ff00', '#5fff00', '#87ff00', '#afff00', '#d7ff00', '#ffff00'].map(c => ['━', c]),
-    ['────', '#4e4e4e'],
+    ['╸', '#ffd700'],
+    ['───', '#4e4e4e'],
     ['64%', '#ffd700'],
     ['128k/200k', undefined],
   ])
@@ -1555,4 +1556,57 @@ test('glyphs: text draws the pane in ASCII with classic borders', { options: { g
   const borders = boxesIn(tree).map(b => b.props?.borderStyle).filter(Boolean)
   expect(borders.length > 0 && borders.every(b => b === 'classic')).toBe(true)
   await ui.unmount()
+})
+
+test('meters show what the status line shows: the same rounding, half cells, nothing above zero empty', async ($, on) => {
+  mock.env(on, { COLORTERM: 'truecolor' })
+  engine(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  // [reading, shown, the ten-cell bar statusline.sh draws]
+  const cases: [number, string, string][] = [
+    [0, '0%', '──────────'],
+    [0.4, '0%', '╸─────────'],
+    [3, '3%', '╸─────────'],
+    [9, '9%', '━─────────'],
+    [37.5, '38%', '━━━━──────'],
+    [99.6, '100%', '━━━━━━━━━━'],
+    [100, '100%', '━━━━━━━━━━'],
+  ]
+  for (const [pct, shown, bar] of cases) {
+    await $.session.measure({ context: { window: 200_000, tokens: 1_000, percent: 0.5 }, rateLimits: [{ kind: 'five_hour', percentUsed: pct }], changed: ['context', 'rateLimits'] } as never)
+    const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+    const row = textsIn(keyed(await ui.drawn(), 'meter-five_hour')).map(textOf)
+    expect([row[1], row.includes(shown)]).toEqual([bar, true])
+    await ui.unmount()
+    // On a graphical surface the fill is the reading's share, at least half a cell above zero.
+    const g = await $.ui.mount({ ...pane(66), surface: 'desktop' })
+    const svg = ((await g.findAll({ type: 'Svg' })) as Drawn[]).find(x => /^5h /.test(String(x.props?.alt)))
+    const lit = /fill="url\(#heat\)"/.test(String(svg?.props?.source)) ? Number(/<rect x="0" y="0" width="([\d.]+)" height="6" fill="url/.exec(String(svg?.props?.source))?.[1]) : 0
+    expect(lit).toBe(Math.round(10 * 7 * (pct === 0 ? 0 : Math.min(1, Math.max(0.05, pct / 100))) * 100) / 100)
+    await g.unmount()
+  }
+})
+
+test('no number in the main block is cut, docked at 66 or narrowed to 40 columns', async ($, on) => {
+  engine(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  await $.session.measure({
+    context: { window: 1_000_000, tokens: 87_700, percent: 8.77 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 82, resetsAt: '2026-11-01T21:05:00Z' }, { kind: 'seven_day', percentUsed: 40, resetsAt: '2026-11-04T14:41:00Z' }],
+    changed: ['context', 'rateLimits'],
+  } as never)
+  for (const cols of [66, 40]) {
+    const ui = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    const tree = await ui.drawn()
+    for (const key of ['meter-ctx', 'meter-five_hour', 'meter-seven_day']) {
+      // Every fixed-width box in the row holds its text whole.
+      const cut = boxesIn(keyed(tree, key))
+        .filter(b => typeof b.props?.width === 'number')
+        .map(b => [textOf(b), b.props?.width as number] as const)
+        .filter(([text, width]) => cellsOf(text) > width)
+      expect(cut).toEqual([])
+    }
+    if (cols === 66) expect(textsIn(keyed(tree, 'meter-ctx')).map(textOf)).toContain('87.7k/1.0M')
+    await ui.unmount()
+  }
 })

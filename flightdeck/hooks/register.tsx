@@ -80,7 +80,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, motionOn } from './style'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, meterShare, motionOn, percent } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -162,7 +162,7 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
   const s = gateSummary(g)
   const ctxFill = contextFill(u)
   const parts = [
-    ctxFill.pct !== null ? `ctx ${Math.round(ctxFill.pct)}%` : null,
+    ctxFill.pct !== null ? `ctx ${percent(ctxFill.pct)}` : null,
     cards.length > 0 ? `agents ${running}/${cards.length}` : null,
     a.consults.length > 0 || a.ids.length > 0 ? `${cfg.architectLabel.toLowerCase()} ${isAdvising(a) ? 'advising' : a.consults.length}` : null,
     s.deny > 0 ? `denied ${s.deny}` : null,
@@ -845,7 +845,7 @@ export const register: Register = (on, options) => {
     // Status-line rows, as statusline.sh draws them: a dim label column, the bar, the value right-aligned,
     // then a detail column and the rest. Below 40 inner columns the bar takes 5 cells and the gaps one, and
     // what does not fit is left out.
-    type Meter = { key: string; label: string; bar: Span[]; value: Span; d1?: Span; d2?: (Piece | null)[] }
+    type Meter = { key: string; label: string; bar: Span[]; value: Span; pct?: number; d1?: Span; d2?: (Piece | null)[] }
     const barWOf = (iw: number) => (iw >= 40 ? 10 : 5)
     const meterRoom = (iw: number, labelW: number) => (iw >= 40 ? iw - (labelW + 2 + 10 + 2 + 4) - 3 : iw - (labelW + 1 + 5 + 1 + 4) - 2)
     const meters = (rows: Meter[], iw: number) => {
@@ -853,28 +853,27 @@ export const register: Register = (on, options) => {
       const isFull = iw >= 40
       const gap = isFull ? 2 : 1
       const room = meterRoom(iw, labelW)
-      const hasD1 = rows.some(x => x.d1)
-      const d2Room = hasD1 ? room - 9 - 2 : room
+      // The detail column is as wide as its widest value, so a number is never cut: where it does not
+      // fit, the column goes instead, and the rest after it only shows the pieces that fit whole.
+      const d1W = Math.max(0, ...rows.map(x => (x.d1 ? cellWidth(x.d1.text) : 0)))
+      const hasD1 = d1W > 0 && room >= d1W
+      const d2Room = hasD1 ? room - d1W - 2 : room
       return rows.map(x => (
         <Box key={x.key} width={iw}>
           <Box width={labelW} flexShrink={0}>
             <Text dimColor>{x.label}</Text>
           </Box>
           <Box width={barWOf(iw)} marginLeft={gap} flexShrink={0}>
-            {e.surface !== 'terminal' ? svgBar(x.key, x.bar, barWOf(iw), `${x.label} ${x.value.text}`) : spanText(x.bar.filter(b => b.text))}
+            {e.surface !== 'terminal' ? svgBar(x.key, x.bar, barWOf(iw), `${x.label} ${x.value.text}`, x.pct) : spanText(x.bar.filter(b => b.text))}
           </Box>
           <Box width={4} marginLeft={gap} flexShrink={0} justifyContent="flex-end">
             <Text {...styleOf(x.value)} wrap="truncate">
               {x.value.text}
             </Text>
           </Box>
-          {hasD1 && room >= 9 ? (
-            <Box width={9} marginLeft={isFull ? 3 : 2} flexShrink={0}>
-              {x.d1 ? (
-                <Text {...styleOf(x.d1)} wrap="truncate">
-                  {x.d1.text}
-                </Text>
-              ) : null}
+          {hasD1 ? (
+            <Box width={d1W} marginLeft={isFull ? 3 : 2} flexShrink={0}>
+              {x.d1 ? <Text {...styleOf(x.d1)}>{x.d1.text}</Text> : null}
             </Box>
           ) : null}
           {x.d2 && d2Room >= 4 ? <Box marginLeft={hasD1 ? 2 : isFull ? 3 : 2}>{line(x.d2, d2Room)}</Box> : null}
@@ -883,15 +882,16 @@ export const register: Register = (on, options) => {
     }
     // On a graphical surface a meter is SVG, not box-drawing: a rounded track and fill in the role colours
     // that glides to a new reading (DESIGN.md, Graphical surfaces). The number beside it still says it.
-    const svgBar = (key: string, bar: Span[], cells: number, alt: string) => {
+    const svgBar = (key: string, bar: Span[], cells: number, alt: string, pct?: number) => {
       if (e.surface === 'terminal') return null
       const { Svg } = $.ui.resolve(e)
       const isTrack = (b: Span) => b.color === C.faint || b.color === HEAT_UNLIT
       // A heat fill (its lit runs ramp steps) as one gradient run across the meter, as the status line's
       // cells step along it; the gate's verdict runs keep their roles.
       const isHeat = bar.some(b => !isTrack(b)) && bar.every(b => isTrack(b) || (HEAT_RAMP as readonly string[]).includes(b.color ?? ''))
+      // Its width is the reading's own share, not the cells': above zero, at least half a cell.
       const runs = isHeat
-        ? [{ cells: bar.filter(b => !isTrack(b)).reduce((n, b) => n + cellWidth(b.text), 0), color: HEAT_FILL }]
+        ? [{ cells: pct !== undefined ? meterShare(pct, cells) * cells : bar.filter(b => !isTrack(b)).reduce((n, b) => n + cellWidth(b.text), 0), color: HEAT_FILL }]
         : bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: isTrack(b) }))
       const drawn = svgMeter(runs, cells, meterWidths.get(key) ?? [], !motion)
       meterWidths.set(key, drawn.widths)
@@ -906,7 +906,7 @@ export const register: Register = (on, options) => {
         { text: gg.off, color: C.faint },
       ]
     }
-    const pctOf = (pct: number): Span => ({ text: `${Math.round(pct)}%`, color: heat(pct) })
+    const pctOf = (pct: number): Span => ({ text: percent(pct), color: heat(pct) })
 
     // ---- main: the statusline's card, with the session's own figures folded in below its meters
     const ctxFill = contextFill(u)
@@ -919,6 +919,7 @@ export const register: Register = (on, options) => {
               label: 'ctx',
               bar: fillBar(ctxFill.pct, barWOf(iw)),
               value: pctOf(ctxFill.pct),
+              pct: ctxFill.pct,
               ...(u.tokens !== null ? { d1: { text: `${kTokens(u.tokens)}/${kTokens(ctxFill.window)}`, dim: true } } : {}),
               d2: [u.compactions > 0 ? { spans: [{ text: `⟲ ${u.compactions}`, color: C.amber }] } : null],
             },
@@ -932,6 +933,7 @@ export const register: Register = (on, options) => {
           label: limitLabel(l.kind),
           bar: fillBar(l.pct, barWOf(iw)),
           value: pctOf(l.pct),
+          pct: l.pct,
           ...(resetIn ? { d1: { text: `↻ ${resetIn}`, dim: true } } : {}),
           d2: [resetAt ? { spans: [{ text: resetAt, dim: true }] } : null],
         }
@@ -1451,7 +1453,7 @@ export const register: Register = (on, options) => {
                       sep,
                       { text: 'ctx ', dim: true },
                       ...mg,
-                      { text: ` ${Math.round(ctxFill.pct ?? 0)}%`, color: heat(ctxFill.pct ?? 0) },
+                      { text: ` ${percent(ctxFill.pct ?? 0)}`, color: heat(ctxFill.pct ?? 0) },
                       ...(u.compactions > 0 ? [{ text: ` ⟲${u.compactions}`, color: C.amber }] : []),
                     ],
                   }

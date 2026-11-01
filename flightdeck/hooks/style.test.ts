@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  heatHex, heatRuns, packets, padCells, percent, remember, span, spin, sweep, usd,
+  heatHex, heatRuns, meterShare, packets, padCells, percent, remember, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -59,7 +59,7 @@ test('meters heat at 60 and 80 percent', () => {
   expect(heat(59)).toBe('claude')
   expect(heat(60)).toBe('warning')
   expect(heat(80)).toBe('error')
-  expect(meter(64, 10)).toEqual({ fill: '━━━━━━', track: '────' })
+  expect(meter(64, 10)).toEqual({ fill: '━━━━━━╸', track: '───' })
   expect(meter(150, 4)).toEqual({ fill: '━━━━', track: '' })
 })
 
@@ -117,4 +117,29 @@ test('the heat ramp: one step per 10%, each lit cell its own step', () => {
   expect(canRamp({ COLORTERM: 'truecolor' })).toBe(true)
   expect(canRamp({ TERM: 'xterm-256color' })).toBe(true)
   expect(canRamp({ TERM: 'xterm' })).toBe(false)
+})
+
+test('meters and percentages follow the status line: half cells, nothing above zero drawn empty', () => {
+  // [reading, shown, ten-cell bar], as statusline.sh draws them.
+  const cases: [number, string, string][] = [
+    [0, '0%', '──────────'],
+    [0.4, '0%', '╸─────────'],
+    [3, '3%', '╸─────────'],
+    [9, '9%', '━─────────'],
+    [36, '36%', '━━━╸──────'],
+    [37.5, '38%', '━━━━──────'],
+    [99.6, '100%', '━━━━━━━━━━'],
+    [100, '100%', '━━━━━━━━━━'],
+  ]
+  for (const [pct, shown, bar] of cases) {
+    const m = meter(pct, 10)
+    expect([percent(pct), m.fill + m.track]).toEqual([shown, bar])
+  }
+  expect(heatRuns(36, 10).map(r => r.text).join('')).toBe('━━━╸──────')
+  expect(heatRuns(3, 10)[0]).toEqual({ text: '╸', color: HEAT_RAMP[0] })
+  expect(meterShare(0, 10)).toBe(0)
+  expect(meterShare(0.4, 10)).toBe(0.05)
+  expect(meterShare(37.5, 10)).toBe(0.375)
+  expect(meterShare(120, 10)).toBe(1)
+  expect(heatHex(59.6)).toBe(HEAT_RAMP[6])
 })

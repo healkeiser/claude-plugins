@@ -20,7 +20,7 @@ import type {
   Usage,
   View,
 } from '../types'
-import { HEAT_RAMP, ROLE, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd } from './style'
+import { HEAT_RAMP, ROLE, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -231,7 +231,7 @@ export const svgMeter = (runs: readonly { cells: number; color?: string; isTrack
   const rects = runs
     .filter(r => !r.isTrack && r.cells > 0)
     .map((r, i) => {
-      const rw = r.cells * CELL
+      const rw = Math.round(r.cells * CELL * 100) / 100
       const from = before[i]
       const glide =
         !isStill && from !== undefined && from !== rw
@@ -353,14 +353,17 @@ export const afterCompactRead = (
 /** A new main-loop model may compact in another window (`modelSettings`): read afresh at the next measurement. */
 export const forgetCompactRead = (u: Usage): Usage => ({ ...u, compactWindow: null, compactFor: 0, compactMisses: 0 })
 
-/** A gauge of `width` cells, drawn as the statusline draws its bars: ━ filled, ─ empty. */
+/** A gauge of `width` cells, drawn as the statusline draws its bars: ━ filled, ╸ a half, ─ empty. */
 export const gauge = (pct: number, width: number) => {
   const m = meter(pct, width)
   return { on: m.fill, off: m.track }
 }
 
 /** Which of `heat`'s three levels a fill reads at: the accent, then the warning colour from 60%, the error colour from 80%. */
-export const heatOf = (pct: number): 'calm' | 'warm' | 'hot' => (pct >= 80 ? 'hot' : pct >= 60 ? 'warm' : 'calm')
+export const heatOf = (pct: number): 'calm' | 'warm' | 'hot' => {
+  const shown = wholePct(pct)
+  return shown >= 80 ? 'hot' : shown >= 60 ? 'warm' : 'calm'
+}
 
 /** A rate-limit reading as the pane keeps it, its ISO reset time turned into ms since the epoch. */
 export const limitOf = (r: { kind: string; percentUsed: number; resetsAt?: string }) => {

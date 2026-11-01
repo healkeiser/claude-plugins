@@ -55,6 +55,7 @@ All single-cell, text presentation. A glyph a terminal may draw as a colour emoj
 | `…` | cut text |
 | `·` | separator |
 | `━` `─` | meter fill and track; `─` is also a rule |
+| `╸` | half a meter cell, the last lit one |
 | `│` `╭` `╮` `╰` `╯` `┬` `┴` | borders, quote bars, connectors |
 | `↗︎` | opens outside (a link to the origin) |
 | `⚠︎` | warning callout |
@@ -98,14 +99,14 @@ One formatter per kind, in `style.ts`, and the status line matches them.
 |------|------|----------|
 | duration | `1.4s` under 10 s, then whole units, the second padded | `1.4s` `42s` `2m 05s` `3h 12m` `3d 4h` |
 | count | plain under 1000, one decimal under 100k, whole above, one decimal from a million | `950` `13.7k` `640k` `1.0M` |
-| percentage | whole, right-aligned in 4 cells | `  7%` ` 64%` `100%` |
+| percentage | whole, rounded from tenths to the nearest (`wholePct`, as the status line), right-aligned in 4 cells | `  7%` ` 38%` for 37.5, `100%` for 99.6 |
 | reset | `↻` then the two largest units | `↻ 4h 51m` `↻ 3d 22h` `↻ 25m` |
 | wall clock | `HH:MM`, a weekday when a day or more out | `21:05` `Thu 14:41` |
 | cost | two decimals, whole from $100 | `$12.45` `$140` |
 | separator | ` · ` in chrome | `effort high · mode auto` |
-| meter | `━` filled, each lit cell its own heat step, `─` track unlit | `━━━━━━────  64%` |
+| meter | `━` filled in half-cell steps (`╸` the half), each lit cell its own heat step, `─` track unlit; above zero, at least half a cell | `━━━━━━╸───  64%` `╸─────────   3%` |
 
-Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps. A terminal that reports neither 24-bit colour (`COLORTERM`, Windows Terminal) nor 256 colours (`TERM`) gets three role colours instead (`heat`): accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
+Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps, as wide as the reading's share and, above zero, at least half a cell (`meterShare`). A terminal that reports neither 24-bit colour (`COLORTERM`, Windows Terminal) nor 256 colours (`TERM`) gets three role colours instead (`heat`): accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
 
 Text is measured in terminal cells, not characters: `cellWidth` counts East Asian wide and fullwidth characters and emoji as 2, combining marks and variation selectors as 0, and cuts by grapheme (`Intl.Segmenter`), so a cut never splits a character. Truncation ends with `…` inside the width.
 
@@ -114,7 +115,7 @@ Text is measured in terminal cells, not characters: `cellWidth` counts East Asia
 - **One bold per block**: the label row. Labels of values are dim, values normal, numbers right-aligned in a fixed column.
 
   ```
-  ctx  ━━━━━━────   64%   640k/1.0M
+  ctx  ━━━━━━╸───   64%   640k/1.0M
   5h   ━━━━━━━━──   82%   ↻ 4h 51m
   ```
 

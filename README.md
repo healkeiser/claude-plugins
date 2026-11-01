@@ -154,7 +154,7 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 ```
 ╭────────────────────────────────────────────────────────────╮
 │ Opus 5.5 · claude-plugins ↗ · main ~2            ● working │
-│ ctx  ━━━━━━────   64%   640k/1.0M                          │
+│ ctx  ━━━━━━╸───   64%   640k/1.0M                          │
 │ 5h   ━━━━━━━━──   82%   ↻ 4h 51m   21:05                   │
 │ 7d   ━━━━──────   40%   ↻ 3d 22h   Thu 14:41               │
 │ effort high · mode auto · 12 req · $12.45 · ttft 1.2s      │
