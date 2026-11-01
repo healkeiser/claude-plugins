@@ -48,3 +48,23 @@ test('a pasted block loses its paste tags and blank edges', () => {
   const text = '```\r\n\r\n<pasted_content id="76ce">\r\n  sudo ls\r\n</pasted_content id="76ce">\r\n\r\n  ```'
   expect(pieces(text)).toEqual([{ text: '  sudo ls', language: '' }])
 })
+
+test('a slash command output row draws as a purple card headed by the command', async $ => {
+  const ui = await $.ui.mount({
+    plugin: 'prompt-cards', surface: 'terminal', component: 'CommandOutput',
+    props: { command: 'theme', args: 'dark', text: 'Theme set to dark', isErrored: false },
+  } as never)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toContain('/theme dark')
+  const card = (await ui.findAll({ type: 'Box' }))[0] as { props?: { borderColor?: string; backgroundColor?: string } }
+  expect(card.props?.borderColor).toBe('merged')
+  expect(card.props?.backgroundColor).toBeUndefined()
+})
+
+test('a typed slash command prompt is labelled as a command, without a fill', async $ => {
+  const ui = await $.ui.mount({ plugin: 'prompt-cards', surface: 'terminal', component: 'UserMessage', props: props('composer', '/skill-creator make one') })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toContain('command')
+  const boxes = await ui.findAll({ type: 'Box' })
+  expect(boxes.some(b => (b as { props?: { backgroundColor?: string } }).props?.backgroundColor)).toBe(false)
+})

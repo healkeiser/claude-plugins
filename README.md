@@ -59,7 +59,7 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 |-----|-----------------|
 | **pretty-markdown** | Claude's replies: bordered code blocks with a copy button, inline-code chips, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
 | **working-band** | The line above the prompt while Claude works, the folded tool rows, and the footer that closes each turn |
-| **prompt-cards** | Your own prompts: a blue card per prompt, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
+| **prompt-cards** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
 
@@ -110,6 +110,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 ### prompt-cards
 
 - Each prompt you send draws as a blue card, so your messages stand out when you scroll.
+- Each slash command you run (`/diff`, `/theme`, a skill) draws its output as a purple card headed by the command. The line you typed stays as the engine draws it: mods cannot restyle it, and a command that prints nothing has no card.
 - A fenced code block in a prompt draws as a grey box inside the card, with its language and syntax colours.
 - A prompt sent while Claude is still working draws as a narrow grey `⏸ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
 - `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; `1` to `9` reach the nine newest.

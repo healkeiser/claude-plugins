@@ -5,11 +5,8 @@ import type { PromptsSent, PromptsVersion } from '../types'
 
 // Blue, so a prompt card never reads as one of pretty-markdown's grey code blocks.
 const CARD = 'suggestion'
-// shortcut: a fixed dark blue tint, made for dark themes; on a light theme it
-// reads as a dark band. Switch on the theme if a light one is ever used.
-const CARD_BG = '#1c2233'
-// A neutral grey, so a code block reads apart from the blue card around it.
-const CODE_BG = '#2a2c31'
+// Purple: a slash command, typed or as the row its output prints, apart from a prompt.
+const COMMAND = 'merged'
 const PANE = 'prompts'
 
 const version = atom({ plugin: 'prompt-cards', key: 'version' } as const, 0 as PromptsVersion)
@@ -107,6 +104,8 @@ export const register: Register = on => {
       e.props.text.trim() !== s.opener
 
     const { Box, Text, Code } = $.ui.resolve(e)
+    const isCommand = e.props.text.trimStart().startsWith('/')
+    const color = isCommand ? COMMAND : CARD
 
     // Queued: a grey card only as wide as its text and set in, so it never
     // reads as a sent prompt.
@@ -120,18 +119,34 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={CARD} backgroundColor={CARD_BG} paddingX={1}>
-        <Text color={CARD} weight="bold">you</Text>
+      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>
+        <Text color={color} weight="bold">{isCommand ? 'command' : 'you'}</Text>
         {pieces(e.props.text).map((p, k) =>
           p.language === undefined ? (
             <Text key={`t${k}`}>{p.text}</Text>
           ) : (
-            <Box key={`c${k}`} flexDirection="column" borderStyle="round" borderColor="subtle" backgroundColor={CODE_BG} paddingX={1}>
+            <Box key={`c${k}`} flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
               {p.language ? <Text dimColor italic>{p.language}</Text> : null}
               <Code source={p.text} language={p.language || undefined} />
             </Box>
           ),
         )}
+      </Box>
+    )
+  })
+
+  // A slash command's output row (`/diff`, `/cost`, a plugin's answer): a purple
+  // card headed by the command, so commands read apart from prompts. The engine
+  // draws the typed line itself; a command that prints nothing has no row.
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const { Box, Text, Markdown } = $.ui.resolve(e)
+    const head = `/${e.props.command}${e.props.args ? ` ${e.props.args}` : ''}`
+    const body = e.props.text.trim()
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={e.props.isErrored ? 'error' : COMMAND} paddingX={1}>
+        <Text color={COMMAND} weight="bold">{head}</Text>
+        {body ? (e.props.isErrored ? <Text color="error">{body}</Text> : <Markdown text={body} />) : null}
       </Box>
     )
   })
