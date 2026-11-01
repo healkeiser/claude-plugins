@@ -153,7 +153,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
 // ---------------------------------------------------------------- palette
 
 export type Palette = 'theme' | 'pastel'
-export type Colors = Record<'main' | 'agent' | 'gate' | 'cleared' | 'arch' | 'amber' | 'warn' | 'dim' | 'faint' | 'text', string>
+export type Colors = Record<'main' | 'agent' | 'gate' | 'cleared' | 'arch' | 'amber' | 'warn' | 'ok' | 'dim' | 'faint' | 'text', string>
 
 /**
  * `theme` names the person's own theme colours (they follow light, dark and colour-blind themes);
@@ -168,6 +168,7 @@ export const PALETTES: Record<Palette, Colors> = {
     arch: 'merged',
     amber: 'warning',
     warn: 'error',
+    ok: 'success',
     dim: 'inactive',
     faint: 'subtle',
     text: 'text',
@@ -180,6 +181,7 @@ export const PALETTES: Record<Palette, Colors> = {
     arch: '#c4b5fd',
     amber: '#fcd34d',
     warn: '#fca5a5',
+    ok: '#86efac',
     dim: '#6b7280',
     faint: '#3f4654',
     text: '#e5e7eb',
@@ -293,11 +295,14 @@ export const afterCompactRead = (
 /** A new main-loop model may compact in another window (`modelSettings`): read afresh at the next measurement. */
 export const forgetCompactRead = (u: Usage): Usage => ({ ...u, compactWindow: null, compactFor: 0, compactMisses: 0 })
 
-/** A gauge of `width` cells: ▰ filled, ▱ empty. */
+/** A gauge of `width` cells, drawn as the statusline draws its bars: ━ filled, ─ empty. */
 export const gauge = (pct: number, width: number) => {
   const full = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
-  return { on: '▰'.repeat(full), off: '▱'.repeat(width - full) }
+  return { on: '━'.repeat(full), off: '─'.repeat(width - full) }
 }
+
+/** Which of `heat`'s three levels a fill reads at: the accent, then the warning colour from 60%, the error colour from 80%. */
+export const heatOf = (pct: number): 'calm' | 'warm' | 'hot' => (pct >= 80 ? 'hot' : pct >= 60 ? 'warm' : 'calm')
 
 /** A rate-limit reading as the pane keeps it, its ISO reset time turned into ms since the epoch. */
 export const limitOf = (r: { kind: string; percentUsed: number; resetsAt?: string }) => {
@@ -537,6 +542,21 @@ export const fitLegend = <T extends { label: string }>(items: T[], width: number
   return out
 }
 
+/**
+ * How an open-sided block's top rule `╭─ label ──── right` shares `width` cells: the label keeps what the
+ * corner, two gaps and one dash leave, less the right-hand status and its gap. The status is dropped
+ * when it would cut the label below 6 cells (or below its own length, if shorter).
+ */
+export const ruleFit = (width: number, labelW: number, rightW: number) => {
+  const fixed = 2 + 1 + 1 + 1
+  const showRight = rightW > 0 && width - fixed - 1 - rightW >= Math.min(labelW, 6)
+  return { label: Math.max(1, Math.min(labelW, width - fixed - (showRight ? 1 + rightW : 0))), showRight }
+}
+
+/** A rule of `width` cells: `lead` in the first, `mark` at each of `marks`, ─ elsewhere. */
+export const ruleLine = (width: number, lead = '', marks: readonly number[] = [], mark = '┴') =>
+  Array.from({ length: Math.max(1, width) }, (_, i) => (i === 0 && lead ? lead : marks.includes(i) ? mark : '─')).join('')
+
 /** The cells a string takes in a terminal: one per character. */
 export const cellWidth = (s: string) => [...s].length
 
@@ -556,7 +576,7 @@ export const piecesThatFit = (pieces: readonly { width: number; lead?: number }[
 }
 
 /**
- * How many marks (■ ✗ ● ○ ✓) a row of `cells` columns holds. A terminal draws each mark in one
+ * How many marks (▪ ✕ ● ○ ✔) a row of `cells` columns holds. A terminal draws each mark in one
  * cell; a graphical surface draws them wider (■ measured about 1.4 cells on the desktop app), so
  * there a row holds fewer and its newest marks still show.
  */

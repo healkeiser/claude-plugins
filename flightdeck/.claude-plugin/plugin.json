@@ -44,7 +44,7 @@
     },
     "motion": {
       "title": "Motion",
-      "description": "Animate the connectors while real work flows, or keep them still",
+      "description": "Animate the blocks' bottom rules while real work flows, or keep them still",
       "type": "string",
       "options": [
         "while-active",

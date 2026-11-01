@@ -1,5 +1,5 @@
-// A connector drawn on the surface's own frame clock: packets travel along it while `active`,
-// and it rests as a plain dim line otherwise. Only this region redraws; the pane does not.
+// A block's bottom rule drawn on the surface's own frame clock: packets travel along it while
+// `active`, and it rests as a plain dim rule otherwise. Only this region redraws; the pane does not.
 import type { ClientModule, RenderChildren } from 'claude-code'
 
 type Props = {
@@ -11,6 +11,8 @@ type Props = {
   marks: number[]
   /** Draw ┴ instead of ┬ at the marks: a merge into what is below. */
   isMerge: boolean
+  /** Drawn in the first cell, as a block's ╰ corner, and never lit. */
+  lead?: string
 }
 
 type Ref = { phase: number; active: boolean }
@@ -37,6 +39,7 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   const width = Math.max(1, surface.columns || props.width)
   const cells = Array.from({ length: width + SPARE }, () => '─')
   for (const m of props.marks) if (m >= 0 && m < width) cells[m] = props.isMerge ? '┴' : '┬'
+  if (props.lead) cells[0] = props.lead
 
   // A graphical surface draws text in a proportional face, where ─ ● • and bold differ in width, so as
   // the packets moved the line's length changed and its right end jittered. Drawn in the surface's
@@ -60,8 +63,8 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   const lit = new Map<number, string>()
   for (let base = 0; base < width + 24; base += 24) {
     const head = (base + ref.phase) % (width + 24)
-    if (head < width) lit.set(head, '●')
-    if (head - 1 >= 0 && head - 1 < width) lit.set(head - 1, '•')
+    if (head < width && !(props.lead && head === 0)) lit.set(head, '●')
+    if (head - 1 >= (props.lead ? 1 : 0) && head - 1 < width) lit.set(head - 1, '•')
   }
   // Runs, not cells: consecutive cells of one kind share a Text, a handful of nodes per frame.
   const runs: { text: string; isLit: boolean }[] = []
