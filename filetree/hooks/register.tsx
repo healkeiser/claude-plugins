@@ -425,8 +425,8 @@ async function reset($: EngineInterface, root: string, focus = false, ready?: Pr
   const listed = loadDirs($, [root])
   const repo = detectRepo($)
   await ready
-  if (focus) await $.ui.open({ id: PANE, title, focus: true })
-  else if (!noDock) await $.ui.open({ id: PANE, title })
+  if (focus) await $.ui.open({ id: PANE, backgroundColor: 'transparent', title, focus: true })
+  else if (!noDock) await $.ui.open({ id: PANE, backgroundColor: 'transparent', title })
   await listed
   await repo
   await refreshGit($)
@@ -1569,7 +1569,7 @@ function treeKey(): string {
 }
 
 function focusPane($: EngineInterface, root: string, key: string): void {
-  void $.ui.open({ id: PANE, title: `Files: ${root.split('/').pop() || root}`, focus: true }).then(() => (key ? $.ui.focus({ requestId: PANE, key }) : undefined)).catch(() => {})
+  void $.ui.open({ id: PANE, backgroundColor: 'transparent', title: `Files: ${root.split('/').pop() || root}`, focus: true }).then(() => (key ? $.ui.focus({ requestId: PANE, key }) : undefined)).catch(() => {})
 }
 
 function toggleShortcuts($: EngineInterface): void {
@@ -1913,7 +1913,7 @@ export const register: Register = (on, options) => {
       if (t.preview) await patch($, () => ({ preview: '', previewTop: 0 }))
       await setActivities($, cur => cur.map(a => (a.state === 'running' ? { ...a, state: 'failed', label: `${a.kind} interrupted` } : a)))
       const cwd = await cwdOf($)
-      const shown = !t.root || t.nodes.length === 0 || (follow && t.root !== cwd) ? reset($, cwd, false, ready) : ready.then(() => (noDock ? undefined : $.ui.open({ id: PANE, title: `Files: ${t.root.split('/').pop() || t.root}` })))
+      const shown = !t.root || t.nodes.length === 0 || (follow && t.root !== cwd) ? reset($, cwd, false, ready) : ready.then(() => (noDock ? undefined : $.ui.open({ id: PANE, backgroundColor: 'transparent', title: `Files: ${t.root.split('/').pop() || t.root}` })))
       await ready
       ageTick?.cancel()
       ageTick = showAge ? $.clock.every(AGE_TICK_MS, () => $.ui.invalidate('ui.render')) : null

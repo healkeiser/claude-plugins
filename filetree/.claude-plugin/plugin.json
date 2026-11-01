@@ -1,6 +1,6 @@
 {
   "name": "filetree",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An IDE-style file tree pane that shows what Claude reads, writes and changes, restyled to match the healkeiser mods. Based on data-goblin/claude-code-filetree 0.5.4 by Kurt Buhler (MIT).",
   "types": "./types/index.d.ts",
   "author": {
