@@ -8,7 +8,8 @@ const T0 = 1_000_000
 const STATUS = ['# branch.oid abcdef1234', '# branch.head main', '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts'].join('\n')
 
 // The world beneath pulse: clock, store, usage, git, and a band row of another mod's.
-function engine(on: On, store: Record<string, unknown> = {}) {
+// `beneath: 'empty'`: the mod beneath answers with a Box that draws nothing (a hidden band).
+function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'empty' = 'row') {
   const clock = mock.clock(on, { now: T0 })
   // The store in memory, kept where a test can read what the band wrote.
   on('store.get', (_, e) => ({ value: store[e.key] }))
@@ -42,8 +43,8 @@ function engine(on: On, store: Record<string, unknown> = {}) {
     return { value: { exitCode: 0, stdout: STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>other band</Text>
+    const { Box, Text } = $.ui.resolve(e)
+    return beneath === 'row' ? <Text>other band</Text> : <Box />
   })
   return { clock, world }
 }
@@ -389,5 +390,75 @@ test('a new session whose store says off starts with the band hidden', async ($,
   await startSession($)
   const ui = await mount($)
   expect(await look(ui)).toBe('other band')
+  await ui.unmount()
+})
+
+// Rows a drawn tree takes as a terminal lays it out: a Text, Button or Svg one,
+// a column Box the sum of its children, a row Box the tallest, plus its border,
+// vertical padding and margins; an empty Box, an engine node or '' none.
+const rowsOf = (n: unknown): number => {
+  if (typeof n === 'string') return n === '' ? 0 : 1
+  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + rowsOf(c), 0)
+  if (!n || typeof n !== 'object') return 0
+  const el = n as { type?: string; children?: unknown[]; props?: Record<string, unknown> }
+  if (el.type === 'Text') return flat(el) === '' ? 0 : 1
+  if (el.type === 'Button' || el.type === 'Svg') return 1
+  if (el.type !== 'Box') return 0
+  const p = el.props ?? {}
+  const kids = (el.children ?? []).filter(c => c !== null && c !== undefined)
+  const inner = p.flexDirection === 'row' ? Math.max(0, ...kids.map(rowsOf)) : kids.reduce((sum: number, c) => sum + rowsOf(c), 0)
+  const num = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : 0)
+  return inner + (p.borderStyle ? 2 : 0) + 2 * num('paddingY') + num('paddingTop') + num('paddingBottom') + num('marginTop') + num('marginBottom') + 2 * num('marginY')
+}
+
+test('the band takes its own rows and no more: folded one, unfolded the card, nothing for an empty band beneath', async ($, on) => {
+  const { clock, world } = engine(on, {}, 'empty')
+  await startSession($)
+  await runTurn($, clock, world)
+  const ui = await mount($)
+  expect(rowsOf(await ui.drawn())).toBe(1)
+  await ui.press({ key: 'tab-turn' })
+  // Border 2, header, tabs, the blank row under the tabs, then last turn, tools, edits, errors, cost.
+  expect(rowsOf(await ui.drawn())).toBe(10)
+  await ui.unmount()
+})
+
+test("the turn tab counts the main turn's calls only, the same set its breakdown reads", async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'turn' } })
+  await startSession($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
+  // A subagent's calls, during the turn and after it ends (a background agent).
+  await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'ag1' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' } as never)
+  await clock.advance(5000)
+  world.cost = 1.25
+  await $.turn.complete({ answer: '', durationMs: 5000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'ag1' })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/other.ts', old_string: 'a', new_string: 'b', agentId: 'ag1' })
+  const ui = await mount($)
+  const text = mine(await look(ui))
+  expect(text).toMatch(/tools\s+2\s+◇ 1 read {2}· {2}1 TaskUpdate/)
+  expect(text).not.toContain('shell')
+  expect(text).not.toContain('other.ts')
+  expect(text).not.toMatch(/·\s+·/)
+  await ui.unmount()
+})
+
+test('edits list only the files of that turn, cut with … at the card width, never wrapped', async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'turn' } })
+  await startSession($)
+  await runTurn($, clock, world)
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  for (let i = 0; i < 12; i += 1) await $.tool.call({ tool: 'Edit', file_path: `/repo/src/module-${i}.ts`, old_string: 'a', new_string: 'b' })
+  await $.turn.complete({ answer: '', durationMs: 1000, isAborted: false, turnId: 't2', reason: 'answer' })
+  const cols = 60
+  const ui = await mount($, 'terminal', cols)
+  const edits = (await ui.findAll({ type: 'Text' })).map(t => t.text).find(t => t.startsWith('module-0.ts'))
+  expect(edits).toBeDefined()
+  expect(edits!.endsWith('…')).toBe(true)
+  // The label column (7), the value (6) and the gap (3) inside the card's border and padding.
+  expect(cellWidth(edits!)).toBeLessThanOrEqual(cols - 4 - 7 - 6 - 3)
+  expect(mine(await look(ui))).not.toContain('parse.ts')
   await ui.unmount()
 })

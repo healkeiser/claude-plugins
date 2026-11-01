@@ -48,12 +48,16 @@ export function summarize(calls: readonly { tool: string; isErrored: boolean }[]
   const counts = new Map<string, { icon: string; one: string; many: string; n: number }>()
   for (const c of calls) {
     const kind = KINDS.find(([re]) => re.test(c.tool))
-    const [icon, one, many] = kind ? kind.slice(1) as [string, string, string] : ['·', c.tool, c.tool]
+    // A tool of no kind takes no glyph: a `·` there read as a doubled separator.
+    const [icon, one, many] = kind ? kind.slice(1) as [string, string, string] : ['', c.tool, c.tool]
     const got = counts.get(one) ?? { icon, one, many, n: 0 }
     got.n += 1
     counts.set(one, got)
   }
-  const text = [...counts.values()].map(k => `${k.icon} ${k.n} ${k.n === 1 ? k.one : k.many}`).join('  ·  ')
+  const text = [...counts.values()]
+    .filter(k => k.one)
+    .map(k => `${k.icon ? `${k.icon} ` : ''}${k.n} ${k.n === 1 ? k.one : k.many}`)
+    .join('  ·  ')
   return { text, failed: calls.filter(c => c.isErrored).length }
 }
 

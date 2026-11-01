@@ -392,12 +392,16 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       const kinds = summarize(turnCalls.filter(x => !x.file).map(x => ({ tool: x.tool, isErrored: false })))
       const failed = turnCalls.filter(x => x.state === 'fail').length
       const files = [...new Set(turnCalls.flatMap(x => (x.file ? [x.file] : [])))]
-      const n = isWorking ? a.tools : (l?.tools ?? 0)
+      // The count reads the list the breakdown reads, so the two always agree.
+      const n = turnCalls.length
       const value = (s: string, color?: string) => <Text tabular={!isTerm} {...(color ? { color } : {})}>{padCells(s, 6, 'right')}</Text>
+      // After the label column, the value and the gap: one row, cut with `…`, never wrapped.
+      const rest = (s: string) => (isTerm ? clip(s, inner - 7 - 6 - 3) : s)
+      const fileList = files.map(base).join(', ')
       const rows = [
         head,
-        labelled('tools', 'tools', 7, <Box flexDirection="row">{value(String(n))}{kinds.text ? <Text>{'   '}</Text> : null}{kinds.text ? detail(kinds.text) : null}</Box>),
-        labelled('edits', 'edits', 7, <Box flexDirection="row">{value(String(files.length))}{files.length ? <Text>{'   '}</Text> : null}{files.length ? detail(files.map(base).join(', ')) : null}</Box>),
+        labelled('tools', 'tools', 7, <Box flexDirection="row">{value(String(n))}{kinds.text ? <Text>{'   '}</Text> : null}{kinds.text ? detail(rest(kinds.text)) : null}</Box>),
+        labelled('edits', 'edits', 7, <Box flexDirection="row">{value(String(files.length))}{files.length ? <Text>{'   '}</Text> : null}{files.length ? detail(rest(fileList)) : null}</Box>),
         labelled('errors', 'errors', 7, value(failed ? `${GLYPH.fail} ${failed}` : '0', failed ? ROLE.error : undefined)),
       ]
       const session = u?.cost?.usd

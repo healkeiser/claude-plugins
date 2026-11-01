@@ -21,3 +21,10 @@ test('a folded run sums its calls by kind', () => {
   const calls = [{ tool: 'Read', isErrored: false }, { tool: 'Read', isErrored: false }, { tool: 'Grep', isErrored: true }]
   expect(summarize(calls)).toEqual({ text: '◇ 2 reads  ·  ⌕ 1 search', failed: 1 })
 })
+
+test('a tool of no kind takes no glyph, so no separator doubles', () => {
+  const calls = [{ tool: 'Bash', isErrored: false }, { tool: 'TaskUpdate', isErrored: false }, { tool: 'ToolSearch', isErrored: false }]
+  const { text } = summarize(calls)
+  expect(text).toBe('⌘ 1 shell  ·  1 TaskUpdate  ·  1 ToolSearch')
+  expect(text).not.toMatch(/·\s+·/)
+})

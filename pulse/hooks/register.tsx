@@ -59,19 +59,27 @@ export const register: Register = (on, options) => {
 
   // The band's writes are never awaited: a failed one must not hold up the
   // call. Chained, so a call's end never lands before its start.
+  // Counts, files and the call list are the main loop's alone: a subagent's or a
+  // background agent's calls (still running after the turn ends) would make the
+  // turn's tool count and its breakdown describe different sets.
   on('tool.call', async ($, e, next) => {
-    turn.tools += 1
+    const isMain = e.agentId === undefined
     const path = (e as { file_path?: unknown }).file_path
     const file = EDITS.test(e.tool) && typeof path === 'string' ? path : undefined
-    if (file) turn.files.add(file)
+    if (isMain) {
+      turn.tools += 1
+      if (file) turn.files.add(file)
+    }
     const label = describe(e)
     const id = e.tool_use_id
     const started = $.clock
       .now()
       .then(async at => {
-        await update($, activity, a => (a ? { ...a, label, tools: a.tools + 1, ...(a.label === label ? {} : { labelAt: at }) } : a))
-        const call: Call = { id, tool: e.tool, label, state: 'running', startedAt: at, ...(file ? { file } : {}) }
-        await update($, calls, list => [...(list ?? []), call].slice(-200))
+        await update($, activity, a => (a ? { ...a, label, tools: a.tools + (isMain ? 1 : 0), ...(a.label === label ? {} : { labelAt: at }) } : a))
+        if (isMain) {
+          const call: Call = { id, tool: e.tool, label, state: 'running', startedAt: at, ...(file ? { file } : {}) }
+          await update($, calls, list => [...(list ?? []), call].slice(-200))
+        }
         return at
       })
       .catch(() => 0)
