@@ -1,5 +1,5 @@
 {
-  "name": "claude-mods",
+  "name": "postcard",
   "base": "dark",
   "overrides": {
     "promptBorder": "#7d87c9",

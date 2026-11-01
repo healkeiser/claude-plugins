@@ -42,8 +42,8 @@
   - [pulse](#pulse)
   - [postcard](#postcard)
   - [flightdeck](#flightdeck)
+  - [filetree](#filetree)
   - [Status line](#status-line)
-- [File tree](#file-tree)
 - [Dev skills](#dev-skills)
 - [Documentation skills](#documentation-skills)
 - [Security](#security)
@@ -56,7 +56,7 @@
 <!-- ABOUT -->
 ## About
 
-Four [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code): small TypeScript modules that redraw parts of its terminal interface. Each one works on its own, so install only the ones you want.
+Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude Code](https://claude.com/claude-code): small TypeScript modules that redraw parts of its terminal interface. Each one works on its own, so install only the ones you want.
 
 | Mod | What it changes |
 |-----|-----------------|
@@ -64,6 +64,7 @@ Four [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude 
 | **pulse** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
 | **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 | **flightdeck** | A live dashboard pane beside the transcript: the main model's vitals, an on-call architect, every permission check, subagent cards and swimlanes, the turn receipt and a session log. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) |
+| **filetree** | An IDE-style file tree pane: what Claude reads, writes and changes, git status, previews, a treemap and diffs. A restyled fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
 
@@ -82,6 +83,7 @@ claude plugin install gloss@healkeiser --scope user
 claude plugin install pulse@healkeiser --scope user
 claude plugin install postcard@healkeiser --scope user
 claude plugin install flightdeck@healkeiser --scope user
+claude plugin install filetree@healkeiser --scope user
 ```
 
 Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
@@ -100,7 +102,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 
 - **Code blocks** draw between a top rule, carrying their language and a `⧉ copy` button, and a bottom rule, with no side border, so a mouse selection copies the code alone. Past 20 lines they fold to 12 with a `▾ show all N lines` button.
 - **Inline code** becomes a chip in the theme's own colours (the prompt tint behind the warning colour), so it reads on light and dark themes alike, `auto` included.
-- **Lists** change bullet by depth (`•`, `◦`, `▪`, each in its own colour) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✔`.
+- **Lists** change bullet by depth (`•`, `◦`, `■`, each in its own colour) and hang wrapped lines under the item's text; numbered items keep their numbers. Task items `- [ ]` and `- [x]` draw as `○` and a green `✓`.
 - **Quotes** that are not callouts draw with a dim `│` bar on every line, one per nesting level, rather than a box.
 - **Rules** (`---`, `***`, `___` alone on a line) draw as a dim line across the window.
 - **Strikethrough** (`~~text~~`) draws struck through.
@@ -118,21 +120,21 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - A shell command that stands on its own row draws in three short lines:
 
   ```
-  ● Rebase the vfx branch onto main                          ✔ 1.4s
+  ● Rebase the vfx branch onto main                          ✓ 1.4s
     $ cd ~/…/claude-plugins-vfx && git show main:.claude-plugin/marketpl…
     └ bb43e7c feat(vfx): bundle the documentation skills into one vfx…  +3 lines
   ```
 
-  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✔` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `⏸ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing.
+  The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✓` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `‖ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing.
 
 ### postcard
 
 - Each prompt you send draws as a blue card, so your messages stand out when you scroll.
 - Each slash command you run (`/diff`, `/theme`, a skill) draws its output as a purple card headed by the command. The line you typed stays as the engine draws it: mods cannot restyle it, and a command that prints nothing has no card.
 - A fenced code block in a prompt draws as a grey box inside the card, with its language and syntax colours.
-- A prompt sent while Claude is still working draws as a narrow grey `⏸ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
+- A prompt sent while Claude is still working draws as a narrow grey `‖ queued` card until it reaches the model. A queued slash command stays queued until the turn ends, which is when Claude Code runs it.
 - `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; `1` to `9` reach the nine newest.
-- It ships a `claude-mods` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
+- It ships a `postcard` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
 
 > [!NOTE]
 > Clicking a button (copy, fold, a row of the `/prompts` pane) needs Claude Code's fullscreen layout, where the terminal reports clicks. The pane's hotkeys work either way.
@@ -183,36 +185,7 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 
 Credit: Flightdeck is © 2026 Stephen Casella, with contributions from Alejandro Remior, @vihrea1337 and others listed in its changelog. See [`flightdeck/NOTICE`](./flightdeck/NOTICE) and [`flightdeck/LICENSE`](./flightdeck/LICENSE).
 
-### Status line
-
-`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
-
-```
-╭─ Opus 5.5 · claude-mods ↗ · main +5 ~4 ──────────╮
-│ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k  │
-│ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1× │
-│ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8× │
-╰────────────────────────────────────────────────────╯
-```
-
-The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
-
-Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
-
-``` json
-"statusLine": {
-  "type": "command",
-  "command": "bash ~/.claude/statusline.sh"
-}
-```
-
-> [!IMPORTANT]
-> The script needs `bash` 4.2 or later, `jq` and `git`. On Windows, Git Bash brings all of them except `jq`; on macOS, the system `bash` is 3.2, so install a newer one.
-
-
-
-<!-- FILETREE -->
-## File tree
+### filetree
 
 `filetree` is a fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) 0.5.4 by Kurt Buhler (MIT), restyled to match the mods above. It is an IDE-style file tree in a pane beside the chat that shows what Claude reads, writes and changes. Every feature, keyboard shortcut, setting and platform branch (Windows, macOS, Linux) comes from upstream; the credits for its contributors are in [`filetree/ACKNOWLEDGEMENTS.md`](./filetree/ACKNOWLEDGEMENTS.md).
 
@@ -237,6 +210,35 @@ The `Palette` option still overrides any colour with a hex value. Two things kee
 
 > [!IMPORTANT]
 > `filetree` needs Claude Code **2.1.306** or later. In the terminal it shows in the right sidebar, which needs the fullscreen layout (`/tui fullscreen`) and a window at least **110 columns** wide.
+
+
+
+
+### Status line
+
+`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
+
+```
+╭─ Opus 5.5 · claude-plugins ↗ · main +5 ~4 ──────────╮
+│ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k  │
+│ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1× │
+│ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8× │
+╰────────────────────────────────────────────────────╯
+```
+
+The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
+
+Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
+
+``` json
+"statusLine": {
+  "type": "command",
+  "command": "bash ~/.claude/statusline.sh"
+}
+```
+
+> [!IMPORTANT]
+> The script needs `bash` 4.2 or later, `jq` and `git`. On Windows, Git Bash brings all of them except `jq`; on macOS, the system `bash` is 3.2, so install a newer one.
 
 
 
@@ -284,7 +286,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also 
 <!-- SECURITY -->
 ## Security
 
-Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These mods only draw and count; none of them runs a command, reads your files, or makes a network call. flightdeck reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
+Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. gloss, pulse, postcard and flightdeck only draw and count; none of them runs a command, reads your files, or makes a network call. flightdeck reads the session's own usage figures through the mod API and redacts credentials from the tool inputs it keeps for the gate. Read `hooks/` before installing, as you would for any plugin.
 
 `filetree` does more than draw: it lists and reads files under the folder it shows, runs `git` for status and diffs, local converters such as `ffmpeg`, `pdftoppm` and `soffice` for previews when they are installed, and opens files in the programs its options name. It makes no network call of its own.
 
