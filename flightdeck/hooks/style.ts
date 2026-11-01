@@ -52,7 +52,7 @@ export const GLYPH = {
  */
 export const ASCII: Readonly<Record<string, string>> = Object.fromEntries(
   // Pairs: a glyph, then its stand-in. Keys only, never drawn as they stand.
-  [...'✓v✕x✗x●*○o■#•*◦-‖|↻@⟲<◆+◇-»>…~·-━=╸:─-│|┃|╭+╮+╰+╯+┬+┴+├+┼+┤+↗^⚠!ℹi→>—-⧉+▾v▴^▸>⌕?⌘/⇣v⠋|⠙/⠹-⠸\\⠼|⠴/⠦-⠧\\⠇|⠏/'].flatMap((c, i, all) => (i % 2 ? [] : [[c, all[i + 1]!]])), // glyph-lint-ignore
+  [...'✓v✕x✗x●*○o■#•*◦-‖|↻@⟲<◆+◇-»>…~·-━=╸:─-│|┃|╭+╮+╰+╯+┬+┴+├+┼+┤+↗^⚠!ℹi→>—-⧉+▾v▴^▸>⌕?⌘/⇣v⠋|⠙/⠹-⠸\\⠼|⠴/⠦-⠧\\⠇|⠏/▁_▂.▃:▄-▅=▆+▇*█#◂<'].flatMap((c, i, all) => (i % 2 ? [] : [[c, all[i + 1]!]])), // glyph-lint-ignore
 )
 
 /** `s` with every glyph in `ASCII` swapped for its stand-in, variation selectors dropped. */

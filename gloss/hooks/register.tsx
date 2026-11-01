@@ -9,7 +9,7 @@ import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
 import { editorScheme, refUrl, resolvePath } from './paths'
 import type { FileRef } from './paths'
-import { GLYPH, ROLE, SEP, asciiTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
+import { GLYPH, ROLE, SEP, ascii, asciiTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
 // included, which `$.config.list` only reports as "auto". The chip is the
@@ -404,7 +404,7 @@ export const register: Register = (on, options) => {
             <Box key={`c${i}`} flexDirection="column">
               {head}
               {grid
-                ? grid.rows().map((row, k) => <Text key={`c${i}.${k}`}>{isAscii ? row.replace(/◂/g, '<') : row}</Text>)
+                ? grid.rows().map((row, k) => <Text key={`c${i}.${k}`}>{isAscii ? ascii(row) : row}</Text>)
                 : [
                     <Text key={`c${i}.why`} dimColor>{`${GLYPH.info} ${why}: the source is shown`}</Text>,
                     <Code key={`c${i}.src`} source={part.source} />,

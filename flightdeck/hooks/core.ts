@@ -23,7 +23,7 @@ import type {
   Usage,
   View,
 } from '../types'
-import { HEAT_RAMP, ROLE, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
+import { HEAT_RAMP, ROLE, ascii, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -782,7 +782,7 @@ export const pushTrend = (list: readonly TrendPoint[], p: TrendPoint): TrendPoin
 
 /** The sparkline's eight levels, low to high, and the ASCII stand-ins `glyphs: text` draws. */
 export const SPARK = '▁▂▃▄▅▆▇█'
-export const SPARK_ASCII = '_.:-=+*#'
+export const SPARK_ASCII = ascii(SPARK)
 
 /**
  * Each value's level, 0 to 7, against `max` (a percentage passes 100; else the series' own largest), so the
