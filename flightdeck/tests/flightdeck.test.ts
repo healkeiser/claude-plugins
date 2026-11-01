@@ -1490,7 +1490,7 @@ test("Claude Code's Reduce motion stills the connectors, as motion: off does", a
   await $.turn.start({ text: 'go', turnId: 'R1' })
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect((await ui.findAll({ type: 'Client' })).filter(c => (c as Drawn).props?.module === './rail.tsx')).toEqual([])
-  expect(bareEmoji((await ui.findAll({ type: 'Text' })).map(t => (t as Drawn).text ?? '').join(''))).toEqual([])
+  expect(bareEmoji((await ui.findAll({ type: 'Text' })).map(t => textOf(t as Drawn)).join(''))).toEqual([])
   await ui.unmount()
 })
 

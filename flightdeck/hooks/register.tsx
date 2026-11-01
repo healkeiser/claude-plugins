@@ -866,10 +866,11 @@ export const register: Register = (on, options) => {
     // that glides to a new reading (DESIGN.md, Graphical surfaces). The number beside it still says it.
     const svgBar = (key: string, bar: Span[], cells: number, alt: string) => {
       if (e.surface === 'terminal') return null
+      const { Svg } = $.ui.resolve(e)
       const runs = bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: b.color === C.faint }))
       const drawn = svgMeter(runs, cells, meterWidths.get(key) ?? [], !motion)
       meterWidths.set(key, drawn.widths)
-      return <els.Svg source={drawn.source} alt={alt} />
+      return <Svg source={drawn.source} alt={alt} />
     }
     // A fill drawn as the statusline draws it: ━ in its heat, ─ for the rest.
     const fillBar = (pct: number, cells: number): Span[] => {

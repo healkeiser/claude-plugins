@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine, On } from 'claude-code/testing'
+import type { On } from 'claude-code'
+import type { Engine } from 'claude-code/testing'
 
 import { bareEmoji } from './style'
 
