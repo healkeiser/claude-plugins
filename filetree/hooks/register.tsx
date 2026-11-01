@@ -433,7 +433,8 @@ async function reset($: EngineInterface, root: string, focus = false, ready?: Pr
   sizeEpoch += 1
   sizeQueue = []
   await put($, () => ({ ...emptyTree(root), showHidden: prev.showHidden, column: prev.root ? prev.column : columnDefault, split: prev.split, heat: prev.heat, hot: prev.hot }))
-  const title = `Files: ${root.split('/').pop() || root}`
+  // The tab reads the same wherever the tree is rooted; the header shows the folder.
+  const title = 'Files'
   const listed = loadDirs($, [root])
   const repo = detectRepo($)
   await ready
@@ -1634,7 +1635,7 @@ function treeKey(): string {
 }
 
 function focusPane($: EngineInterface, root: string, key: string): void {
-  void $.ui.open({ id: PANE, backgroundColor: 'transparent', title: `Files: ${root.split('/').pop() || root}`, focus: true }).then(() => (key ? $.ui.focus({ requestId: PANE, key }) : undefined)).catch(() => {})
+  void $.ui.open({ id: PANE, backgroundColor: 'transparent', title: 'Files', focus: true }).then(() => (key ? $.ui.focus({ requestId: PANE, key }) : undefined)).catch(() => {})
 }
 
 function toggleShortcuts($: EngineInterface): void {
@@ -1989,7 +1990,7 @@ export const register: Register = (on, options) => {
       if (t.preview) await patch($, () => ({ preview: '', previewTop: 0 }))
       await setActivities($, cur => cur.map(a => (a.state === 'running' ? { ...a, state: 'failed', label: `${a.kind} interrupted` } : a)))
       const cwd = await cwdOf($)
-      const shown = !t.root || t.nodes.length === 0 || (follow && t.root !== cwd) ? reset($, cwd, false, ready) : ready.then(() => (noDock ? undefined : $.ui.open({ id: PANE, backgroundColor: 'transparent', title: `Files: ${t.root.split('/').pop() || t.root}` })))
+      const shown = !t.root || t.nodes.length === 0 || (follow && t.root !== cwd) ? reset($, cwd, false, ready) : ready.then(() => (noDock ? undefined : $.ui.open({ id: PANE, backgroundColor: 'transparent', title: 'Files' })))
       await ready
       ageTick?.cancel()
       ageTick = showAge ? $.clock.every(AGE_TICK_MS, () => $.ui.invalidate('ui.render')) : null
