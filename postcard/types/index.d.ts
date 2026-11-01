@@ -6,6 +6,6 @@ export type PromptsSent = { ids: readonly string[]; turnId: string | null; opene
 
 declare module 'claude-code' {
   interface PluginState {
-    'prompt-cards': { version: PromptsVersion; sent: PromptsSent }
+    'postcard': { version: PromptsVersion; sent: PromptsSent }
   }
 }

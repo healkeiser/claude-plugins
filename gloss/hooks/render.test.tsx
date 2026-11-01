@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 test('inline code draws as a padded chip', async $ => {
   const ui = await $.ui.mount({
-    plugin: 'pretty-markdown',
+    plugin: 'gloss',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text: 'Edit `a.ts` now', isFirstOfReply: true },
@@ -18,7 +18,7 @@ test('the copy button puts the block source on the clipboard', async ($, on) => 
     return { value: { isCopied: true } }
   })
   const ui = await $.ui.mount({
-    plugin: 'pretty-markdown',
+    plugin: 'gloss',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text: '```bash\nnpm test\n```', isFirstOfReply: true },
@@ -34,7 +34,7 @@ test('the desktop keeps its own drawing', async ($, on) => {
     return <Text>engine row</Text>
   })
   const ui = await $.ui.mount({
-    plugin: 'pretty-markdown',
+    plugin: 'gloss',
     surface: 'desktop',
     component: 'AssistantMessage',
     props: { text: '| a | b |\n|---|---|\n| 1 | 2 |', isFirstOfReply: true },
@@ -44,7 +44,7 @@ test('the desktop keeps its own drawing', async ($, on) => {
 
 test('a message redrawn with new text is parsed again', async $ => {
   const draw = (text: string) => $.ui.mount({
-    plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage',
+    plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
     requestId: 'm1', props: { text, isFirstOfReply: true },
   } as never)
   await (await draw('Edit `a.ts`')).unmount()
@@ -54,7 +54,7 @@ test('a message redrawn with new text is parsed again', async $ => {
 
 const mountAt = ($: Parameters<Parameters<typeof test>[1]>[0], text: string, columns = 100) =>
   $.ui.mount({
-    plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage',
+    plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
     props: { text, isFirstOfReply: true }, viewport: { columns, rows: 40 },
   } as never)
 

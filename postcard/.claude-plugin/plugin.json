@@ -1,0 +1,1 @@
+{"name": "postcard", "version": "0.3.0", "description": "Draws each prompt you send as a blue bordered card, each slash command as a purple one, and /prompts lists them in a pane that jumps to any one.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}

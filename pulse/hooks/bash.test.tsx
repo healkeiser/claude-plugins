@@ -16,7 +16,7 @@ const VIEWPORT = { columns: 60, rows: 30 }
 
 async function draw($: Engine, props: object, requestId = 'b1') {
   const ui = await $.ui.mount({
-    plugin: 'working-band', surface: 'terminal', component: 'ToolUse', requestId, viewport: VIEWPORT,
+    plugin: 'pulse', surface: 'terminal', component: 'ToolUse', requestId, viewport: VIEWPORT,
     props: { ...ROW, ...props },
   } as never)
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
@@ -106,7 +106,7 @@ test('the result row is hidden for a compact Bash row, kept for errors', async (
   })
   const result = async (props: object) => {
     const ui = await $.ui.mount({
-      plugin: 'working-band', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+      plugin: 'pulse', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
       props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'x', stderr: '' }, isErrored: false, ...props },
     } as never)
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)

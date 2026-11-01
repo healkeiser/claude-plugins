@@ -5,8 +5,8 @@ import type { Activity } from '../types'
 import { clip, commandLine, preview, took } from './bash'
 import { describe, elapsed, summarize } from './label'
 
-const activity = atom({ plugin: 'working-band', key: 'activity' } as const, null)
-const durations = atom({ plugin: 'working-band', key: 'durations' } as const, null)
+const activity = atom({ plugin: 'pulse', key: 'activity' } as const, null)
+const durations = atom({ plugin: 'pulse', key: 'durations' } as const, null)
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 // 8 frames a second: smooth enough for a braille spinner, light on redraws.
 const FRAME_MS = 125

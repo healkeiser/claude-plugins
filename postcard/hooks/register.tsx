@@ -3,14 +3,14 @@ import type { Register } from 'claude-code'
 
 import type { PromptsSent, PromptsVersion } from '../types'
 
-// Blue, so a prompt card never reads as one of pretty-markdown's grey code blocks.
+// Blue, so a prompt card never reads as one of gloss's grey code blocks.
 const CARD = 'suggestion'
 // Purple: a slash command, typed or as the row its output prints, apart from a prompt.
 const COMMAND = 'merged'
 const PANE = 'prompts'
 
-const version = atom({ plugin: 'prompt-cards', key: 'version' } as const, 0 as PromptsVersion)
-const sent = atom({ plugin: 'prompt-cards', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
+const version = atom({ plugin: 'postcard', key: 'version' } as const, 0 as PromptsVersion)
+const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
 
 // Splits a prompt into prose and fenced code, so a pasted block draws as code.
 // A fence left open runs to the end, as Markdown reads it.

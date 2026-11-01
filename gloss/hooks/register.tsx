@@ -24,7 +24,7 @@ const CALLOUT: Record<CalloutType, { color: string; title: string }> = {
 }
 
 // Code blocks the person unfolded, by message id and block index.
-const expanded = atom({ plugin: 'pretty-markdown', key: 'expanded' } as const, [] as readonly FoldId[])
+const expanded = atom({ plugin: 'gloss', key: 'expanded' } as const, [] as readonly FoldId[])
 
 const widthOf = (list: Span[]) => list.reduce((n, s) => n + spanWidth(s), 0)
 

@@ -4,7 +4,7 @@ import type { Engine } from 'claude-code/testing'
 import { asHunk, parse } from './parse'
 
 const mount = ($: Engine, text: string) =>
-  $.ui.mount({ plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  $.ui.mount({ plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
 
 test('a Next: paragraph becomes its own part', () => {
   expect(parse('Done.\n\nNext: run `npm test`.')).toEqual([
@@ -34,7 +34,7 @@ test('a table draws its header and a column rule', async $ => {
 test('a table wider than the window keeps its border and narrows a column', async $ => {
   const long = 'word '.repeat(60).trim()
   const ui = await $.ui.mount({
-    plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage',
+    plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
     props: { text: `| Mod | What |\n|---|---|\n| a | ${long} |`, isFirstOfReply: true },
     viewport: { columns: 80, rows: 40 },
   } as never)

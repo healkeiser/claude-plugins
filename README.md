@@ -38,10 +38,10 @@
 - [About](#about)
 - [Installation](#installation)
 - [Usage](#usage)
-  - [pretty-markdown](#pretty-markdown)
-  - [working-band](#working-band)
-  - [prompt-cards](#prompt-cards)
-  - [Status line](#status-line)
+  - [gloss](#gloss)
+  - [pulse](#pulse)
+  - [postcard](#postcard)
+  - [Status line](#gauge-status-line)
 - [Dev skills](#dev-skills)
 - [Documentation skills](#documentation-skills)
 - [Security](#security)
@@ -58,11 +58,11 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 
 | Mod | What it changes |
 |-----|-----------------|
-| **pretty-markdown** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
-| **working-band** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
-| **prompt-cards** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
+| **gloss** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
+| **pulse** | The line above the prompt while Claude works, the folded tool rows, compact shell command rows, and the footer that closes each turn |
+| **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
 
-A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
+A matching [status line](#gauge-status-line) script comes alongside. It is not a mod, so it installs on its own.
 
 The repository also ships [documentation skills](#documentation-skills): each one gives Claude a local, searchable copy of one software release's official docs.
 
@@ -75,9 +75,9 @@ Add this repository as a plugin marketplace, then install the mods you want at u
 
 ``` shell
 claude plugin marketplace add healkeiser/claude-plugins
-claude plugin install pretty-markdown@healkeiser --scope user
-claude plugin install working-band@healkeiser --scope user
-claude plugin install prompt-cards@healkeiser --scope user
+claude plugin install gloss@healkeiser --scope user
+claude plugin install pulse@healkeiser --scope user
+claude plugin install postcard@healkeiser --scope user
 ```
 
 Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
@@ -90,7 +90,7 @@ Run `/reload-plugins` in a session that is already open; new sessions load them 
 <!-- USAGE -->
 ## Usage
 
-### pretty-markdown
+### gloss
 
 Redraws each block of Claude's reply that has something to gain; plain prose keeps Claude Code's own look.
 
@@ -106,7 +106,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon.
 - A paragraph opening with **`Next:`** draws in its own box, so the action a reply ends on is easy to spot.
 
-### working-band
+### pulse
 
 - While a turn runs, the band above the prompt reads `⠹ editing parse.ts  ·  3 tools  ·  42s`: a spinner, the current action, the tool count and the elapsed time.
 - Folded tool rows read `◇ 3 reads  ·  ⌕ 2 searches  ·  ⌘ 1 shell`, dim, with failures in red.
@@ -121,7 +121,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 
   The headline is Claude's own description of the command. On the right, a spinner while it runs, then `✔` and how long it took (wall time, a permission prompt included), `✕` in red when it failed, `⏸ interrupted` when it was cut short. The command line is dim and fits one line: the home folder reads `~`, middle folders collapse when it is too long, and a heredoc shows its first line. The last line previews the first line of output (stderr in red when stdout is empty) and counts the rest. A failed command keeps Claude Code's own error block under the row. `ctrl+o` shows the full drawing.
 
-### prompt-cards
+### postcard
 
 - Each prompt you send draws as a blue card, so your messages stand out when you scroll.
 - Each slash command you run (`/diff`, `/theme`, a skill) draws its output as a purple card headed by the command. The line you typed stays as the engine draws it: mods cannot restyle it, and a command that prints nothing has no card.
@@ -136,9 +136,9 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 > [!NOTE]
 > Colours are tuned for dark themes: the inline-code chip and the prompt card's background are fixed colours, and read as dark bands on a light theme.
 
-### Status line
+### gauge (status line)
 
-`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
+`gauge/gauge.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
 
 ```
 ╭─ Opus 5.5 · claude-mods ↗ · main +5 ~4 ──────────╮
@@ -155,7 +155,7 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 ``` json
 "statusLine": {
   "type": "command",
-  "command": "bash ~/.claude/statusline.sh"
+  "command": "bash ~/.claude/gauge.sh"
 }
 ```
 
@@ -223,8 +223,8 @@ Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, a
 git clone https://github.com/healkeiser/claude-plugins
 cd claude-plugins
 claude plugin marketplace add ./
-claude plugin validate ./pretty-markdown
-claude plugin test ./pretty-markdown
+claude plugin validate ./gloss
+claude plugin test ./gloss
 ```
 
 A marketplace added from a local folder is read in place: edit a mod, run `/reload-plugins`, and the session picks it up with no reinstall.

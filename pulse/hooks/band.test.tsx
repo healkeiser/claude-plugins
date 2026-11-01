@@ -10,7 +10,7 @@ test('the band counts tools and times the turn by the clock', async ($, on) => {
   await clock.advance(61_000)
 
   const ui = await $.ui.mount({
-    plugin: 'working-band', surface: 'terminal', component: 'AbovePrompt',
+    plugin: 'pulse', surface: 'terminal', component: 'AbovePrompt',
     props: { isWorking: true, hasSurvey: false },
   } as never)
   const text = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')

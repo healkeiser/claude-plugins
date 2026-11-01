@@ -8,18 +8,18 @@
   },
   "plugins": [
     {
-      "name": "pretty-markdown",
-      "source": "./pretty-markdown",
+      "name": "gloss",
+      "source": "./gloss",
       "description": "Bordered code blocks with copy and fold, inline-code chips, coloured diffs, tables, headings, callouts and a Next: box."
     },
     {
-      "name": "working-band",
-      "source": "./working-band",
+      "name": "pulse",
+      "source": "./pulse",
       "description": "A live line above the prompt while Claude works, tidier tool rows, and a turn footer with tool and file counts."
     },
     {
-      "name": "prompt-cards",
-      "source": "./prompt-cards",
+      "name": "postcard",
+      "source": "./postcard",
       "description": "Your prompts as blue cards, dimmed while queued, and /prompts to jump to any one."
     },
     {
