@@ -6,6 +6,7 @@ import type { ZoneProps } from '../hooks/zone'
 import { LINUX_LAUNCH, TMUX_OPEN, TMUX_WORKSPACE } from '../hooks/open'
 import { CLEAN, POLICY, POSTER } from '../hooks/peek'
 import { age, ancestorsOf, formatSize, replaceChildren, toNodes } from '../hooks/tree'
+import { HEAT_RAMP } from '../hooks/style'
 
 type World = {
   os: 'darwin' | 'linux' | 'win32'
@@ -37,6 +38,8 @@ type World = {
   unborn?: boolean
   diffTree?: string[]
   poster?: (argv: string[]) => string
+  store?: Record<string, unknown>
+  show?: string
 }
 type Ran = string[][]
 const HERDR_SPLIT = '{"id":"cli:pane:split","result":{"pane":{"agent_status":"unknown","cwd":"/home/k/proj","focused":false,"pane_id":"w1:p37","parent_pane_id":"w1:p35","tab_id":"w1:tV","workspace_id":"w1"},"type":"pane_info"}}'
@@ -46,7 +49,7 @@ const envs: Record<string, string>[] = []
 function world(on: On, w: World, ran: Ran) {
   mock.env(on, w.env)
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
-  mock.store(on)
+  mock.store(on, w.store)
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: w.cwd }))
   on('session.id', () => ({ value: 'test-session' }))
@@ -119,6 +122,7 @@ function world(on: On, w: World, ran: Ran) {
       if (verb === 'rev-parse' && argv.at(-1) === 'HEAD') return ok(`${(w.heads && w.heads.length > 1 ? w.heads.shift() : w.heads?.[0]) ?? ''}\n`)
       if (verb === 'rev-parse') return w.top ? ok(`\n${w.top}\n`) : { value: { exitCode: 128, stdout: '', stderr: 'not a git repository', isStdoutTruncated: false, isStderrTruncated: false } }
       if (verb === 'status') return ok(w.status)
+      if (verb === 'show') return w.show === undefined ? { value: { exitCode: 128, stdout: '', stderr: 'fatal: path not in HEAD', isStdoutTruncated: false, isStderrTruncated: false } } : ok(w.show)
       if (verb === 'diff' && argv.includes('--no-index')) return ok(w.untrackedPatch ?? '')
       if (verb === 'diff' && argv.includes('--no-ext-diff')) return ok(w.patch ?? '')
       if (verb === 'ls-files' && argv.includes('--others')) return ok((w.untracked ?? []).join('\0'))
@@ -2786,5 +2790,217 @@ test('motion off: the rows are told to stand still, shimmer kept as a solid tone
   const drawn = await texts(ui)
   expect(drawn).toContain(shimmer('a.ts', 'orange'))
   expect(drawn).toContain('"still":true')
+  await ui.unmount()
+})
+
+const rowsOf = async (ui: { drawn: (scope?: { in?: string }) => Promise<unknown> }) => rowsProps(clientProps(await ui.drawn(), 'rows')).rows
+const rightOf = (rows: RowSpec[], id: string) => rows.find(r => r.id === id)?.right ?? []
+
+test('edit heat: each Edit and Write counts, a row draws its meter and count left of the git badge, a folder sums its files, and the hot view shows only edited files, hottest first', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, {
+    os: 'linux', env: { HOME: '/home/k', COLORTERM: 'truecolor' }, cwd: root, top: root, numstat: '',
+    dirs: { [root]: [['src', 'dir'], ['README.md', 'file'], ['cold.ts', 'file']], [`${root}/src`]: [['a.ts', 'file'], ['b.ts', 'file']] },
+    status: '## main\0 M src/a.ts\0 M README.md\0',
+  }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Edit', file_path: `${root}/src/a.ts`, old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Write', file_path: `${root}/README.md`, content: 'x' })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  let rows = await rowsOf(ui)
+  const a = rightOf(rows, `${root}/src/a.ts`)
+  expect(a.find(s => s.t === '━━')?.c).toBe(HEAT_RAMP[9])
+  expect(a.find(s => s.t === ' 3')?.c).toBe(HEAT_RAMP[9])
+  expect(a.findIndex(s => s.t === ' 3')).toBeLessThan(a.findIndex(s => s.t === ' M'))
+  expect(a.find(s => s.t === ' M')?.c).toBe('warning')
+  const readme = rightOf(rows, `${root}/README.md`)
+  expect(readme.find(s => s.t === ' 1')?.c).toBe(HEAT_RAMP[3])
+  expect(rightOf(rows, `${root}/src`).find(s => s.t === ' 3')?.c).toBe(HEAT_RAMP[9])
+  expect(rightOf(rows, `${root}/cold.ts`).some(s => s.t.includes('━') || s.t.includes('╸'))).toBe(false)
+  expect(JSON.stringify(await ui.drawn({ in: 'button-hot' }))).toContain('"dimColor":true')
+  await ui.press({ key: 'hot' })
+  await clock.settle()
+  rows = await rowsOf(ui)
+  expect(rows.map(r => r.id)).toEqual([`${root}/src`, `${root}/src/a.ts`, `${root}/README.md`])
+  await ui.press({ key: 'hot' })
+  await clock.settle()
+  expect((await rowsOf(ui)).map(r => r.id)).toContain(`${root}/cold.ts`)
+  await ui.unmount()
+})
+
+test('edit heat without a 256-colour terminal takes the role colours, and the hot view of an unedited tree says so', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k', TERM: 'xterm' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['a.ts', 'file'], ['b.ts', 'file']] }, status: '## main\0' }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  await ui.press({ key: 'hot' })
+  await clock.settle()
+  expect(await texts(ui)).toContain('no edits yet')
+  await ui.press({ key: 'hot' })
+  await $.tool.call({ tool: 'Edit', file_path: `${root}/a.ts`, old_string: 'a', new_string: 'b' })
+  await clock.settle()
+  expect(rightOf(await rowsOf(ui), `${root}/a.ts`).find(s => s.t === ' 1')?.c).toBe('error')
+  await ui.unmount()
+})
+
+for (const [session, shown] of [['an-older-session', ' 2'], ['test-session', ' 4']] as const)
+  test(`edit heat across sessions: counts kept by ${session} come back ${session === 'test-session' ? 'whole on a reload' : 'halved in a new session'}, and a new edit adds to them`, { timeoutMs: 20_000, options: { heat: 'sessions' } }, async ($, on) => {
+    const ran: Ran = []
+    const root = '/home/k/proj'
+    const clock = world(on, {
+      os: 'linux', env: { HOME: '/home/k', COLORTERM: 'truecolor' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['a.ts', 'file'], ['b.ts', 'file']] }, status: '## main\0',
+      store: { heat: { session, counts: { [`${root}/a.ts`]: 4, [`${root}/b.ts`]: 'x' } } },
+    }, ran)
+    await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+    await clock.settle()
+    const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+    await clock.settle()
+    let rows = await rowsOf(ui)
+    expect(rightOf(rows, `${root}/a.ts`).some(s => s.t === shown)).toBe(true)
+    expect(rightOf(rows, `${root}/b.ts`).some(s => s.t.includes('━') || s.t.includes('╸'))).toBe(false)
+    await $.tool.call({ tool: 'Edit', file_path: `${root}/a.ts`, old_string: 'a', new_string: 'b' })
+    await clock.settle()
+    rows = await rowsOf(ui)
+    expect(rightOf(rows, `${root}/a.ts`).some(s => s.t === ` ${Number(shown) + 1}`)).toBe(true)
+    await ui.unmount()
+  })
+
+test('edit heat off: no meter and no hot files button', { timeoutMs: 20_000, options: { heat: 'off' } }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['a.ts', 'file']] }, status: '## main\0' }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await $.tool.call({ tool: 'Edit', file_path: `${root}/a.ts`, old_string: 'a', new_string: 'b' })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  expect(rightOf(await rowsOf(ui), `${root}/a.ts`).some(s => s.t === ' 1')).toBe(false)
+  expect(JSON.stringify(await ui.drawn())).not.toContain('button-hot')
+  await ui.unmount()
+})
+
+const BEFORE_MD = '# Notes\n\nkeep\n\nold line\n\ngone\n\ntail\n'
+const AFTER_MD = '# Notes\n\nkeep\n\nnew line\n\ntail\n\nadded\n'
+
+function compareOf(tree: unknown) {
+  const props = clientProps(tree, 'rows')
+  const preview = has(props, 'preview') ? props.preview : undefined
+  return has(preview, 'compare') ? preview.compare : undefined
+}
+
+test('m on a changed Markdown file shows it rendered before (last commit) and after, stacked in a narrow pane with each changed block marked, m again goes back, and d then m reaches it from the diff', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, {
+    os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['README.md', 'file']] }, status: '## main\0 M README.md\0',
+    files: { [`${root}/README.md`]: AFTER_MD }, show: BEFORE_MD,
+    patch: 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -5,1 +5,1 @@\n-old line\n+new line\n',
+  }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  await ui.post({ key: 'end' }, { in: 'rows' })
+  await ui.post({ key: 'm' }, { in: 'rows' })
+  await clock.settle()
+  expect(ran.some(a => a[0] === 'git' && a.includes('show') && a.includes('HEAD:README.md'))).toBe(true)
+  let tree = await ui.drawn()
+  const compare = compareOf(tree)
+  expect(has(compare, 'wide') && compare.wide).toBe(false)
+  const blocks = has(compare, 'blocks') && Array.isArray(compare.blocks) ? compare.blocks : []
+  expect(blocks.map(b => (has(b, 'kind') ? b.kind : ''))).toEqual(['same', 'same', 'mod', 'del', 'same', 'add'])
+  let shown = await texts(ui)
+  expect(shown).toContain('before: last commit · after: now · ~1 changed · +1 added · -1 removed')
+  for (const [glyph, role] of [['~', 'warning'], ['-', 'error'], ['+', 'success']]) expect(shown).toContain(`{"type":"Text","props":{"color":"${role}"},"children":["${glyph}"]}`)
+  expect(shown).toContain('"text":"old line","dimColor":true')
+  expect(shown).toContain('"text":"new line"')
+  expect(JSON.stringify(await ui.drawn({ in: 'rows' }))).not.toContain('"width":"50%"')
+  await ui.post({ key: 'm' }, { in: 'rows' })
+  await clock.settle()
+  tree = await ui.drawn()
+  expect(compareOf(tree)).toBeUndefined()
+  expect(await texts(ui)).toContain('new line')
+  await ui.post({ key: 'd' }, { in: 'rows' })
+  await clock.settle()
+  expect(await texts(ui)).toContain('"format":"diff"')
+  await ui.post({ key: 'm' }, { in: 'rows' })
+  await clock.settle()
+  expect(compareOf(await ui.drawn())).toBeDefined()
+  await ui.post({ key: 'j' }, { in: 'rows' })
+  await clock.settle()
+  const moved = compareOf(await ui.drawn())
+  expect(has(moved, 'blocks') && Array.isArray(moved.blocks) ? moved.blocks.length : 0).toBeLessThan(blocks.length)
+  await ui.unmount()
+})
+
+test('Markdown before and after sit side by side in a wide pane, labelled, on the terminal and in the desktop app, and the split preview offers it for a changed file', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, {
+    os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: root, numstat: '', dirs: { [root]: [['README.md', 'file']] }, status: '## main\0 M README.md\0',
+    files: { [`${root}/README.md`]: AFTER_MD }, show: BEFORE_MD,
+  }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(100) })
+  await clock.settle()
+  await ui.post({ key: 'end' }, { in: 'rows' })
+  await ui.post({ key: 'p' }, { in: 'rows' })
+  await clock.settle()
+  expect(await texts(ui)).toContain('m before/after')
+  await ui.press({ key: 'peek-md' })
+  await clock.settle()
+  const compare = compareOf(await ui.drawn())
+  expect(has(compare, 'wide') && compare.wide).toBe(true)
+  const shown = await texts(ui)
+  expect(shown).toContain('before · last commit')
+  expect(shown).toContain('after · now')
+  expect(shown).toContain('"width":"50%"')
+  await ui.unmount()
+  const desk = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(100) })
+  await clock.settle()
+  const drawn = JSON.stringify(await desk.drawn())
+  expect(drawn).toContain('before · last commit')
+  expect(drawn).toContain('"text":"added"')
+  await desk.unmount()
+})
+
+test('before/after needs a repo: outside git it says why and stays on the tree', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', numstat: '', status: '', dirs: { [root]: [['a.md', 'file']] }, files: { [`${root}/a.md`]: 'same\n' } }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  await ui.post({ key: 'end' }, { in: 'rows' })
+  await ui.post({ key: 'm' }, { in: 'rows' })
+  await clock.settle()
+  expect(ran).toContainEqual(['toast', `~/proj/a.md is not in a git repo: before/after compares with the last commit`])
+  expect(compareOf(await ui.drawn())).toBeUndefined()
+  await ui.unmount()
+})
+
+test('before/after on a Markdown file unchanged since the last commit says so and stays on the tree', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/proj'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: root, numstat: '', status: '## main\0', dirs: { [root]: [['a.md', 'file']] }, files: { [`${root}/a.md`]: 'same\n' }, show: 'same\n' }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  await ui.post({ key: 'end' }, { in: 'rows' })
+  await ui.post({ key: 'm' }, { in: 'rows' })
+  await clock.settle()
+  expect(ran).toContainEqual(['toast', 'no changes in ~/proj/a.md since the last commit'])
+  expect(compareOf(await ui.drawn())).toBeUndefined()
   await ui.unmount()
 })

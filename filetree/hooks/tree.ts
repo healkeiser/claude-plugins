@@ -1,4 +1,5 @@
 import type { Branch, FileNode, FileTree, Theme } from '../types'
+import { rollHeat } from './heat'
 import { stronger } from './icons'
 
 export type Entry = { name: string; kind: 'file' | 'dir' | 'other'; mtimeMs: number; size: number; isLink: boolean }
@@ -45,6 +46,8 @@ export function emptyTree(root: string): FileTree {
     preview: '',
     previewTop: 0,
     split: false,
+    heat: {},
+    hot: false,
   }
 }
 
@@ -288,6 +291,14 @@ export function visibleRows(t: FileTree): Row[] {
       keep.add(n.id)
       for (const a of ancestorsOf(n.id, t.root)) keep.add(a)
     }
+  }
+  // The hot files view: edited files and their folders only, open, hottest first.
+  const rolled = t.hot ? rollHeat(t.heat, t.root) : null
+  if (rolled) {
+    const hot = new Set([...Object.keys(rolled.files), ...Object.keys(rolled.dirs)])
+    keep = keep ? new Set([...keep].filter(id => hot.has(id))) : hot
+    const score = (id: string) => rolled.files[id] ?? rolled.dirs[id] ?? 0
+    for (const list of kids.values()) list.sort((a, b) => score(b.id) - score(a.id))
   }
   const open = new Set(t.expanded)
   const rows: Row[] = []

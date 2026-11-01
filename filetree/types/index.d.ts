@@ -54,6 +54,10 @@ export type FileTree = {
   preview: string
   previewTop: number
   split: boolean
+  /** Edits and writes Claude made per absolute path (with the `heat` option on sessions, decayed counts of earlier sessions too). */
+  heat: Record<string, number>
+  /** The hot files view: only edited files and their folders, hottest first. */
+  hot: boolean
 }
 
 export type Theme = {

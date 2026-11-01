@@ -154,6 +154,7 @@ Same name, same meaning, wherever a mod has the concern.
 | `motion` | `while-active` (default), `off` | animate only while work runs, or never | pulse, flightdeck, filetree |
 | `glyphs` | `auto` (default), `plain`, `text`; filetree adds `nerd` | which glyph set the mod draws: `auto` is filetree's Nerd Font icons when installed and the Unicode set elsewhere, `plain` the Unicode set, `text` ASCII | gloss, postcard, flightdeck, filetree |
 | `palette` | flightdeck: `theme`, `pastel`; filetree: `key=#hex` pairs | theme keys, or fixed colours | flightdeck, filetree |
+| `heat` | `session` (default), `sessions`, `off` | count Claude's edits per file this session, or also earlier sessions' (halved each new session, bounded), or not at all; drawn as a heat-ramp meter with its count | filetree |
 
 `glyphs: text` swaps every glyph of the vocabulary for a one-cell ASCII stand-in (`ASCII` in `style.ts`: `✓` `v`, `✕` `x`, `●` `*`, `○` `o`, `━` `=`, `─` `-`, `…` `~`, corners `+`, the spinner `|/-\`, and so on), and draws rounded and bold borders `classic`. One cell each, so every width holds. It goes over the mod's whole tree (`asciiTree`), so text a person wrote inside a card is swapped too; code blocks, Markdown and pictures keep theirs. In filetree, `text` turns the header buttons into words. gloss and postcard draw no motion. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width: it drops the clock, pace and token counts first, then the details, then the header's link and changes, branch and folder; its narrowest form is 25 cells).
 

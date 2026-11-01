@@ -14,7 +14,9 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
-import { cellWidth, GLYPH, motionOn } from './style'
+import { canRamp, cellWidth, GLYPH, motionOn } from './style'
+import { bump, decay, heatOf, heatSegs, heatWidth, merge, rollHeat } from './heat'
+import { blockDiff, changeMarks, compareView, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
 import {
   age,
   ancestorsOf,
@@ -91,7 +93,7 @@ let glyphSetting = 'auto'
 let motionSetting: unknown = 'while-active'
 // Motion off, or Claude Code's Reduce motion: the shimmer and spinner stand still.
 let isStill = false
-const WORDS: Record<string, string> = { up: 'up', cwd: 'cwd', refresh: 'sync', hidden: 'dots', size: 'size', collapse: 'fold', split: 'split', unselect: 'clear' }
+const WORDS: Record<string, string> = { up: 'up', cwd: 'cwd', refresh: 'sync', hidden: 'dots', size: 'size', hot: 'hot', collapse: 'fold', split: 'split', unselect: 'clear' }
 let openWithSetting = ''
 let binariesInDefaultApp = false
 let editWithSetting = ''
@@ -104,6 +106,9 @@ let previewLine = 1
 let previewed: Preview | null = null
 let previewRows = 20
 let splitAt: 'bottom' | 'top' = 'bottom'
+let heatSetting: 'session' | 'sessions' | 'off' = 'session'
+let rampOk = true
+const HEAT_STORE = 'heat'
 let peeked: Preview | null = null
 let peekPath = ''
 let peekRows = 8
@@ -180,7 +185,7 @@ const listLatest = new Map<string, number>()
 const unreadable = new Set<string>()
 const background = new Map<string, Background>()
 
-type Preview = { path: string; text: string; note: string; diff?: DiffLine[]; page?: number }
+type Preview = { path: string; text: string; note: string; diff?: DiffLine[]; md?: MdBlock[]; page?: number }
 type Scan = { dir: string; loc: boolean; items: Usage[]; total: number; done: boolean; stale: boolean; stopped: boolean; stop: () => void }
 const scans = new Map<string, Scan>()
 let mapLock: { anchor: string; pick: string; cursor: string } | null = null
@@ -427,7 +432,7 @@ async function reset($: EngineInterface, root: string, focus = false, ready?: Pr
   searchIndex = null
   sizeEpoch += 1
   sizeQueue = []
-  await put($, () => ({ ...emptyTree(root), showHidden: prev.showHidden, column: prev.root ? prev.column : columnDefault, split: prev.split }))
+  await put($, () => ({ ...emptyTree(root), showHidden: prev.showHidden, column: prev.root ? prev.column : columnDefault, split: prev.split, heat: prev.heat, hot: prev.hot }))
   const title = `Files: ${root.split('/').pop() || root}`
   const listed = loadDirs($, [root])
   const repo = detectRepo($)
@@ -1301,6 +1306,59 @@ async function diffFile($: EngineInterface, path: string): Promise<void> {
   }
 }
 
+async function seedHeat($: EngineInterface): Promise<void> {
+  const id = await $.session.id()
+  const kept = await $.store.get(HEAT_STORE)
+  const counts = heatOf(has(kept, 'counts') ? kept.counts : undefined)
+  // A new session inherits half of each count; a reload of the same one keeps them.
+  const mine = has(kept, 'session') && kept.session === id
+  const carried = mine ? counts : decay(counts)
+  if (!mine) await $.store.set(HEAT_STORE, { session: id, counts: carried })
+  await patch($, t => ({ heat: merge(carried, t.heat) }))
+}
+
+async function bumpHeat($: EngineInterface, path: string): Promise<void> {
+  await patch($, t => ({ heat: bump(t.heat, path) }))
+  if (heatSetting === 'sessions') await $.store.set(HEAT_STORE, { session: await $.session.id(), counts: (await get($)).heat }).catch(() => undefined)
+}
+
+async function toggleHot($: EngineInterface): Promise<void> {
+  const t = await get($)
+  if (!t.hot) await revealPaths($, Object.keys(rollHeat(t.heat, t.root).files))
+  await patch($, cur => ({ hot: !cur.hot, scroll: null }))
+}
+
+const isMarkdown = (path: string) => /\.(md|markdown|mdx)$/i.test(path)
+
+// "Before" is the last commit (HEAD), as d diffs against it; a file HEAD lacks starts empty.
+async function loadMd($: EngineInterface, path: string): Promise<string> {
+  const t = await get($)
+  if (!t.top || !inside(t.top, path)) return `${shortPath(path)} is not in a git repo: before/after compares with the last commit`
+  const now = await readPreview($, path)
+  if (!now.text && now.note) return `${shortPath(path)}: ${now.note}`
+  const head = await git($, t.top, ['show', `HEAD:${relative(t.top, path)}`]).catch(() => null)
+  const before = head?.exitCode === 0 ? head.stdout.slice(0, PREVIEW_CHARS).replace(/\r\n?/g, '\n') : ''
+  if (before.replace(/\n+$/, '') === now.text.replace(/\n+$/, '')) return `no changes in ${shortPath(path)} since the last commit`
+  const md = blockDiff(mdBlocks(before), mdBlocks(now.text))
+  const n = tally(md)
+  const counts = [n.mod && `~${n.mod} changed`, n.add && `+${n.add} added`, n.del && `-${n.del} removed`].filter(Boolean).join(' · ')
+  previewed = { path, text: '', note: `${head?.exitCode === 0 ? 'before: last commit' : 'before: not committed yet'} · after: now · ${counts}`, md }
+  return ''
+}
+
+async function mdFile($: EngineInterface, path: string): Promise<void> {
+  if (!isMarkdown(path)) return
+  const t = await get($)
+  if (t.preview === path && previewed?.path === path && previewed.md) return showPreview($, path)
+  const why = await loadMd($, path)
+  if (why) {
+    $.ui.toast(why)
+    return
+  }
+  await patch($, () => ({ preview: path, previewTop: 0, selected: path }))
+  $.clock.after(100, () => parkPreview($))
+}
+
 async function pngHeader($: EngineInterface, file: string): Promise<{ width: number; height: number } | null> {
   const run = await $.process.run(['od', '-An', '-tu1', '-N24', '--', file], { timeoutMs: 5_000 })
   return run.exitCode === 0 ? pngSize(Uint8Array.from(run.stdout.trim().split(/\s+/).map(Number))) : null
@@ -1629,11 +1687,12 @@ async function closePreview($: EngineInterface): Promise<void> {
 
 async function jumpDiff($: EngineInterface, dir: 1 | -1): Promise<void> {
   const lines = previewed?.diff
-  if (!lines) return
-  const files = lines.some(l => l.kind === '@')
-  const marks = lines.flatMap((l, i) => {
+  const md = previewed?.md
+  if (!lines && !md) return
+  const files = lines?.some(l => l.kind === '@') ?? false
+  const marks = md ? changeMarks(md) : (lines ?? []).flatMap((l, i) => {
     if (files) return l.kind === '@' ? [i] : []
-    const prev = lines[i - 1]
+    const prev = lines?.[i - 1]
     const gap = !prev || l.old !== prev.old + (prev.kind === '+' ? 0 : 1) || l.new !== prev.new + (prev.kind === '-' ? 0 : 1)
     return gap ? [i] : []
   })
@@ -1644,8 +1703,10 @@ async function jumpDiff($: EngineInterface, dir: 1 | -1): Promise<void> {
 
 async function scrollPreview($: EngineInterface, by: number): Promise<void> {
   const t = await get($)
-  const last = Math.max(0, (previewed?.diff?.length ?? previewed?.text.split('\n').length ?? 1) - previewRows)
-  const top = Math.max(0, Math.min(last, t.previewTop + by))
+  const last = previewed?.md ? Math.max(0, previewed.md.length - 1) : Math.max(0, (previewed?.diff?.length ?? previewed?.text.split('\n').length ?? 1) - previewRows)
+  // A block is several rows: the view moves a block per step, a page a fifth as many.
+  const step = previewed?.md && Math.abs(by) > 1 && Number.isFinite(by) ? Math.sign(by) * Math.max(1, Math.round(Math.abs(by) / 5)) : by
+  const top = Math.max(0, Math.min(last, t.previewTop + step))
   if (top !== t.previewTop) await patch($, () => ({ previewTop: top }))
 }
 
@@ -1821,6 +1882,7 @@ async function navigate($: EngineInterface, key: string, shift = false, surface?
   else if (key === '?') toggleShortcuts($)
   else if (key === 's') $.clock.after(50, () => focusPane($, t.root, 'q'))
   else if (cur && key === 'd') await diffFile($, cur.id)
+  else if (cur && key === 'm') await mdFile($, cur.id)
   else if (cur && (key === 'y' || key === 'Y')) await copyPath($, cur.id, key === 'Y' || shift, surface)
   else if (cur && (key === 'right' || key === 'l') && cur.kind === 'dir' && !t.expanded.includes(cur.id)) await toggle($, cur)
   else if (cur && (key === 'left' || key === 'h')) {
@@ -1852,6 +1914,7 @@ async function pressHeader($: EngineInterface, id: string): Promise<void> {
   else if (id === 'unselect') await patch($, () => ({ selected: '', cursor: '' }))
   else if (id === 'external' && t.preview) await openFile($, t.preview, { mode: '' })
   else if (id === 'split') await toggleSplit($)
+  else if (id === 'hot') await toggleHot($)
 }
 
 async function selectRoot($: EngineInterface): Promise<void> {
@@ -1888,6 +1951,7 @@ export const register: Register = (on, options) => {
   targetSetting = terminalTarget(options?.target)
   noDock = options?.start === 'off'
   splitAt = options?.split === 'top' ? 'top' : 'bottom'
+  heatSetting = options?.heat === 'sessions' || options?.heat === 'off' ? options.heat : 'session'
   on('session.start', async ($, e, next) => {
     cached ??= { ...emptyTree(''), ...(await $.state.get(TREE)).value }
     await $.command.register({ name: 'filetree', description: 'Show or hide the file tree; args: [path | open] (no path = cwd, open = never hide)' })
@@ -1901,6 +1965,8 @@ export const register: Register = (on, options) => {
     pictureBase = ((await $.env.get('XDG_RUNTIME_DIR')) || (await $.env.get('TMPDIR')) || '/tmp').replace(/\/+$/, '') || '/'
     home = posix(((await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || '').replace(/[\\/]+$/, ''))
     activityId = Math.max(activityId, ...(await activities($)).map(a => a.id))
+    rampOk = canRamp({ COLORTERM: await $.env.get('COLORTERM'), TERM: await $.env.get('TERM'), WT_SESSION: await $.env.get('WT_SESSION') })
+    if (heatSetting === 'sessions') await seedHeat($).catch(() => undefined)
     void (async () => {
       const ready = (async () => {
         pointer = await finePointerOk($)
@@ -2009,6 +2075,7 @@ export const register: Register = (on, options) => {
             ? e.notebook_path
             : ''
       if (file) void touched($, [file], 'orange', showWrites)
+      if (file && heatSetting !== 'off') void bumpHeat($, posix(file))
     }
     return result
   })
@@ -2052,6 +2119,7 @@ export const register: Register = (on, options) => {
         const page = Math.max(1, peekRows - 1)
         const by: Record<string, number> = { up: -1, k: -1, down: 1, j: 1, f: page, b: -page, pageup: -page, pagedown: page, space: page, ' ': page, home: -Infinity, end: Infinity }
         if (data.key === 'p') await toggleSplit($)
+        else if (data.key === 'm' && peekPath) await mdFile($, peekPath)
         else if (data.key === '[' || data.key === ']') turnPage($, data.key === ']' ? 1 : -1)
         else if (data.key in by) scrollSplit($, peekTop + (by[data.key] ?? 0))
       }
@@ -2089,7 +2157,8 @@ export const register: Register = (on, options) => {
       if (data.key === 'left' || data.key === 'h') await closePreview($)
       else if (data.key === 'e') await editPreview($, t.preview)
       else if (data.key === 'd') await diffFile($, t.preview)
-      else if (previewed?.diff && (data.key === 'j' || data.key === 'k')) await jumpDiff($, data.key === 'j' ? 1 : -1)
+      else if (data.key === 'm') await mdFile($, t.preview)
+      else if ((previewed?.diff || previewed?.md) && (data.key === 'j' || data.key === 'k')) await jumpDiff($, data.key === 'j' ? 1 : -1)
       else if (data.key in by) await scrollPreview($, by[data.key] ?? 0)
       return {}
     }
@@ -2205,9 +2274,13 @@ export const register: Register = (on, options) => {
       if (previewed?.path !== t.preview) await loadPreview($, t.preview)
       const p = previewed
       const markdown = /\.(md|markdown|mdx|docx|odt|rtf)$/i.test(t.preview)
-      const all = p?.diff?.length ?? (p?.text ?? '').split('\n').length
+      const md = p?.md
+      const all = md?.length ?? p?.diff?.length ?? (p?.text ?? '').split('\n').length
       previewRows = nativeScroll ? all : Math.max(4, (e.props.scroll?.bodyRows ?? 40) - (p?.note ? 3 : 2))
-      const start = nativeScroll ? 0 : p?.diff ? Math.min(t.previewTop, Math.max(0, all - 1)) : Math.min(t.previewTop, Math.max(0, all - previewRows))
+      const start = nativeScroll ? 0 : p?.diff || md ? Math.min(t.previewTop, Math.max(0, all - 1)) : Math.min(t.previewTop, Math.max(0, all - previewRows))
+      // Side by side when the pane is wide enough for two readable columns, stacked below.
+      const wide = e.props.bodyColumns >= WIDE_COLUMNS
+      const compare = md ? { blocks: nativeScroll ? md : mdWindow(md, start, previewRows, wide).blocks, wide, labels: ['before · last commit', 'after · now'] satisfies [string, string] } : undefined
       const win = p?.diff ? diffWindow(p.diff, start, previewRows) : previewLines(p?.text ?? '', start, previewRows, markdown)
       previewLine = win.top + 1
       const name = t.preview !== t.root && inside(t.root, t.preview) ? relative(t.root, t.preview) : shortPath(t.preview)
@@ -2227,19 +2300,20 @@ export const register: Register = (on, options) => {
           </Box>
           <Box flexDirection="row" gap={2}>
             {([['j', '↓', '\u{ea9a}', 1], ['k', '↑', '\u{eaa1}', -1], ['f', 'page ↓', '\u{ea9a} page', previewRows - 2], ['b', 'page ↑', '\u{eaa1} page', 2 - previewRows]] as const).map(([k, plain, nerd, by]) => {
-              const step = p?.diff && (k === 'j' || k === 'k') ? (p.diff.some(l => l.kind === '@') ? 'file' : 'hunk') : ''
+              const step = (k === 'j' || k === 'k') && (p?.diff || md) ? (md ? 'change' : p?.diff?.some(l => l.kind === '@') ? 'file' : 'hunk') : ''
               const label = step ? `${unicode ? plain : nerd} ${step}` : unicode ? plain : nerd
               return <Button key={`pv-${k}`} plain dimColor hotkey={k} label={label} onPress={() => void (step ? jumpDiff($, by > 0 ? 1 : -1) : scrollPreview($, by)).then(() => parkPreview($))} />
             })}
             <Button key="pv-d" plain dimColor hotkey="d" label={p?.diff ? (t.nodes.find(n => n.id === t.preview)?.kind === 'dir' ? 'tree' : 'file') : 'diff'} onPress={() => void diffFile($, t.preview)} />
+            {isMarkdown(t.preview) && t.top ? <Button key="pv-m" plain dimColor hotkey="m" label={md ? 'file' : 'before/after'} onPress={() => void mdFile($, t.preview)} /> : null}
             {editWithSetting || inTmux || inHerdr ? <Button key="edit" plain dimColor autoFocus hotkey="e" label={`${unicode ? 'edit' : '\u{ea73} edit'} :${previewLine}`} onPress={() => void editPreview($, t.preview)} /> : null}
           </Box>
           {p?.note ? <Text {...mutedText}>{p.note}</Text> : null}
-          {nativeScroll ? directPreview(elements, win, t.preview, markdown, theme.accent) : (
+          {nativeScroll && compare ? compareView(elements, compare.blocks, compare.wide, compare.labels) : nativeScroll ? directPreview(elements, win, t.preview, markdown, theme.accent) : (
             <Client
               key="rows"
               module="./rows.tsx"
-              props={{ rows: [], active: '', ...rowColors, pointer: false, preview: 'segments' in win ? { text: '', path: t.preview, startLine: win.top + 1, markdown: false, segments: win.segments, titleColor: theme.accent } : { text: win.text, path: t.preview, startLine: win.top + 1, markdown } } satisfies RowsProps}
+              props={{ rows: [], active: '', ...rowColors, pointer: false, preview: compare ? { text: '', path: t.preview, startLine: 1, markdown: true, compare } : 'segments' in win ? { text: '', path: t.preview, startLine: win.top + 1, markdown: false, segments: win.segments, titleColor: theme.accent } : { text: win.text, path: t.preview, startLine: win.top + 1, markdown } } satisfies RowsProps}
             />
           )}
         </Box>
@@ -2305,6 +2379,7 @@ export const register: Register = (on, options) => {
       { id: 'refresh', label: unicode ? '↻' : '\u{eb37}', dim: true, hint: 'reload tree and git' },
       { id: 'hidden', label: unicode ? (t.showHidden ? '⊙' : '○') : t.showHidden ? '\u{f0b95}' : '\u{eae7}', dim: !t.showHidden, hint: t.showHidden ? 'hide hidden files' : 'show hidden files' },
       { id: 'size', label: unicode ? '◫' : '\u{ea90}', dim: t.column === 'date', hint: t.column === 'date' ? 'show sizes' : t.column === 'size' ? 'show lines of code' : 'show dates' },
+      ...(heatSetting === 'off' ? [] : [{ id: 'hot', label: unicode ? '≋' : '\u{f0238}', dim: !t.hot, hint: t.hot ? 'show all files' : 'show hot files' }]),
       { id: 'collapse', label: unicode ? '⊟' : '\u{eac5}', dim: true, hint: 'collapse all' },
       ...(nativeScroll ? [] : [{ id: 'split', label: unicode ? '⊡' : splitAt === 'top' ? '\u{ebf6}' : '\u{ec01}', dim: !t.split, hint: t.split ? 'hide preview' : 'show preview' }]),
     ]
@@ -2315,6 +2390,10 @@ export const register: Register = (on, options) => {
     const header = t.top ? [t.top.split('/').pop() ?? t.top, t.prefix.replace(/\/$/, '')].filter(Boolean).join('/') : t.root.split('/').pop() || t.root
     const headerRuled = e.surface === 'terminal' && cellWidth(header) + 6 + buttons.reduce((w, b) => w + cellWidth(b.label) + 1, 0) <= e.props.bodyColumns
 
+    // Edit heat: files against the hottest file, folders (their files summed) against the hottest folder.
+    const rolled = heatSetting === 'off' ? { files: {}, dirs: {} } : rollHeat(t.heat, t.root)
+    const hottest = { file: Math.max(0, ...Object.values(rolled.files)), dir: Math.max(0, ...Object.values(rolled.dirs)) }
+    const ramp = e.surface === 'desktop' || rampOk
     const rowSpec = (r: (typeof rows)[number]): RowSpec => {
       const n = r.node
       const own = t.git[n.id]
@@ -2356,7 +2435,8 @@ export const register: Register = (on, options) => {
       const dirCounts = n.kind === 'dir' ? countSegs(t.counts[n.id]) : []
       const badge = dirCounts.length ? '' : status ? ` ${status}` : isIgnored ? (unicode ? ' ⊘' : ' \u{f05e}') : '  '
       const countsText = dirCounts.map(c => c.t).join('')
-      const cols = Math.max(4, width - r.depth * 2 - 6 - (meta ? meta.length + 1 : 0) - locText.length - badge.length - countsText.length)
+      const heated = (n.kind === 'dir' ? rolled.dirs[n.id] : rolled.files[n.id]) ?? 0
+      const cols = Math.max(4, width - r.depth * 2 - 6 - (meta ? meta.length + 1 : 0) - locText.length - badge.length - countsText.length - heatWidth(heated))
       const name = n.name.length > cols ? n.name.slice(0, cols - 1) + '…' : n.name
       const caret = n.kind === 'dir' ? (unicode ? (r.open ? '▾' : '▸') : r.open ? CHEVRON_OPEN : CHEVRON_CLOSED) + ' ' : '  '
       const isRepo = n.kind === 'dir' && n.id === t.top
@@ -2369,6 +2449,7 @@ export const register: Register = (on, options) => {
         lit ? { t: name, sh: tone, dim: isDim, b: isBright } : { t: name, c: nameColor, b: n.id === t.selected, s: status === 'D' && n.kind !== 'dir' },
       ]
       const right: Seg[] = []
+      right.push(...heatSegs(heated, n.kind === 'dir' ? hottest.dir : hottest.file, ramp))
       if (meta) right.push({ t: ` ${meta}`, c: theme.muted })
       if (loc && loc[0] > 0) right.push({ t: ` +${loc[0]}`, c: addColor })
       if (loc && loc[1] > 0) right.push({ t: ` -${loc[1]}`, c: delColor })
@@ -2379,7 +2460,7 @@ export const register: Register = (on, options) => {
 
     const note = (text: string): RowSpec => ({ id: '', left: [{ t: text, c: theme.muted }], right: [] })
     const specs: RowSpec[] = [
-      ...(rows.length === 0 ? [note('empty')] : []),
+      ...(rows.length === 0 ? [note(t.hot ? 'no edits yet' : 'empty')] : []),
       ...pinned.map(rowSpec),
       ...(pinned.length > 0 ? [note('  ⋮')] : []),
       ...shown.map(rowSpec),
@@ -2631,6 +2712,7 @@ export const register: Register = (on, options) => {
             )}
           </Box>
           {fill('peek-fill')}
+          {target && titleFits && t.git[target] && t.top && isMarkdown(target) ? <Box flexShrink={0} marginRight={1}><Button key="peek-md" plain dimColor label="m before/after" onPress={() => void mdFile($, target)} /></Box> : null}
           {status ? <Box flexShrink={0}><Text {...mutedText}>{status}</Text></Box> : null}
           {peeked?.note && peeked.text && !pic ? <Text {...mutedText}>{' partial'}</Text> : null}
         </Box>
@@ -2647,6 +2729,7 @@ export const register: Register = (on, options) => {
       { key: 'jkhl', label: 'move', act: () => undefined },
       { key: 'o', label: 'open', act: () => void navigate($, 'return') },
       { key: 'd', label: 'diff', act: () => void navigate($, 'd') },
+      { key: 'm', label: 'before/after', act: () => void navigate($, 'm') },
       { key: 's', label: 'search', act: () => focusPane($, t.root, 'q') },
       ...(e.surface === 'desktop' ? [] : [{ key: 'p', label: 'preview', act: () => void navigate($, 'p', false, e.surface).then(park) }]),
       { key: 'y', label: 'copy path', act: () => void navigate($, 'y', false, e.surface).then(park) },
@@ -2656,7 +2739,7 @@ export const register: Register = (on, options) => {
     const picked = new Set<string>()
     if (shortcutsShown) {
       let room = width - (footerName ? 12 + Math.min(footerName.length, 6) : 0) - (latest ? 6 + latest.label.length : 0)
-      for (const key of ['?', 'jkhl', '[ ]', 'd', 'o', 's', 'p', 'y']) {
+      for (const key of ['?', 'jkhl', '[ ]', 'd', 'o', 's', 'p', 'y', 'm']) {
         const k = allKeys.find(x => x.key === key)
         if (!k) continue
         const w = (key === 'jkhl' ? 7 : key.length) + k.label.length + 4

@@ -1,5 +1,6 @@
 import type { ClientModule, RenderElement } from 'claude-code'
 
+import { compareView, type MdBlock } from './compare'
 import { FRAME_MS, SPINNER, sweep } from './style'
 
 export type Seg = { t: string; c?: string; b?: boolean; s?: boolean; i?: boolean; sh?: string; dim?: boolean; one?: boolean; spin?: boolean; bg?: string; tab?: string }
@@ -15,7 +16,7 @@ export type RowsProps = {
   spinner?: string[]
   pointer?: boolean
   bar?: { pos: number; size: number; thumb: string; track: string }
-  preview?: { text: string; path: string; startLine: number; markdown: boolean; segments?: { title: string; source: string }[]; titleColor?: string; rows?: number }
+  preview?: { text: string; path: string; startLine: number; markdown: boolean; segments?: { title: string; source: string }[]; titleColor?: string; rows?: number; compare?: { blocks: MdBlock[]; wide: boolean; labels: [string, string] } }
 }
 type Local = { hover: number; phase: number; drag: boolean; ref: { stop?: () => void; unpoint?: () => void } }
 
@@ -111,7 +112,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
         </Column>
       )
     }
-    const body = p.markdown ? <Markdown text={p.text} /> : <Code source={p.text} path={p.path} startLine={p.startLine} wrap="truncate-end" />
+    const body = p.compare ? compareView(surface.elements, p.compare.blocks, p.compare.wide, p.compare.labels) : p.markdown ? <Markdown text={p.text} /> : <Code source={p.text} path={p.path} startLine={p.startLine} wrap="truncate-end" />
     if (!p.rows) return body
     const bar = props.bar
     return (
