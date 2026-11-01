@@ -13,7 +13,7 @@ One meaning per role. Roles name theme keys, never hex, so every mod follows the
 | command | `merged` | slash commands | postcard command cards and their output |
 | agent | `planMode` | work delegated away from the main loop | flightdeck agent cards, swimlanes, other loops |
 | info | `ide` | notes and advice | `[!NOTE]`, flightdeck's architect |
-| success | `success` | done, passed, added | `✓`, `[!TIP]`, task items done, `+3` |
+| success | `success` | done, passed, added | `✓`, `[!TIP]`, task items done, `+3`, checks allowed by a rule |
 | warning | `warning` | needs attention soon | `‖ interrupted`, pending checks, `~4`, meters from 60% |
 | error | `error` | failed, denied, removed | `✕`, `[!CAUTION]`, `-2`, meters from 80% |
 | chrome | `subtle`, or `dimColor` | borders, rules, labels, secondary text | code-block rules, table borders, queued cards |
@@ -25,11 +25,12 @@ Decisions that resolve old double meanings:
 - `merged` meant both "command" and "important". It now means **command** only; `[!IMPORTANT]` is accent with `◆`.
 - The inline-code chip drew its text in `warning`. It now draws in the default text colour on the chip background, so yellow keeps meaning "attention".
 - gloss list bullets: accent at the first level, chrome below. The glyph (`•`, `◦`, `■`) carries the depth, not the colour.
+- A git branch name draws in plain text in flightdeck and the status line; only its changes (`+2 ~1 -1`) take success, warning and error.
 
 Where a surface cannot take theme keys, fixed colours are allowed and documented:
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
-- flightdeck `Svg` meters (desktop): mid-tone hex that read on light and dark.
+- flightdeck's SVG meters and swimlanes (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
 
@@ -136,7 +137,7 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 | sweep | filetree's activity shimmer | a soft band (raised-cosine falloff over a four-step ramp) crossing the name with an ease-in-out, about 1.6 s a pass |
 | packets | flightdeck's rails | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
-| glide | meters redrawn on a tick | ease-out cubic over 400 ms (`glide` in `style.ts`); flightdeck's meters jump, because readings arrive seconds apart and the pane does not redraw on a tick |
+| glide | flightdeck's meters on graphical surfaces | a new reading glides from the last width on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters step, as a 10-cell bar has no in-between |
 
 - **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`. No element starts a timer of its own.
 - **Ease, never blink**: positions move on `easeInOut`, intensities fall off on a raised cosine, so nothing switches on and off.
@@ -152,8 +153,31 @@ Same name, same meaning, wherever a mod has the concern.
 | `glyphs` | filetree: `auto`, `nerd`, `plain`, `text` | which glyph set the pane draws | filetree |
 | `palette` | flightdeck: `theme`, `pastel`; filetree: `key=#hex` pairs | theme keys, or fixed colours | flightdeck, filetree |
 
-gloss and postcard draw no motion and take no options. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width).
+gloss and postcard draw no motion and take no options. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width: it drops the clock, pace and token counts first, then the details, then the header's link and changes, branch and folder; its narrowest form is 25 cells).
 
-## Surfaces
+## Graphical surfaces
 
-The terminal is the reference. Desktop and VS Code get the same roles, glyphs and shapes; what a proportional face cannot draw cell-exact (hand-padded tables, hand-wrapped quote bars, rules sized in cells) falls back to the surface's own Markdown, and borders come from `borderStyle`, not drawn characters. Mobile keeps the engine's look.
+Desktop, VS Code and mobile already draw the transcript well: proportional type, real code blocks and tables, their own message bubbles and tool rows. The mods never replace a good native drawing with a terminal imitation. Where a mod adds nothing the surface lacks, its hook returns `next(e)`; where it adds something, it layers only that.
+
+| Site | Terminal | Desktop | VS Code | Mobile | Why |
+|------|----------|---------|---------|--------|-----|
+| gloss replies (`AssistantMessage`) | restyled | native | native | native | the surfaces draw code, tables, lists and quotes well; the restyle exists to fix the terminal's |
+| postcard prompts and command output (`UserMessage`, `CommandOutput`) | cards | native | native | native | the surfaces have their own message bubbles; prompts still fill the `/prompts` pane |
+| postcard `/prompts` pane | yes | yes | yes | yes | no surface has a prompt index |
+| pulse tool rows (`ToolUse`, `ToolResult`, `ToolGroup`) | compact | native | native | native | the surfaces draw tool calls as collapsible rows |
+| pulse footer (`TurnDuration`) | yes | - | - | - | the engine raises it on the terminal only |
+| pulse band (`AbovePrompt`) | yes | yes | - | - | no surface has it; the engine raises it on the terminal and desktop |
+| flightdeck pane | text meters, rails | SVG meters that glide, SVG swimlanes | same | same | no surface has a dashboard |
+| filetree pane | yes | yes, native scroll | - | - | it draws through `Client` regions, which VS Code and mobile do not have |
+
+What a graphical version of a mod's own pane uses, and keeps from the system:
+
+- **Keeps**: the colour roles (as theme keys, or each role's mid-tone hex inside SVG), the glyph meanings, the header grammar, the number beside every meter.
+- **Uses instead of terminal tricks**: `Svg` for meters, sparklines and swimlanes in place of `━─` runs; `borderStyle` for frames, never drawn box characters; proportional text, with `mono` and `tabular` only where columns must align; `Button` labels that name the action, since there are no hotkeys in VS Code.
+
+Capabilities the graphical surfaces have and the terminal lacks, for future features:
+
+- `Svg` (desktop, VS Code, mobile), with `isInteractive` for hover, `:hover`, `<title>` tooltips and SMIL animation in a sandboxed frame (desktop).
+- Hover groups and reveals: a `hover` with a `scope` on `Box` and `Text` lights every element of the group while one is hovered, across a pane and the transcript.
+- Type scale and weights: `size` (`caption` to `title`) and `weight` (`regular` to `bold`); the terminal has one size and draws only bold.
+- Native scrolling in a pane, and `Markdown` with `onLinkPress` to catch a link press.
