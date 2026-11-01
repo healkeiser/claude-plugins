@@ -115,3 +115,13 @@ test('strikethrough text is drawn struck', async $ => {
   const all = await texts(await mountAt($, 'was ~~old~~ new'))
   expect(all.find(t => t.text === 'old')?.props?.strikethrough).toBe(true)
 })
+
+test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyphs: 'text' } }, async $ => {
+  const ui = await mountAt($, '- top\n  - inner\n- [x] done\n\n> [!NOTE]\n> read me\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst a = 1\n```')
+  const all = (await texts(ui)).map(t => t.text ?? '').join('')
+  expect(/^[\x20-\x7e\n]*$/.test(all)).toBe(true)
+  expect(all).toContain('v ')
+  const boxes = (await ui.findAll({ type: 'Box' })) as Drawn[]
+  expect(boxes.some(b => b.props?.borderStyle === 'classic')).toBe(true)
+  expect(boxes.some(b => b.props?.borderStyle === 'round')).toBe(false)
+})

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { PromptsSent, PromptsVersion } from '../types'
-import { GLYPH, ROLE, clip, remember } from './style'
+import { GLYPH, ROLE, asciiTree, clip, isAsciiGlyphs, remember } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
 const CARD = ROLE.you
@@ -48,7 +48,10 @@ export function pieces(text: string): { text: string; language?: string }[] {
   return out
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // glyphs: text draws every tree of ours through asciiTree (DESIGN.md, Options).
+  const isAscii = isAsciiGlyphs(options?.glyphs)
+  const drawn = <T,>(tree: T): T => (isAscii ? asciiTree(tree) : tree)
   // The person's prompts in transcript order, as their rows were drawn. A row is
   // drawn again after a reload, so the list fills back up by itself.
   const prompts = new Map<string, string>()
@@ -117,7 +120,7 @@ export const register: Register = on => {
     // Queued: a grey card only as wide as its text and set in, so it never
     // reads as a sent prompt.
     if (isQueued) {
-      return (
+      return drawn(
         <Box flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1} marginLeft={4} alignSelf="flex-start">
           <Text dimColor italic>{`${GLYPH.stop} queued`}</Text>
           <Text dimColor>{e.props.text}</Text>
@@ -125,7 +128,7 @@ export const register: Register = on => {
       )
     }
 
-    return (
+    return drawn(
       <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>
         <Text color={color} weight="bold">{isCommand ? 'command' : 'you'}</Text>
         {pieces(e.props.text).map((p, k) =>
@@ -150,7 +153,7 @@ export const register: Register = on => {
     const { Box, Text, Markdown } = $.ui.resolve(e)
     const head = `/${e.props.command}${e.props.args ? ` ${e.props.args}` : ''}`
     const body = e.props.text.trim()
-    return (
+    return drawn(
       <Box flexDirection="column" borderStyle="round" borderColor={e.props.isErrored ? ROLE.error : COMMAND} paddingX={1}>
         <Text color={COMMAND} weight="bold">{e.props.isErrored ? `${GLYPH.fail} ${head}` : head}</Text>
         {body ? (e.props.isErrored ? <Text color={ROLE.error}>{body}</Text> : <Markdown text={body} />) : null}
@@ -165,7 +168,7 @@ export const register: Register = on => {
     // Newest first, so the hotkeys 1 to 9 reach the recent ones.
     const list = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1 })).reverse()
 
-    return (
+    return drawn(
       <Box flexDirection="column" paddingTop={1}>
         {list.length === 0 && <Text dimColor>No prompts yet.</Text>}
         {list.map((p, row) => {

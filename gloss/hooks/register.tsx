@@ -5,7 +5,7 @@ import type { FoldId } from '../types'
 import { asHunk, parse, spanWidth, wrapSpans } from './parse'
 import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
-import { GLYPH, ROLE, cellWidth, remember } from './style'
+import { GLYPH, ROLE, asciiTree, cellWidth, isAsciiGlyphs, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
 // included, which `$.config.list` only reports as "auto". The chip is the
@@ -43,7 +43,8 @@ function sections(parts: Part[]): [Indexed | undefined, Indexed | undefined][] {
   return out
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const isAscii = isAsciiGlyphs(options?.glyphs)
   // Each message's last parse: a fold toggle or resize redraws every message,
   // and only a message still streaming has new text to parse.
   const parsed = new Map<string, { text: string; parts: Part[] }>()
@@ -278,7 +279,7 @@ export const register: Register = on => {
     }
 
     // A tree of our own replaces the engine's row, bullet and indent included.
-    return (
+    const tree = (
       <Box flexDirection="row">
       <Box width={2} flexShrink={0}>
         <Text>{e.props.isFirstOfReply ? GLYPH.live : ' '}</Text>
@@ -295,5 +296,6 @@ export const register: Register = on => {
       </Box>
       </Box>
     )
+    return isAscii ? asciiTree(tree) : tree
   })
 }

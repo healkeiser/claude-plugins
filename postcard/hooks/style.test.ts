@@ -2,8 +2,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  GLYPH, ROLE, SPINNER, bareEmoji, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  packets, padCells, percent, remember, span, spin, sweep, usd,
+  ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
+  heatHex, heatRuns, packets, padCells, percent, remember, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -84,4 +84,37 @@ test('remember keeps the newest entries only', () => {
   const m = new Map<number, number>()
   for (let i = 0; i < 10; i++) remember(m, i, i, 3)
   expect([...m.keys()]).toEqual([7, 8, 9])
+})
+
+test('glyphs: text draws every glyph as one ASCII cell', () => {
+  const all = [...Object.values(GLYPH).flat(), ...SPINNER, '╭╮╰╯┬┴├┼┤┃▾▴▸⧉⌕⌘⇣→—'].join('')
+  const out = ascii(all)
+  expect(/^[ -~]*$/.test(out)).toBe(true)
+  expect(out.length).toBe([...all.replace(/︎/g, '')].length)
+  expect(Object.values(ASCII).every(v => v.length === 1)).toBe(true)
+  expect(ascii('✓ done · ↗︎')).toBe('v done - ^')
+  const tree = asciiTree({ type: 'Box', props: { borderStyle: 'round' }, children: [
+    { type: 'Text', children: ['● working'] },
+    { type: 'Code', props: { source: '✓' } },
+    { type: 'Button', props: { label: '▾ more' } },
+  ] })
+  expect(tree).toEqual({ type: 'Box', props: { borderStyle: 'classic' }, children: [
+    { type: 'Text', children: ['* working'] },
+    { type: 'Code', props: { source: '✓' } },
+    { type: 'Button', props: { label: 'v more' } },
+  ] })
+})
+
+test('the heat ramp: one step per 10%, each lit cell its own step', () => {
+  expect(heatHex(0)).toBe(HEAT_RAMP[0])
+  expect(heatHex(64)).toBe(HEAT_RAMP[6])
+  expect(heatHex(100)).toBe(HEAT_RAMP[9])
+  expect(heatRuns(40, 10)).toEqual([
+    ...HEAT_RAMP.slice(0, 4).map(color => ({ text: '━', color })),
+    { text: '──────', color: HEAT_UNLIT },
+  ])
+  expect(heatRuns(100, 5).map(r => r.color)).toEqual([HEAT_RAMP[0], HEAT_RAMP[2], HEAT_RAMP[4], HEAT_RAMP[6], HEAT_RAMP[8]])
+  expect(canRamp({ COLORTERM: 'truecolor' })).toBe(true)
+  expect(canRamp({ TERM: 'xterm-256color' })).toBe(true)
+  expect(canRamp({ TERM: 'xterm' })).toBe(false)
 })

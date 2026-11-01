@@ -112,3 +112,12 @@ test('prompts drawn natively on desktop still fill the /prompts pane there', asy
   const pane = await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 60 } as never })
   expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['#1 from the app'])
 })
+
+test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyphs: 'text' } }, async $ => {
+  const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'CommandOutput', props: { command: 'cost', args: '', text: 'nope', isErrored: true } as never })
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('x /cost')
+  expect(((await ui.findAll({ type: 'Box' })) as { props?: Record<string, unknown> }[]).map(b => b.props?.borderStyle)).toEqual(['classic'])
+  await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: props('composer', 'a'.repeat(40)) })
+  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 18 } as never })
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.text)).toEqual([`#1 ${'a'.repeat(9)}~`])
+})
