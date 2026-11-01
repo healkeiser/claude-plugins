@@ -1,0 +1,14 @@
+flightdeck
+
+This plugin is a fork of Flightdeck 0.5.1 by Stephen Casella
+(https://github.com/scasella/claude-flightdeck, commit f9c3c52), released
+under the MIT License. The original copyright notice is kept in LICENSE.
+
+Upstream Flightdeck also carries contributions from Alejandro Remior
+(@Alendro305), @vihrea1337 and Da Vinci, and fixes reported by @DrWBlow,
+@momchilon, @matheusmaais, @bhpdev1, @darrentmorgan, @NathanAB, @jangerhard,
+@jonathon-lawlor798, as credited in its CHANGELOG.
+
+Changes in this fork (Valentin Beaumont, 2026): version reset to 1.0.0, the
+status line entry off by default, and the pane redrawn to match the other
+healkeiser mods (gloss, pulse, postcard and the gauge status line).
