@@ -41,3 +41,13 @@ test('the desktop keeps its own drawing', async ($, on) => {
   })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
 })
+
+test('a message redrawn with new text is parsed again', async $ => {
+  const draw = (text: string) => $.ui.mount({
+    plugin: 'pretty-markdown', surface: 'terminal', component: 'AssistantMessage',
+    requestId: 'm1', props: { text, isFirstOfReply: true },
+  } as never)
+  await (await draw('Edit `a.ts`')).unmount()
+  const ui = await draw('Edit `b.ts`')
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain(' b.ts ')
+})

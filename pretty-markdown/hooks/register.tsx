@@ -40,10 +40,16 @@ function sections(parts: Part[]): [Indexed | undefined, Indexed | undefined][] {
 }
 
 export const register: Register = on => {
+  // Each message's last parse: a fold toggle or resize redraws every message,
+  // and only a message still streaming has new text to parse.
+  const parsed = new Map<string, { text: string; parts: Part[] }>()
+
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     // Drawn for a fixed-width terminal; other surfaces keep their own look.
     if (e.surface !== 'terminal') return next(e)
-    const parts = parse(e.props.text)
+    const cached = parsed.get(e.requestId)
+    const parts = cached?.text === e.props.text ? cached.parts : parse(e.props.text)
+    parsed.set(e.requestId, { text: e.props.text, parts })
     const isPlain = parts.every(p => p.kind === 'markdown')
     if (isPlain) return next(e)
 
@@ -79,7 +85,7 @@ export const register: Register = on => {
         return (
           <Box key={`h${i}`} flexDirection="column">
             <Text color="claude" weight="bold">{spans(part.spans, `h${i}`)}</Text>
-            <Text dimColor>{'─'.repeat(Math.min(room, widthOf(part.spans)))}</Text>
+            <Text dimColor>{'─'.repeat(Math.max(0, Math.min(room, widthOf(part.spans))))}</Text>
           </Box>
         )
       }
