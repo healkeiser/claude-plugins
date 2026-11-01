@@ -2,7 +2,7 @@
 // and it rests as a plain dim line otherwise. Only this region redraws; the pane does not.
 import type { ClientModule, RenderChildren } from 'claude-code'
 
-import { FRAME_MS, packets } from './style'
+import { FRAME_MS, asciiTree, packets } from './style'
 
 type Props = {
   active: boolean
@@ -13,6 +13,8 @@ type Props = {
   marks: number[]
   /** Draw ┴ instead of ┬ at the marks: a merge into what is below. */
   isMerge: boolean
+  /** `glyphs: text`: draw ASCII stand-ins. */
+  ascii?: boolean
 }
 
 type Ref = { phase: number; active: boolean }
@@ -43,11 +45,14 @@ const Rail: ClientModule<Props, State> = (props, surface) => {
   // the packets moved the line's length changed and its right end jittered. Drawn in the surface's
   // monospaced face (whose advance is what a cell is there) each glyph is one cell, and the line sits in
   // a box of its width that clips the spare dashes: its right end is that edge, every frame.
-  const line = (children: RenderChildren) => (
-    <Box width={width} overflow="hidden">
-      <Box flexShrink={0}>{children}</Box>
-    </Box>
-  )
+  const line = (children: RenderChildren) => {
+    const tree = (
+      <Box width={width} overflow="hidden">
+        <Box flexShrink={0}>{children}</Box>
+      </Box>
+    )
+    return props.ascii ? asciiTree(tree) : tree
+  }
 
   if (!props.active) {
     return line(

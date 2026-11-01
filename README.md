@@ -115,6 +115,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - **Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get their own colour and icon: `ℹ` blue, `✓` green, `◆` orange, `⚠` yellow, `✕` red.
 - A paragraph opening with **`Next:`** draws in its own box, led by `»`, so the action a reply ends on is easy to spot.
 - In the desktop app, VS Code and on mobile, replies keep Claude Code's own drawing, which already does all of this.
+- Option (in `/plugin`, or `pluginConfigs` under `gloss@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins (`v`, `x`, `*`, `+-|` borders) for a terminal or font that cannot show the Unicode ones.
 
 ### pulse
 
@@ -141,6 +142,7 @@ Redraws each block of Claude's reply that has something to gain; plain prose kee
 - `/prompts` opens a pane listing your prompts, newest first. Pick one to scroll the transcript back to it; `1` to `9` reach the nine newest.
 - It ships a `postcard` theme, built on the dark theme, that turns the input box border the same blue as the cards. Pick it in `/theme`.
 - The cards are drawn in the terminal; the desktop app, VS Code and mobile keep their own message bubbles, and `/prompts` works there too.
+- Option (in `/plugin`, or `pluginConfigs` under `postcard@healkeiser`): `glyphs` (`auto`, `plain`, `text`). `text` draws ASCII stand-ins and `+-|` card borders.
 
 > [!NOTE]
 > Clicking a button (copy, fold, a row of the `/prompts` pane) needs Claude Code's fullscreen layout, where the terminal reports clicks. The pane's hotkeys work either way.
@@ -180,12 +182,13 @@ A pane that follows the session as it runs, built on [Flightdeck](https://github
 
 - **Blocks**: main (the status line's header: the folder and its origin as links, the branch and its `+added ~modified -deleted` counts, zeros left out; then its meters for context and each rate limit, with the time to each reset and its wall-clock time, then effort, mode, requests, cost and time to first token), architect (consult timeline, inferred moment, last advice), gate (one meter split by allowed, cleared, pending and denied, the counts, then a drill-down per file, shell and other), agents (cards of 26 columns or more, or swimlanes when they don't fit), other loops, the turn receipt and the session log. Each block is a rounded box in its own colour, its label on the first row; a finished card's border dims and the card you are viewing draws bold. A block with nothing to show stays hidden.
 - Blocks sit one row apart. While work flows, packets run along that row from main to the architect, gate and turn blocks, and along the row that fans out to the cards; `motion: off`, or Claude Code's **Reduce motion** setting, keeps them still.
+- The context and rate-limit meters use the status line's heat ramp, each lit cell its own step from green to red and the percentage in the step of its tens, in terminals with 256 colours or more; elsewhere they take three colours (orange, yellow from 60%, red from 80%).
 - Colours follow the shared roles: the main block in Claude orange, agents and loops in the agent colour, the architect in the info colour, the gate in the colour of your own prompts, with checks allowed by a rule green, pending yellow and denied red.
-- In the desktop app, VS Code and on mobile the meters are drawn as SVG bars that glide to each new reading, and the agents get an SVG time axis.
+- In the desktop app, VS Code and on mobile the meters are drawn as SVG bars that glide to each new reading, the heat meters filled with the ramp as a gradient, and the agents get an SVG time axis.
 - Status glyphs are plain text (`✓ ✕ ● ○ ■`), never ones a terminal such as Warp draws as colour emoji, and each takes the colour of the words it marks.
 - Inline above the prompt it draws an 8-row summary; docked it takes one column, or two from 110 columns.
 - `/flightdeck` opens it, `/flightdeck close|reset|layout auto|compact|wide|mini` does the rest. Focus the pane (`ctrl+x tab`), then `1` to `6` expand a card and `f`, `s`, `o` open the gate's rows.
-- Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels`, `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `openOnStart`, `statusLine`.
+- Options (in `/plugin`, or `pluginConfigs` under `flightdeck@healkeiser`): `architectPattern`, `architectLabel`, `gateLabel`, `panels`, `motion`, `moments`, `matchDescriptions`, `maxCards`, `paneColumns`, `layout`, `palette` (`theme` follows your theme's colours; `pastel` is upstream's fixed set for dark terminals), `glyphs` (`auto`, `plain`, `text`: ASCII stand-ins and `+-|` borders), `openOnStart`, `statusLine`.
 - `statusLine` is off by default, so it leaves your own status line alone; turn it on for a `ctx 36% · agents 1/3 · denied 2` entry.
 
 Credit: Flightdeck is © 2026 Stephen Casella, with contributions from Alejandro Remior, @vihrea1337 and others listed in its changelog. See [`flightdeck/NOTICE`](./flightdeck/NOTICE) and [`flightdeck/LICENSE`](./flightdeck/LICENSE).

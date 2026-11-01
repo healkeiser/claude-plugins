@@ -65,6 +65,7 @@ import {
   PALETTES,
   SVG_COLORS,
   svgMeter,
+  HEAT_FILL,
   parseConfig,
   prettyModel,
   promptLine,
@@ -79,7 +80,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { GLYPH, motionOn } from './style'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, motionOn } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -168,7 +169,8 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
   ]
   // Only fields with something to say; with none, no status entry at all.
   const shown = parts.filter(Boolean)
-  $.ui.status(shown.length > 0 ? shown.join(' · ') : undefined)
+  const status = shown.join(' · ')
+  $.ui.status(shown.length > 0 ? (cfg.ascii ? ascii(status) : status) : undefined)
 }
 
 async function whoIs($: EngineInterface, agentId: string | undefined) {
@@ -271,6 +273,21 @@ let isStill = false
 async function readMotion($: EngineInterface) {
   const rows = await Promise.resolve().then(() => $.config.list()).catch(() => [])
   isStill = !motionOn('while-active', rows)
+}
+
+// Whether this terminal draws the heat ramp (style.ts canRamp), read once; graphical surfaces always do.
+let termRamp: boolean | undefined
+async function readRamp($: EngineInterface): Promise<boolean> {
+  if (termRamp === undefined) {
+    const safe = (read: () => Promise<string | undefined>) => Promise.resolve().then(read).catch(() => undefined)
+    const [COLORTERM, TERM, WT_SESSION] = await Promise.all([
+      safe(() => $.env.get('COLORTERM')),
+      safe(() => $.env.get('TERM')),
+      safe(() => $.env.get('WT_SESSION')),
+    ])
+    termRamp = canRamp({ COLORTERM, TERM, WT_SESSION })
+  }
+  return termRamp
 }
 
 // A newer call within the second supersedes an older one.
@@ -703,6 +720,7 @@ export const register: Register = (on, options) => {
       read($, repo),
       $.clock.now(),
     ])
+    const isRamp = e.surface !== 'terminal' || (await readRamp($))
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
     const W = Math.max(24, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
@@ -735,7 +753,7 @@ export const register: Register = (on, options) => {
           module="./rail.tsx"
           width={width}
           height={1}
-          props={{ active, width, color, dim: C.faint, marks, isMerge }}
+          props={{ active, width, color, dim: C.faint, marks, isMerge, ascii: cfg.ascii }}
         />
       ) : (
         <Text color={C.faint} mono>
@@ -819,8 +837,9 @@ export const register: Register = (on, options) => {
     // A block's frame: `w` wide outside, its rows `w - 4` inside the border and padding.
     const block = (w: number, color: string, isDim = false) =>
       ({ flexDirection: 'column', borderStyle: 'round', borderColor: color, paddingX: 1, width: w, ...(isDim ? { borderDimColor: true } : {}) }) as const
-    // A fill's colour by how full it is: three steps of the statusline's heat ramp, in theme colours.
-    const heat = (pct: number) => ({ calm: C.main, warm: C.amber, hot: C.warn })[heatOf(pct)]
+    // A fill's colour by how full it is: the statusline's ramp step, or where a terminal cannot draw
+    // it, three steps in theme colours.
+    const heat = (pct: number) => (isRamp ? heatHex(pct) : { calm: C.main, warm: C.amber, hot: C.warn }[heatOf(pct)])
     const sep: Span = { text: '· ', color: C.faint }
 
     // Status-line rows, as statusline.sh draws them: a dim label column, the bar, the value right-aligned,
@@ -867,13 +886,20 @@ export const register: Register = (on, options) => {
     const svgBar = (key: string, bar: Span[], cells: number, alt: string) => {
       if (e.surface === 'terminal') return null
       const { Svg } = $.ui.resolve(e)
-      const runs = bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: b.color === C.faint }))
+      const isTrack = (b: Span) => b.color === C.faint || b.color === HEAT_UNLIT
+      // A heat fill (its lit runs ramp steps) as one gradient run across the meter, as the status line's
+      // cells step along it; the gate's verdict runs keep their roles.
+      const isHeat = bar.some(b => !isTrack(b)) && bar.every(b => isTrack(b) || (HEAT_RAMP as readonly string[]).includes(b.color ?? ''))
+      const runs = isHeat
+        ? [{ cells: bar.filter(b => !isTrack(b)).reduce((n, b) => n + cellWidth(b.text), 0), color: HEAT_FILL }]
+        : bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: isTrack(b) }))
       const drawn = svgMeter(runs, cells, meterWidths.get(key) ?? [], !motion)
       meterWidths.set(key, drawn.widths)
       return <Svg source={drawn.source} alt={alt} />
     }
     // A fill drawn as the statusline draws it: ━ in its heat, ─ for the rest.
     const fillBar = (pct: number, cells: number): Span[] => {
+      if (isRamp) return heatRuns(pct, cells)
       const gg = gauge(pct, cells)
       return [
         { text: gg.on, color: heat(pct) },
@@ -1403,11 +1429,13 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
+    // glyphs: text draws the pane through asciiTree (DESIGN.md, Options).
+    const drawn = <T,>(tree: T): T => (cfg.ascii ? asciiTree(tree) : tree)
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = `${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
-      const mg = ctxFill.pct !== null ? gauge(ctxFill.pct, 6) : null
-      return (
+      const mg = ctxFill.pct !== null ? fillBar(ctxFill.pct, 6) : null
+      return drawn(
         <Box flexDirection="column" width={W}>
           {line(
             [
@@ -1422,8 +1450,7 @@ export const register: Register = (on, options) => {
                     spans: [
                       sep,
                       { text: 'ctx ', dim: true },
-                      { text: mg.on, color: heat(ctxFill.pct ?? 0) },
-                      { text: mg.off, color: C.faint },
+                      ...mg,
                       { text: ` ${Math.round(ctxFill.pct ?? 0)}%`, color: heat(ctxFill.pct ?? 0) },
                       ...(u.compactions > 0 ? [{ text: ` ⟲${u.compactions}`, color: C.amber }] : []),
                     ],
@@ -1496,7 +1523,7 @@ export const register: Register = (on, options) => {
     )
 
     // One blank row above the header, so the pane does not sit flush against its tab.
-    return (
+    return drawn(
       <Box flexDirection="column" width={W} paddingTop={1}>
         {/* One compact row, left-aligned like the statusline's header. Below 40 columns the frame's own title names the pane. */}
         {line(

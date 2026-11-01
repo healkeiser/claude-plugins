@@ -8,13 +8,13 @@ One meaning per role. Roles name theme keys, never hex, so every mod follows the
 
 | Role | Theme key | Means | Examples |
 |------|-----------|-------|----------|
-| accent | `claude` | brand, active, running, headers, important | headings, table headers, `Next` box, `[!IMPORTANT]`, the band's spinner, flightdeck's main block, meters under 60% |
+| accent | `claude` | brand, active, running, headers, important | headings, table headers, `Next` box, `[!IMPORTANT]`, the band's spinner, flightdeck's main block, meters under 60% where the heat ramp cannot draw |
 | you | `suggestion` | what you wrote or decided | postcard prompt cards, flightdeck's gate block and checks you cleared |
 | command | `merged` | slash commands | postcard command cards and their output |
 | agent | `planMode` | work delegated away from the main loop | flightdeck agent cards, swimlanes, other loops |
 | info | `ide` | notes and advice | `[!NOTE]`, flightdeck's architect |
 | success | `success` | done, passed, added | `✓`, `[!TIP]`, task items done, `+3`, checks allowed by a rule |
-| warning | `warning` | needs attention soon | `‖ interrupted`, pending checks, `~4`, meters from 60% |
+| warning | `warning` | needs attention soon | `‖ interrupted`, pending checks, `~4`, meters from 60% where the heat ramp cannot draw |
 | error | `error` | failed, denied, removed | `✕`, `[!CAUTION]`, `-2`, meters from 80% |
 | chrome | `subtle`, or `dimColor` | borders, rules, labels, secondary text | code-block rules, table borders, queued cards |
 | chip | `userMessageBackground` | the inline-code chip's background | `` `parse.ts` `` in a reply |
@@ -31,6 +31,7 @@ Where a surface cannot take theme keys, fixed colours are allowed and documented
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
 - flightdeck's SVG meters and swimlanes (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
+- The heat ramp of fill meters (see Formatting): the status line's 256-colour ramp, xterm 46 82 118 154 190 226 220 214 208 196 with 239 unlit, as those entries' hex (`HEAT_RAMP`, `HEAT_UNLIT` in `style.ts`). A ramp needs ten fixed steps; a theme has three.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
 
@@ -102,9 +103,9 @@ One formatter per kind, in `style.ts`, and the status line matches them.
 | wall clock | `HH:MM`, a weekday when a day or more out | `21:05` `Thu 14:41` |
 | cost | two decimals, whole from $100 | `$12.45` `$140` |
 | separator | ` · ` in chrome | `effort high · mode auto` |
-| meter | `━` filled in heat, `─` track in chrome | `━━━━━━────  64%` |
+| meter | `━` filled, each lit cell its own heat step, `─` track unlit | `━━━━━━────  64%` |
 
-Heat, for meters and their percentage: accent under 60%, warning from 60%, error from 80%. The percentage takes the heat too, so a meter never relies on colour alone: the number says it.
+Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). On a graphical surface the lit run is one SVG gradient across those steps. A terminal that reports neither 24-bit colour (`COLORTERM`, Windows Terminal) nor 256 colours (`TERM`) gets three role colours instead (`heat`): accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
 
 Text is measured in terminal cells, not characters: `cellWidth` counts East Asian wide and fullwidth characters and emoji as 2, combining marks and variation selectors as 0, and cuts by grapheme (`Intl.Segmenter`), so a cut never splits a character. Truncation ends with `…` inside the width.
 
@@ -150,10 +151,10 @@ Same name, same meaning, wherever a mod has the concern.
 | Option | Values | Meaning | Mods |
 |--------|--------|---------|------|
 | `motion` | `while-active` (default), `off` | animate only while work runs, or never | pulse, flightdeck, filetree |
-| `glyphs` | filetree: `auto`, `nerd`, `plain`, `text` | which glyph set the pane draws | filetree |
+| `glyphs` | `auto` (default), `plain`, `text`; filetree adds `nerd` | which glyph set the mod draws: `auto` is filetree's Nerd Font icons when installed and the Unicode set elsewhere, `plain` the Unicode set, `text` ASCII | gloss, postcard, flightdeck, filetree |
 | `palette` | flightdeck: `theme`, `pastel`; filetree: `key=#hex` pairs | theme keys, or fixed colours | flightdeck, filetree |
 
-gloss and postcard draw no motion and take no options. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width: it drops the clock, pace and token counts first, then the details, then the header's link and changes, branch and folder; its narrowest form is 25 cells).
+`glyphs: text` swaps every glyph of the vocabulary for a one-cell ASCII stand-in (`ASCII` in `style.ts`: `✓` `v`, `✕` `x`, `●` `*`, `○` `o`, `━` `=`, `─` `-`, `…` `~`, corners `+`, the spinner `|/-\`, and so on), and draws rounded and bold borders `classic`. One cell each, so every width holds. It goes over the mod's whole tree (`asciiTree`), so text a person wrote inside a card is swapped too; code blocks, Markdown and pictures keep theirs. In filetree, `text` turns the header buttons into words. gloss and postcard draw no motion. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width: it drops the clock, pace and token counts first, then the details, then the header's link and changes, branch and folder; its narrowest form is 25 cells).
 
 ## Graphical surfaces
 

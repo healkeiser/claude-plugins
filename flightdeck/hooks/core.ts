@@ -20,7 +20,7 @@ import type {
   Usage,
   View,
 } from '../types'
-import { ROLE, cellWidth, clip, count, duration, meter, plural as sharedPlural, span, usd } from './style'
+import { HEAT_RAMP, ROLE, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -112,6 +112,8 @@ export type Config = {
   palette: Palette
   openOnStart: boolean
   statusLine: boolean
+  /** `glyphs: text`: ASCII stand-ins and classic borders. */
+  ascii: boolean
 }
 
 const safeRegExp = (source: string, fallback: string) => {
@@ -148,6 +150,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     palette: str('palette', 'theme') === 'pastel' ? 'pastel' : 'theme',
     openOnStart: bool('openOnStart', true),
     statusLine: bool('statusLine', false),
+    ascii: isAsciiGlyphs(o.glyphs),
   }
 }
 
@@ -209,7 +212,11 @@ const SVG_ROLE: Record<string, string> = {
   inactive: '#9ca3af',
   text: '#6b7280',
 }
-export const svgColor = (color: string | undefined) => (color?.startsWith('#') ? color : SVG_ROLE[color ?? ''] ?? SVG_ROLE.subtle!)
+export const svgColor = (color: string | undefined) =>
+  color?.startsWith('#') || color === HEAT_FILL ? color : SVG_ROLE[color ?? ''] ?? SVG_ROLE.subtle!
+
+/** A run coloured `HEAT_FILL` takes the heat ramp as a gradient across the whole meter, as the status line's cells step along it. */
+export const HEAT_FILL = 'url(#heat)'
 
 /**
  * A meter as SVG for a graphical surface: a rounded track, then each lit run in its colour. A run whose
@@ -239,6 +246,11 @@ export const svgMeter = (runs: readonly { cells: number; color?: string; isTrack
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="6" viewBox="0 0 ${w} 6">` +
     `<clipPath id="m"><rect width="${w}" height="6" rx="3"/></clipPath>` +
+    (runs.some(r => r.color === HEAT_FILL)
+      ? `<linearGradient id="heat" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${w}" y2="0">` +
+        HEAT_RAMP.map((c, i) => `<stop offset="${(i * 100) / (HEAT_RAMP.length - 1)}%" stop-color="${c}"/>`).join('') +
+        `</linearGradient>`
+      : '') +
     `<g clip-path="url(#m)"><rect width="${w}" height="6" fill="${SVG_ROLE.subtle}" fill-opacity="0.35"/>${rects}</g></svg>`
   return { source, widths }
 }

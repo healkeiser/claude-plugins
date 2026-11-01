@@ -1,6 +1,6 @@
 {
   "name": "flightdeck",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A live agent dashboard pane: main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log. Based on scasella/claude-flightdeck.",
   "author": {
     "name": "Valentin Beaumont"
@@ -85,6 +85,17 @@
         "compact",
         "wide",
         "mini"
+      ],
+      "default": "auto"
+    },
+    "glyphs": {
+      "title": "Glyphs",
+      "description": "auto and plain draw the Unicode glyphs (● ✓ ━ ╭); text draws ASCII stand-ins (* v = +) and classic borders, for a terminal or font that cannot show them",
+      "type": "string",
+      "options": [
+        "auto",
+        "plain",
+        "text"
       ],
       "default": "auto"
     },

@@ -1505,3 +1505,54 @@ test('a graphical meter glides to a new reading on an ease-out, and stands still
   expect(svgMeter(runs(7), 10, first.widths, true).source).not.toContain('<animate')
   expect(svgMeter(runs(7), 10, next.widths, false).source).not.toContain('<animate')
 })
+
+// ---------------------------------------------------------------- heat ramp and glyphs: text
+
+const measured = async ($: Parameters<TestBody>[0], on: On) => {
+  engine(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  await $.session.measure({
+    context: { window: 200_000, tokens: 128_000, percent: 64 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 82 }],
+    changed: ['context', 'rateLimits'],
+  } as never)
+}
+
+test('a terminal with 256 colours or more draws the status line heat ramp, one step per cell', async ($, on) => {
+  mock.env(on, { COLORTERM: 'truecolor' })
+  await measured($, on)
+  const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  const meter = textsIn(keyed(await ui.drawn(), 'meter-ctx')).map(t => [textOf(t), t.props?.color])
+  // 64% of ten cells: six lit, each its own ramp step, the rest unlit; the value in its tens' step.
+  expect(meter.slice(2)).toEqual([
+    ...['#00ff00', '#5fff00', '#87ff00', '#afff00', '#d7ff00', '#ffff00'].map(c => ['━', c]),
+    ['────', '#4e4e4e'],
+    ['64%', '#ffd700'],
+    ['128k/200k', undefined],
+  ])
+  await ui.unmount()
+})
+
+test('a graphical surface draws a heat meter as the ramp gradient, the gate in its roles', async ($, on) => {
+  await measured($, on)
+  const ui = await $.ui.mount({ ...pane(66), surface: 'desktop' })
+  const svgs = (await ui.findAll({ type: 'Svg' })) as Drawn[]
+  const ctx = String(svgs.find(x => /^ctx /.test(String(x.props?.alt)))?.props?.source ?? '')
+  expect(ctx).toContain('<linearGradient id="heat"')
+  expect(ctx).toContain('stop-color="#ff0000"')
+  expect(ctx).toContain('fill="url(#heat)"')
+  await ui.unmount()
+})
+
+test('glyphs: text draws the pane in ASCII with classic borders', { options: { glyphs: 'text' } }, async ($, on) => {
+  await measured($, on)
+  await $.turn.start({ text: 'go', turnId: 'T1' })
+  const ui = await $.ui.mount({ ...pane(66), surface: 'terminal' })
+  const tree = await ui.drawn()
+  const all = textsIn(tree).map(textOf).join('')
+  expect(/^[\x20-\x7e\n]*$/.test(all)).toBe(true)
+  expect(all).toContain('* working')
+  const borders = boxesIn(tree).map(b => b.props?.borderStyle).filter(Boolean)
+  expect(borders.length > 0 && borders.every(b => b === 'classic')).toBe(true)
+  await ui.unmount()
+})
