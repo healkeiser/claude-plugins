@@ -1,3 +1,5 @@
+import { cellWidth, cutCells, GLYPH } from './style'
+
 export type Part =
   | { kind: 'code'; language: string; source: string }
   | { kind: 'markdown'; text: string }
@@ -148,7 +150,7 @@ function merge(parts: Part[]): Part[] {
   return out
 }
 
-const BULLETS = ['•', '◦', '■']
+const BULLETS = GLYPH.bullets
 
 // Reads lines that may hold list items: an item's depth comes from its indent
 // against the items above it, and a line under an item hangs under its text.
@@ -167,7 +169,7 @@ export function parseLines(lines: string[]): Line[] {
     const task = /^\[([ xX])\]\s+(.*)$/.exec(item[3]!)
     const isNumber = /\d/.test(item[2]!)
     const marker: Marker = task ? (task[1] === ' ' ? 'open' : 'done') : isNumber ? 'number' : 'bullet'
-    const glyph = marker === 'open' ? '○' : marker === 'done' ? '✓' : isNumber ? item[2]! : BULLETS[depth % BULLETS.length]!
+    const glyph = marker === 'open' ? GLYPH.idle : marker === 'done' ? GLYPH.ok : isNumber ? item[2]! : BULLETS[depth % BULLETS.length]!
     const prefix = `${'  '.repeat(depth)}${glyph} `
     hang = ' '.repeat(prefix.length)
     return { prefix, isHeading: false, spans: parseInline(task ? task[2]! : item[3]!), marker, depth }
@@ -192,9 +194,8 @@ export function parseInline(text: string): Span[] {
   return spans
 }
 
-// shortcut: counts one cell per character, so wide glyphs (CJK, emoji) misalign
-// a column; measure display width if tables with them show up.
-export const spanWidth = (s: Span) => (s.kind === 'code' ? s.text.length + 2 : s.kind === 'link' ? s.label.length : s.text.length)
+// In terminal cells: CJK and emoji count two, combining marks none.
+export const spanWidth = (s: Span) => (s.kind === 'code' ? cellWidth(s.text) + 2 : cellWidth(s.kind === 'link' ? s.label : s.text))
 
 // Breaks spans into lines at most `width` cells wide, at spaces where it can and
 // mid-word where a word is longer than a line. A link too long for a line loses
@@ -220,9 +221,15 @@ export function wrapSpans(spans: Span[], width: number): Span[][] {
   const chunks = (s: Span): Span[] => {
     if (spanWidth(s) <= width) return [s]
     const plain = s.kind === 'link' ? { kind: 'text' as const, text: s.label } : s
-    const step = Math.max(1, plain.kind === 'code' ? width - 2 : width)
+    const step = Math.max(2, plain.kind === 'code' ? width - 2 : width)
     const out: Span[] = []
-    for (let at = 0; at < plain.text.length; at += step) out.push({ ...plain, text: plain.text.slice(at, at + step) })
+    // Cut by cells and whole graphemes, so a wide character or a surrogate pair is never split.
+    for (let rest = plain.text; rest; ) {
+      const [head, tail] = cutCells(rest, step)
+      const piece = head || [...rest][0]!
+      out.push({ ...plain, text: piece })
+      rest = head ? tail : rest.slice(piece.length)
+    }
     return out
   }
 

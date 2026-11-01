@@ -5,22 +5,22 @@ import type { FoldId } from '../types'
 import { asHunk, parse, spanWidth, wrapSpans } from './parse'
 import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
+import { GLYPH, ROLE, cellWidth, remember } from './style'
 
-// Theme keys, not hex: they follow the person's theme, `auto` included, which
-// `$.config.list` only reports as "auto" and so cannot tell light from dark.
-// `userMessageBackground` is the engine's own tint for the person's prompts.
-const CHIP_BG = 'userMessageBackground'
-const CHIP_FG = 'warning'
-const BULLET_COLORS = ['claude', 'suggestion', 'subtle'] as const
+// Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
+// included, which `$.config.list` only reports as "auto". The chip is the
+// engine's own prompt tint behind the default text colour.
+// The first list level in the accent, deeper ones in chrome: the glyph says the depth.
+const BULLET_COLORS = [ROLE.accent, ROLE.chrome, ROLE.chrome] as const
 const FOLD_OVER = 20
 const FOLD_TO = 12
 
 const CALLOUT: Record<CalloutType, { color: string; title: string }> = {
-  note: { color: 'suggestion', title: 'ℹ︎ Note' },
-  tip: { color: 'success', title: '✓ Tip' },
-  important: { color: 'merged', title: '◆ Important' },
-  warning: { color: 'warning', title: '⚠︎ Warning' },
-  caution: { color: 'error', title: '✕ Caution' },
+  note: { color: ROLE.info, title: `${GLYPH.info} Note` },
+  tip: { color: ROLE.success, title: `${GLYPH.ok} Tip` },
+  important: { color: ROLE.accent, title: `${GLYPH.key} Important` },
+  warning: { color: ROLE.warning, title: `${GLYPH.warn} Warning` },
+  caution: { color: ROLE.error, title: `${GLYPH.fail} Caution` },
 }
 
 // Code blocks the person unfolded, by message id and block index.
@@ -49,11 +49,15 @@ export const register: Register = on => {
   const parsed = new Map<string, { text: string; parts: Part[] }>()
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    // Drawn for a fixed-width terminal; other surfaces keep their own look.
-    if (e.surface !== 'terminal') return next(e)
+    // The terminal draws cell-exact; desktop and VS Code draw in a proportional
+    // face, so there borders come from borderStyle and what is padded by hand
+    // (tables, rules) is the engine's Markdown. Mobile keeps the engine's look.
+    if (e.surface !== 'terminal' && e.surface !== 'desktop' && e.surface !== 'vscode') return next(e)
+    const isTerminal = e.surface === 'terminal'
     const cached = parsed.get(e.requestId)
     const parts = cached?.text === e.props.text ? cached.parts : parse(e.props.text)
-    parsed.set(e.requestId, { text: e.props.text, parts })
+    // Bounded: a long or resumed session must not keep every reply's parse.
+    remember(parsed, e.requestId, { text: e.props.text, parts })
     const isPlain = parts.every(p => p.kind === 'markdown')
     if (isPlain) return next(e)
 
@@ -64,7 +68,7 @@ export const register: Register = on => {
     const spans = (list: Span[], at: string) =>
       list.map((s, k) =>
         s.kind === 'code' ? (
-          <Text key={`${at}.${k}`} backgroundColor={CHIP_BG} color={CHIP_FG}>{` ${s.text} `}</Text>
+          <Text key={`${at}.${k}`} backgroundColor={ROLE.chip}>{` ${s.text} `}</Text>
         ) : s.kind === 'link' ? (
           <Link key={`${at}.${k}`} href={s.href} label={s.label} />
         ) : (
@@ -75,8 +79,8 @@ export const register: Register = on => {
       )
 
     const markerColor = (line: Line) =>
-      line.marker === 'done' ? 'success'
-        : line.marker === 'open' ? 'subtle'
+      line.marker === 'done' ? ROLE.success
+        : line.marker === 'open' ? ROLE.chrome
         : line.marker ? BULLET_COLORS[(line.depth ?? 0) % BULLET_COLORS.length]
         : undefined
 
@@ -103,8 +107,9 @@ export const register: Register = on => {
     // Wrapped by hand at the viewport width, so every row carries its bars.
     const quote = (list: QuoteLine[], at: string) =>
       list.flatMap((line, j) => {
-        const bars = '│ '.repeat(line.level)
-        const rows = wrapSpans(line.spans, Math.max(8, room - bars.length - line.prefix.length))
+        const bars = `${GLYPH.bar} `.repeat(line.level)
+        // A proportional face wraps by itself; only the terminal is wrapped by hand.
+        const rows = isTerminal ? wrapSpans(line.spans, Math.max(8, room - bars.length - line.prefix.length)) : [line.spans]
         return rows.map((row, k) => (
           <Text key={`${at}.${j}.${k}`}>
             <Text dimColor>{bars}</Text>
@@ -119,7 +124,9 @@ export const register: Register = on => {
 
       if (part.kind === 'markdown') return <Markdown key={`m${i}`} text={part.text} />
 
-      if (part.kind === 'rule') return <Text key={`r${i}`} dimColor>{'─'.repeat(Math.max(1, room))}</Text>
+      if (part.kind === 'rule') {
+        return isTerminal ? <Text key={`r${i}`} dimColor>{GLYPH.track.repeat(Math.max(1, room))}</Text> : <Markdown key={`r${i}`} text="---" />
+      }
 
       if (part.kind === 'quote') {
         return (
@@ -132,11 +139,14 @@ export const register: Register = on => {
       if (part.kind === 'heading') {
         return (
           <Box key={`h${i}`} flexDirection="column">
-            <Text color="claude" weight="bold">{spans(part.spans, `h${i}`)}</Text>
-            <Text dimColor>{'─'.repeat(Math.max(0, Math.min(room, widthOf(part.spans))))}</Text>
+            <Text color={ROLE.accent} weight="bold">{spans(part.spans, `h${i}`)}</Text>
+            {isTerminal ? <Text dimColor>{GLYPH.track.repeat(Math.max(0, Math.min(room, widthOf(part.spans))))}</Text> : null}
           </Box>
         )
       }
+
+      // Padded by hand in cells, which a proportional face cannot keep: there the engine's table.
+      if (part.kind === 'table' && !isTerminal) return <Markdown key={`t${i}`} text={part.source} />
 
       if (part.kind === 'table') {
         const widths = part.header.map((h, k) =>
@@ -155,13 +165,13 @@ export const register: Register = on => {
         if (over > 0) return <Markdown key={`t${i}`} text={part.source} />
         // Drawn line by line, so every wrapped line carries its column rules.
         const rule = (l: string, m: string, r: string, at: string) => (
-          <Text key={at} color="subtle">{`${l}─${widths.map(w => '─'.repeat(w)).join(`─${m}─`)}─${r}`}</Text>
+          <Text key={at} color={ROLE.chrome}>{`${l}─${widths.map(w => '─'.repeat(w)).join(`─${m}─`)}─${r}`}</Text>
         )
         const row = (cells: Span[][], at: string, isHead: boolean) => {
           const wrapped = cells.map((cell, k) => wrapSpans(cell, widths[k]!))
           const height = Math.max(...wrapped.map(w => w.length))
           return Array.from({ length: height }, (_, j) => (
-            <Text key={`${at}.${j}`} color={isHead ? 'claude' : undefined} weight={isHead ? 'bold' : undefined}>
+            <Text key={`${at}.${j}`} color={isHead ? ROLE.accent : undefined} weight={isHead ? 'bold' : undefined}>
               {wrapped.map((lines, k) => {
                 const line = lines[j] ?? []
                 const room = widths[k]! - line.reduce((n, s) => n + spanWidth(s), 0)
@@ -169,14 +179,14 @@ export const register: Register = on => {
                 const before = align === 'right' ? room : align === 'center' ? Math.floor(room / 2) : 0
                 return (
                   <Text key={`${at}.${j}.${k}`}>
-                    <Text color="subtle">{k === 0 ? '│ ' : ' │ '}</Text>
+                    <Text color={ROLE.chrome}>{k === 0 ? '│ ' : ' │ '}</Text>
                     {' '.repeat(before)}
                     {spans(line, `${at}.${j}.${k}`)}
                     {' '.repeat(room - before)}
                   </Text>
                 )
               })}
-              <Text color="subtle">{' │'}</Text>
+              <Text color={ROLE.chrome}>{' │'}</Text>
             </Text>
           ))
         }
@@ -192,9 +202,9 @@ export const register: Register = on => {
 
       if (part.kind === 'next') {
         return (
-          <Box key={`n${i}`} borderStyle="round" borderColor="claude" paddingX={1}>
+          <Box key={`n${i}`} borderStyle="round" borderColor={ROLE.accent} paddingX={1}>
             <Text>
-              <Text color="claude" weight="bold">{'→ Next  '}</Text>
+              <Text color={ROLE.accent} weight="bold">{`${GLYPH.next} Next  `}</Text>
               {spans(part.spans, `n${i}`)}
             </Text>
           </Box>
@@ -221,42 +231,60 @@ export const register: Register = on => {
         // code rows copies the code alone. The rules above and below frame it.
         const label = part.language || 'code'
         const COPY = '⧉ copy'
+        const copy = (
+          <Button
+            key={`copy${i}`}
+            label={COPY}
+            plain
+            dimColor
+            onPress={async press => {
+              const result = await $.ui.copy({ text: part.source, surface: press.surface })
+              $.ui.toast(result.isCopied ? 'Copied to clipboard' : `Copy failed (${result.reason})`)
+            }}
+          />
+        )
+        const body = isDiff ? (
+          <Code source={asHunk(part.source)} format="diff" />
+        ) : (
+          <Code source={shown} language={part.language || undefined} />
+        )
+        const fold = all.length > FOLD_OVER && !isDiff ? (
+          <Button
+            key={`fold${i}`}
+            label={isFolded ? `▾ show all ${all.length} lines` : '▴ fold'}
+            plain
+            dimColor
+            onPress={() =>
+              update($, expanded, ids =>
+                ids.includes(foldId) ? ids.filter(id => id !== foldId) : [...ids, foldId],
+              )
+            }
+          />
+        ) : null
+        // A graphical surface draws its border apart from the text, so a selection copies the code alone there too.
+        if (!isTerminal) {
+          return (
+            <Box key={`c${i}`} flexDirection="column" borderStyle="round" borderColor={ROLE.chrome} paddingX={1}>
+              <Box flexDirection="row" justifyContent="space-between">
+                <Text dimColor italic>{label}</Text>
+                {copy}
+              </Box>
+              {body}
+              {fold}
+            </Box>
+          )
+        }
         return (
           <Box key={`c${i}`} flexDirection="column">
             <Box flexDirection="row">
-              <Text color="subtle">{'╭─ '}</Text>
+              <Text color={ROLE.chrome}>{'╭─ '}</Text>
               <Text dimColor italic>{label}</Text>
-              <Text color="subtle">{` ${'─'.repeat(Math.max(1, room - label.length - COPY.length - 6))} `}</Text>
-              <Button
-                key={`copy${i}`}
-                label={COPY}
-                plain
-                dimColor
-                onPress={async press => {
-                  const result = await $.ui.copy({ text: part.source, surface: press.surface })
-                  $.ui.toast(result.isCopied ? 'Copied to clipboard' : `Copy failed (${result.reason})`)
-                }}
-              />
+              <Text color={ROLE.chrome}>{` ${GLYPH.track.repeat(Math.max(1, room - cellWidth(label) - COPY.length - 6))} `}</Text>
+              {copy}
             </Box>
-            {isDiff ? (
-              <Code source={asHunk(part.source)} format="diff" />
-            ) : (
-              <Code source={shown} language={part.language || undefined} />
-            )}
-            {all.length > FOLD_OVER && !isDiff ? (
-              <Button
-                key={`fold${i}`}
-                label={isFolded ? `▾ show all ${all.length} lines` : '▴ fold'}
-                plain
-                dimColor
-                onPress={() =>
-                  update($, expanded, ids =>
-                    ids.includes(foldId) ? ids.filter(id => id !== foldId) : [...ids, foldId],
-                  )
-                }
-              />
-            ) : null}
-            <Text color="subtle">{`╰${'─'.repeat(Math.max(1, room - 1))}`}</Text>
+            {body}
+            {fold}
+            <Text color={ROLE.chrome}>{`╰${GLYPH.track.repeat(Math.max(1, room - 1))}`}</Text>
           </Box>
         )
       }
@@ -272,7 +300,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="row">
       <Box width={2} flexShrink={0}>
-        <Text>{e.props.isFirstOfReply ? '●' : ' '}</Text>
+        <Text>{e.props.isFirstOfReply ? GLYPH.live : ' '}</Text>
       </Box>
       <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
         {sections(parts).map(([head, body]) =>

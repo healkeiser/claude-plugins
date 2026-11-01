@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { bareEmoji } from './style'
+
 test('inline code draws as a padded chip', async $ => {
   const ui = await $.ui.mount({
     plugin: 'gloss',
@@ -27,7 +29,7 @@ test('the copy button puts the block source on the clipboard', async ($, on) => 
   expect(copied).toEqual(['npm test'])
 })
 
-test('the desktop keeps its own drawing', async ($, on) => {
+test('mobile keeps its own drawing', async ($, on) => {
   // Stands in for the engine's own drawing beneath the plugin.
   on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -35,11 +37,30 @@ test('the desktop keeps its own drawing', async ($, on) => {
   })
   const ui = await $.ui.mount({
     plugin: 'gloss',
-    surface: 'desktop',
+    surface: 'mobile',
     component: 'AssistantMessage',
     props: { text: '| a | b |\n|---|---|\n| 1 | 2 |', isFirstOfReply: true },
   })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine row'])
+})
+
+test('desktop and VS Code: boxed code, the engine table, chips and callouts', async $ => {
+  for (const surface of ['desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'gloss', surface, component: 'AssistantMessage',
+      props: { text: 'Run `ls`.\n\n```sh\nls -la\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> [!NOTE]\n> Read me.', isFirstOfReply: true },
+    } as never)
+    const boxes = (await ui.findAll({ type: 'Box' })) as Drawn[]
+    expect(boxes.some(b => b.props?.borderStyle === 'round' && b.props?.borderColor === 'subtle')).toBe(true)
+    expect(boxes.some(b => b.props?.borderColor === 'ide')).toBe(true)
+    const all = (await ui.findAll({ type: 'Text' })) as Drawn[]
+    expect(all.some(t => t.text === ' ls ' && t.props?.backgroundColor === 'userMessageBackground')).toBe(true)
+    // No hand-drawn rules where the face is proportional.
+    expect(all.some(t => t.text?.startsWith('╭─'))).toBe(false)
+    expect((await ui.findAll({ type: 'Markdown' })).length).toBeGreaterThan(0)
+    expect(bareEmoji(all.map(t => t.text ?? '').join(''))).toEqual([])
+    await ui.unmount()
+  }
 })
 
 test('a message redrawn with new text is parsed again', async $ => {
@@ -65,14 +86,15 @@ const texts = async (ui: { findAll: (q: { type: string }) => Promise<unknown[]> 
 test('the inline-code chip takes theme colours, so a light theme gets a light chip', async $ => {
   const chip = (await texts(await mountAt($, 'Edit `a.ts` now'))).find(t => t.text === ' a.ts ')
   expect(chip?.props?.backgroundColor).toBe('userMessageBackground')
-  expect(chip?.props?.color).toBe('warning')
+  // The default text colour: warning yellow means attention, not code.
+  expect(chip?.props?.color).toBeUndefined()
 })
 
 test('a list draws depth glyphs and task marks, done in the success colour', async $ => {
   const all = await texts(await mountAt($, '- top\n  - inner\n- [x] done\n- [ ] open'))
   const mark = (s: string) => all.find(t => t.text === s)
   expect(mark('• ')?.props?.color).toBe('claude')
-  expect(mark('  ◦ ')?.props?.color).toBe('suggestion')
+  expect(mark('  ◦ ')?.props?.color).toBe('subtle')
   expect(mark('✓ ')?.props?.color).toBe('success')
   expect(mark('○ ')).toBeDefined()
 })

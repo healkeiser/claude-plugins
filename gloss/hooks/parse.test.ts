@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parse, parseInline, wrapSpans } from './parse'
+import { parse, parseInline, spanWidth, wrapSpans } from './parse'
 
 test('fences become code parts with their language', () => {
   const parts = parse('Run this:\n\n```bash\nnpm test\n```\n\nDone.')
@@ -95,4 +95,12 @@ test('an indented fence (inside a list item) is code, without the indent', () =>
 
 test('CRLF line ends are not copied', () => {
   expect(parse('```sh\r\necho hi\r\n```')[0]).toEqual({ kind: 'code', language: 'sh', source: 'echo hi' })
+})
+
+test('widths are terminal cells: CJK counts two, a wrap never splits a character', () => {
+  expect(spanWidth({ kind: 'text', text: '日本語' })).toBe(6)
+  expect(spanWidth({ kind: 'code', text: '表' })).toBe(4)
+  const rows = wrapSpans([{ kind: 'text', text: '日本語のテキスト🙂です' }], 5)
+  for (const row of rows) expect(row.reduce((n, s) => n + spanWidth(s), 0)).toBeLessThanOrEqual(5)
+  expect(rows.map(r => r.map(s => (s.kind === 'text' ? s.text : '')).join('')).join('')).toBe('日本語のテキスト🙂です')
 })
