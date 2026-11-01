@@ -2682,8 +2682,11 @@ export const register: Register = (on, options) => {
         {splitAt === 'top' ? split : null}
         {branchRow()}
         {!t.top && showHints && <Text {...mutedText}>{unicode ? '± ' : '\u{e702} '}no git repo, git status starts after git init</Text>}
-        {searchGap ? <Text key="gap-above"> </Text> : null}
-        <Box flexDirection="row">
+        {/* A card like postcard's: its borders take the two spacer rows, so the height budget is unchanged. */}
+        <Box
+          flexDirection="row"
+          {...(searchGap ? { borderStyle: 'round', borderColor: t.query ? theme.accent : 'subtle', paddingX: 1 } : {})}
+        >
           {glyphSetting === 'text' ? null : <Text {...mutedText}>{unicode ? '⌕ ' : '\u{ea6d} '}</Text>}
           <Box flexGrow={1}>
             <Input
@@ -2697,7 +2700,6 @@ export const register: Register = (on, options) => {
           </Box>
           {t.query ? <Button key="clear" plain dimColor label={unicode ? '×' : '\u{ea76}'} onPress={() => void search($, '')} /> : null}
         </Box>
-        {searchGap ? <Text key="gap-below"> </Text> : null}
         <Client
           key="rows"
           module="./rows.tsx"
