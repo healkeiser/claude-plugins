@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: poll-event-log-rest
+expected_outcome: |
+  audit_events.py calls GET /api/data/events/last with a Bearer token, filters with after, project_id and name_prefixes=task, pages with limit and cursor_event_id (the id of the last event of the previous page) instead of page_size, and answer.md states the 1000 maximum for limit, that the caller must be a manager (a project-only manager must give project_id) and cites api-docs.kitsu.cloud.

@@ -173,7 +173,7 @@ claude plugin install dev@healkeiser --scope user
 <!-- SKILLS -->
 ## Documentation skills
 
-The `vfx` plugin holds one skill per release of each piece of software, named `<software>-<version>`, so they all show up as `vfx:<skill>`. Each skill tells Claude how to search and cite that release's official docs, and ships a crawler that builds a local Markdown copy of them.
+The `vfx` plugin holds one skill per release of each piece of software, named `<software>-<version>` (Kitsu's docs have no versions, so its skill is plain `kitsu`), so they all show up as `vfx:<skill>`. Each skill tells Claude how to search and cite that release's official docs, and ships a crawler that builds a local Markdown copy of them.
 
 | Skill | Sources |
 |-------|---------|
@@ -182,6 +182,8 @@ The `vfx` plugin holds one skill per release of each piece of software, named `<
 | `vfx:rez-3-4` | rez 3.4.0: user guide, `rez-*` CLI pages, Python API |
 | `vfx:deadline-10-4` | Deadline 10.4 User Manual, Scripting Reference, Standalone Python Reference |
 | `vfx:blender-5-2` | Blender 5.2 LTS manual and Python API, Blender developer docs |
+| `vfx:cinema4d-2027` | Cinema 4D 2027 user manual and Python SDK 2027.0.0 |
+| `vfx:kitsu` | Kitsu developer docs (Zou, gazu, integrations, self-hosting) and the Zou REST API from its OpenAPI spec; unversioned, the crawl records the Zou and gazu versions |
 
 ``` shell
 claude plugin install vfx@healkeiser --scope user

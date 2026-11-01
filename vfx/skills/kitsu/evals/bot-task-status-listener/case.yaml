@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: bot-task-status-listener
+expected_outcome: |
+  answer.md explains creating a bot on the Kitsu Bots admin page and using its API token; task_watcher.py calls gazu.set_host("https://kitsu.example.com/api"), gazu.set_event_host("https://kitsu.example.com"), gazu.set_token(...) instead of log_in, then gazu.events.init(), add_listener for "task:status-changed" and run_client, and the callback fetches the task from its task_id because the event only carries the id. Sources cite dev.kitsu.cloud.
