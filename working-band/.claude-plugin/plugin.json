@@ -1,1 +1,1 @@
-{"name": "working-band", "version": "0.1.1", "description": "While a turn runs, shows what Claude is doing above the prompt: current action, tool count, elapsed time.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}
+{"name": "working-band", "version": "0.1.2", "description": "While a turn runs, shows what Claude is doing above the prompt: current action, tool count, elapsed time.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}

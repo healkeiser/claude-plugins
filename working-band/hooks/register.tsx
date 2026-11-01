@@ -24,7 +24,8 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return next(e)
     turn = { tools: 0, files: new Set() }
     tick?.cancel()
-    await update($, activity, (): Activity => ({ label: 'thinking', tools: 0, frames: 0 }))
+    const startedAt = await $.clock.now()
+    await update($, activity, (): Activity => ({ label: 'thinking', tools: 0, frames: 0, startedAt }))
     tick = $.clock.every(FRAME_MS, () => {
       void update($, activity, a => (a ? { ...a, frames: a.frames + 1 } : a))
     })
@@ -94,13 +95,17 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
     const tools = a.tools === 1 ? '1 tool' : `${a.tools} tools`
+    // From the clock, not the frame count: each tick lands a little late, so
+    // frames fall behind the real time over a long turn. A value stored before
+    // startedAt existed falls back to frames.
+    const ms = a.startedAt ? (await $.clock.now()) - a.startedAt : a.frames * FRAME_MS
 
     return (
       <Box flexDirection="row">
         <Text color="claude">{SPINNER[a.frames % SPINNER.length]} </Text>
         <Text wrap="truncate-end">
           {a.label}
-          <Text dimColor>{`  ·  ${tools}  ·  ${elapsed(Math.floor((a.frames * FRAME_MS) / 1000))}`}</Text>
+          <Text dimColor>{`  ·  ${tools}  ·  ${elapsed(Math.floor(ms / 1000))}`}</Text>
         </Text>
       </Box>
     )
