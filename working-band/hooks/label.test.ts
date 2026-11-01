@@ -8,6 +8,8 @@ test('tool calls become short phrases', () => {
   expect(describe({ tool: 'Bash', command: 'ls', description: 'List files' })).toBe('List files')
   expect(describe({ tool: 'mcp__kitsu__list_shots' })).toBe('kitsu: list shots')
   expect(describe({ tool: 'WebFetch', url: 'https://github.com/a/b' })).toBe('fetching github.com')
+  expect(describe({ tool: 'Bash', command: '\n  git status' })).toBe('running git')
+  expect(describe({ tool: 'Bash', command: 'x', description: 'Build\nand test' })).toBe('Build and test')
 })
 
 test('elapsed time reads as seconds then minutes', () => {

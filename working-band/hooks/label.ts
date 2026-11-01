@@ -1,7 +1,12 @@
 const base = (path: unknown) => String(path ?? '').split(/[\\/]/).pop() || 'file'
 
-// One short phrase per tool call, for the band.
+// One short phrase per tool call, for the band: on one line, as a multi-line
+// description or command would push the band to several rows.
 export function describe(e: { tool: string; [arg: string]: unknown }): string {
+  return phrase(e).replace(/\s+/g, ' ').trim()
+}
+
+function phrase(e: { tool: string; [arg: string]: unknown }): string {
   switch (e.tool) {
     case 'Edit':
     case 'MultiEdit':
@@ -16,7 +21,7 @@ export function describe(e: { tool: string; [arg: string]: unknown }): string {
       return `searching ${String(e.pattern ?? '')}`
     case 'Bash':
     case 'PowerShell':
-      return e.description ? String(e.description) : `running ${String(e.command ?? '').split(/\s+/)[0]}`
+      return e.description ? String(e.description) : `running ${String(e.command ?? '').trim().split(/\s+/)[0]}`
     case 'Agent':
       return `agent: ${String(e.description ?? 'working')}`
     case 'WebFetch':
