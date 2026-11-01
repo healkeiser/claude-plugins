@@ -1,1 +1,1 @@
-{"name": "pulse", "version": "0.2.0", "description": "While a turn runs, shows what Claude is doing above the prompt: current action, tool count, elapsed time. Draws shell commands as compact rows.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}
+{"name": "pulse", "version": "0.2.1", "description": "While a turn runs, shows what Claude is doing above the prompt: current action, tool count, elapsed time. Draws shell commands as compact rows.", "types": "./types/index.d.ts", "author": {"name": "Valentin Beaumont"}}

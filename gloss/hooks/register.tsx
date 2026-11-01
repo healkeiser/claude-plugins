@@ -16,10 +16,10 @@ const FOLD_OVER = 20
 const FOLD_TO = 12
 
 const CALLOUT: Record<CalloutType, { color: string; title: string }> = {
-  note: { color: 'suggestion', title: 'ℹ Note' },
+  note: { color: 'suggestion', title: 'ℹ︎ Note' },
   tip: { color: 'success', title: '✓ Tip' },
   important: { color: 'merged', title: '◆ Important' },
-  warning: { color: 'warning', title: '⚠ Warning' },
+  warning: { color: 'warning', title: '⚠︎ Warning' },
   caution: { color: 'error', title: '✕ Caution' },
 }
 

@@ -103,7 +103,7 @@ export const register: Register = on => {
     )
   })
 
-  // ● Rebase the vfx branch onto main            ✔ 1.4s
+  // ● Rebase the vfx branch onto main            ✓ 1.4s
   //   $ cd ~/…/repo && git rebase main
   //   └ Successfully rebased and updated…  +3 lines
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
@@ -118,7 +118,7 @@ export const register: Register = on => {
 
     let status: string
     let color: 'warning' | 'error' | 'inactive' | 'success'
-    if (isInterrupted) [status, color] = ['⏸ interrupted', 'warning']
+    if (isInterrupted) [status, color] = ['‖ interrupted', 'warning']
     else if (isErrored) [status, color] = ['✕', 'error']
     else if (isRunning) {
       // The band's own tick turns the spinner; between turns it stands still.
@@ -126,7 +126,7 @@ export const register: Register = on => {
       ;[status, color] = [a ? SPINNER[a.frames % SPINNER.length]! : '…', 'inactive']
     } else {
       const ms = await read($, memberOf(durations, e))
-      ;[status, color] = [ms === null ? '✔' : `✔ ${took(ms)}`, 'success']
+      ;[status, color] = [ms === null ? '✓' : `✓ ${took(ms)}`, 'success']
     }
 
     // An errored call's text stays in the engine's ToolResult row below.

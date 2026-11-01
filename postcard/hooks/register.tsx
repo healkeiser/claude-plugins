@@ -112,7 +112,7 @@ export const register: Register = on => {
     if (isQueued) {
       return (
         <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} marginLeft={4} alignSelf="flex-start">
-          <Text dimColor italic>⏸ queued</Text>
+          <Text dimColor italic>‖ queued</Text>
           <Text dimColor>{e.props.text}</Text>
         </Box>
       )

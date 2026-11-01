@@ -35,7 +35,7 @@ test('a bold line opens a heading over the lines under it', () => {
 
 test('bullets change glyph by depth; ordered items keep their numbers', () => {
   const [part] = parse('- a\n  - b\n    - c\n      - d\n- e\n  1. f\n  2. g')
-  expect(part?.kind === 'lines' && part.lines.map(l => l.prefix)).toEqual(['• ', '  ◦ ', '    ▪ ', '      • ', '• ', '  1. ', '  2. '])
+  expect(part?.kind === 'lines' && part.lines.map(l => l.prefix)).toEqual(['• ', '  ◦ ', '    ■ ', '      • ', '• ', '  1. ', '  2. '])
   expect(part?.kind === 'lines' && part.lines.map(l => l.depth)).toEqual([0, 1, 2, 3, 0, 1, 1])
 })
 
@@ -43,7 +43,7 @@ test('task items draw as open and done marks without their brackets', () => {
   const [part] = parse('- [ ] write it\n- [x] test it')
   expect(part?.kind === 'lines' && part.lines.map(l => [l.prefix, l.marker, l.spans])).toEqual([
     ['○ ', 'open', [{ kind: 'text', text: 'write it' }]],
-    ['✔ ', 'done', [{ kind: 'text', text: 'test it' }]],
+    ['✓ ', 'done', [{ kind: 'text', text: 'test it' }]],
   ])
 })
 

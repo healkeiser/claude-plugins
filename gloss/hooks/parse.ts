@@ -148,7 +148,7 @@ function merge(parts: Part[]): Part[] {
   return out
 }
 
-const BULLETS = ['•', '◦', '▪']
+const BULLETS = ['•', '◦', '■']
 
 // Reads lines that may hold list items: an item's depth comes from its indent
 // against the items above it, and a line under an item hangs under its text.
@@ -167,7 +167,7 @@ export function parseLines(lines: string[]): Line[] {
     const task = /^\[([ xX])\]\s+(.*)$/.exec(item[3]!)
     const isNumber = /\d/.test(item[2]!)
     const marker: Marker = task ? (task[1] === ' ' ? 'open' : 'done') : isNumber ? 'number' : 'bullet'
-    const glyph = marker === 'open' ? '○' : marker === 'done' ? '✔' : isNumber ? item[2]! : BULLETS[depth % BULLETS.length]!
+    const glyph = marker === 'open' ? '○' : marker === 'done' ? '✓' : isNumber ? item[2]! : BULLETS[depth % BULLETS.length]!
     const prefix = `${'  '.repeat(depth)}${glyph} `
     hang = ' '.repeat(prefix.length)
     return { prefix, isHeading: false, spans: parseInline(task ? task[2]! : item[3]!), marker, depth }

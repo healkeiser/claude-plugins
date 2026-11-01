@@ -73,7 +73,7 @@ test('a list draws depth glyphs and task marks, done in the success colour', asy
   const mark = (s: string) => all.find(t => t.text === s)
   expect(mark('• ')?.props?.color).toBe('claude')
   expect(mark('  ◦ ')?.props?.color).toBe('suggestion')
-  expect(mark('✔ ')?.props?.color).toBe('success')
+  expect(mark('✓ ')?.props?.color).toBe('success')
   expect(mark('○ ')).toBeDefined()
 })
 

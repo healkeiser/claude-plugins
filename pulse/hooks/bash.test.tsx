@@ -30,7 +30,7 @@ test('a running call shows its headline, command and no output', async $ => {
   expect(all).toContain('Show working tree status')
   expect(all).toContain('$ git status')
   expect(all).not.toContain('└')
-  expect(all).not.toContain('✔')
+  expect(all).not.toContain('✓')
 })
 
 test('a finished call previews stdout, counts the rest and shows its time', async ($, on) => {
@@ -44,7 +44,7 @@ test('a finished call previews stdout, counts the rest and shows its time', asyn
   await $.tool.call({ tool: 'Bash', command: 'git log' })
 
   const all = (await draw($, { output: { stdout: '\nbb43e7c feat(vfx): bundle\nx\ny\nz\n', stderr: '', interrupted: false } }, id)).join('\n')
-  expect(all).toContain('✔ 1.4s')
+  expect(all).toContain('✓ 1.4s')
   expect(all).toContain('└ ')
   expect(all).toContain('bb43e7c feat(vfx): bundle')
   expect(all).toContain('+3 lines')
@@ -52,7 +52,7 @@ test('a finished call previews stdout, counts the rest and shows its time', asyn
 
 test('without a recorded time a finished call shows a bare check', async $ => {
   const all = (await draw($, { output: { stdout: 'ok', stderr: '' } })).join('\n')
-  expect(all).toContain('✔')
+  expect(all).toContain('✓')
   expect(all).not.toContain('+')
 })
 
@@ -70,7 +70,7 @@ test('an errored call is marked and leaves its text to the result row', async $ 
 
 test('an interrupted call says so', async $ => {
   const all = (await draw($, { isErrored: true, isInterrupted: true })).join('\n')
-  expect(all).toContain('⏸ interrupted')
+  expect(all).toContain('‖ interrupted')
 })
 
 test('a long command under a home folder is shortened to the width', async $ => {

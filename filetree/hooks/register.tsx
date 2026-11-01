@@ -2301,7 +2301,7 @@ export const register: Register = (on, options) => {
     const wordButtons = plainButtons.map(b => ({ ...b, label: WORDS[b.id] ?? b.label }))
     const wordWidth = wordButtons.reduce((w, b) => w + b.label.length + 1, 1)
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
-    const rootGlyph = unicode ? '▪' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
+    const rootGlyph = unicode ? '■' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
     const header = t.top ? [t.top.split('/').pop() ?? t.top, t.prefix.replace(/\/$/, '')].filter(Boolean).join('/') : t.root.split('/').pop() || t.root
     const headerRuled = e.surface === 'terminal' && header.length + 6 + buttons.reduce((w, b) => w + [...b.label].length + 1, 0) <= e.props.bodyColumns
 
@@ -2350,7 +2350,7 @@ export const register: Register = (on, options) => {
       const name = n.name.length > cols ? n.name.slice(0, cols - 1) + '…' : n.name
       const caret = n.kind === 'dir' ? (unicode ? (r.open ? '▾' : '▸') : r.open ? CHEVRON_OPEN : CHEVRON_CLOSED) + ' ' : '  '
       const isRepo = n.kind === 'dir' && n.id === t.top
-      const glyph = unicode ? (n.kind === 'dir' ? '▪' : '∙') : fileIcon(n, r.open, isRepo)
+      const glyph = unicode ? (n.kind === 'dir' ? '■' : '∙') : fileIcon(n, r.open, isRepo)
       const lit = isBright || isDim
       const left: Seg[] = [
         { t: '  '.repeat(r.depth) },
@@ -2415,7 +2415,7 @@ export const register: Register = (on, options) => {
             {rootCounts.map(c => (
               <Text color={c.c}>{c.t}</Text>
             ))}
-            {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text color="success"> ✔ clean</Text>}
+            {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text color="success"> ✓ clean</Text>}
           </Box>
         </Box>
       )
