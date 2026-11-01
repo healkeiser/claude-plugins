@@ -200,3 +200,49 @@ test('a prompt queued while a turn runs is listed once: the queued card is not a
   const pane = await $.ui.mount(PANE)
   expect(await rows(pane)).toEqual(['#2 and the lexer', '#1 Fix the parser'])
 })
+
+test('the Shell tab lists the commands Claude ran, newest first, with how each ended; copy copies, run fills the box with !command', async ($, on) => {
+  const seen = engine(on)
+  const clock = mock.clock(on, { now: 0 })
+  const copied: string[] = []
+  on('ui.copy', (_, e) => {
+    copied.push((e as { text: string }).text)
+    return { value: { isCopied: true } } as never
+  })
+  // The shell beneath: the tests fail after 2 s, ls works, rm is denied.
+  on('tool.call', async (_, e) => {
+    const cmd = String((e as { command?: string }).command)
+    if (cmd.startsWith('rm')) return { deny: 'no' } as never
+    await clock.sleep(cmd.startsWith('npm') ? 2000 : 10)
+    return (cmd.startsWith('npm') ? { result: {}, isError: true, text: 'boom' } : { result: {}, text: 'ok' }) as never
+  })
+  const bash = (command: string, id: string) => $.tool.call({ tool: 'Bash', command, tool_use_id: id } as never)
+  const t1 = bash('npm test', 't1')
+  await clock.advance(2000)
+  await t1
+  const t2 = bash('ls -la\nsecond line', 't2')
+  await clock.advance(10)
+  await t2
+  await bash('rm -rf build', 't3')
+  // A subagent's command is not the main loop's: left out.
+  const t4 = $.tool.call({ tool: 'Bash', command: 'echo sub', tool_use_id: 't4', agentId: 'ag1' } as never)
+  await clock.advance(10)
+  await t4
+
+  const pane = await $.ui.mount(PANE)
+  await pane.press({ key: 'tab-shell' })
+  const texts = (await pane.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts).toEqual(expect.arrayContaining(['✕ ', '✓ ']))
+  const cmds = (await pane.findAll({ type: 'Button' })).filter(b => /^c\d$/.test(b.key ?? '')).map(b => b.text)
+  expect(cmds).toEqual(['rm -rf build', 'ls -la', 'npm test'])
+  expect(await pane.find({ text: /^3$/ })).toBeDefined()
+
+  await pane.press({ key: 'y1' })
+  expect(copied).toEqual(['ls -la\nsecond line'])
+  await pane.press({ key: 'x2' })
+  expect(seen.filled).toEqual(['!npm test'])
+
+  // The search filters this tab's commands.
+  await pane.input({ key: 'search', text: 'npm', kind: 'change' })
+  expect((await pane.findAll({ type: 'Button' })).filter(b => /^c\d$/.test(b.key ?? '')).map(b => b.text)).toEqual(['npm test'])
+})

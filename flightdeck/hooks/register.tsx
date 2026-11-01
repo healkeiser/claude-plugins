@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { AgentCard, Architect, Bucket, Check, Gate, InboxItem, Layout, LogLine, Loop, Main, Repo, Roster, Split, TrendPoint, Turn, Usage, View } from '../types'
+import type { AgentCard, Architect, Bucket, Check, Gate, InboxItem, Layout, LogLine, Loop, Main, Repo, Roster, Split, ToolStat, TrendPoint, Turn, Usage, View } from '../types'
 import {
   DEFAULT_ARCHITECT,
   addCard,
@@ -84,6 +84,9 @@ import {
   errorLine,
   inboxNewest,
   normalizeInbox,
+  toolLabel,
+  noteToolTime,
+  normalizeTools,
   normalizeTrend,
   pushTrend,
   sparkLevels,
@@ -94,7 +97,7 @@ import {
 } from './core'
 import type { Config, Panel } from './core'
 import { SPACE, cardFrame, header, kit, space } from './kit'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, ascii, asciiTree, canRamp, heatHex, heatRuns, meterShare, motionOn, percent, sentence } from './style'
+import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, asciiTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -120,6 +123,7 @@ const repo = atom({ plugin: 'flightdeck', key: 'repo' } as const, null)
 const trend = atom({ plugin: 'flightdeck', key: 'trend' } as const, [])
 const split = atom({ plugin: 'flightdeck', key: 'split' } as const, null)
 const inbox = atom({ plugin: 'flightdeck', key: 'inbox' } as const, [])
+const tools = atom({ plugin: 'flightdeck', key: 'tools' } as const, [])
 
 type ServerBlock = { type: string; id?: string; name?: string; tool_use_id?: string }
 
@@ -154,6 +158,9 @@ async function getView($: EngineInterface): Promise<View> {
 }
 async function getTrend($: EngineInterface): Promise<TrendPoint[]> {
   return normalizeTrend(await read($, trend))
+}
+async function getTools($: EngineInterface): Promise<ToolStat[]> {
+  return normalizeTools(await read($, tools))
 }
 async function getInbox($: EngineInterface): Promise<InboxItem[]> {
   return normalizeInbox(await read($, inbox))
@@ -599,7 +606,9 @@ export const register: Register = (on, options) => {
 
   on('tool.call', async ($, e, next) => {
     callLoop.set(e.tool_use_id, e.agentId ?? null)
+    const startedAt = await $.clock.now()
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
+    const tookMs = (await $.clock.now()) - startedAt
     if (REPO_TOOLS.has(String(e.tool))) readRepoSoon($)
     const didRun = ran.deny === undefined
     // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
@@ -621,6 +630,8 @@ export const register: Register = (on, options) => {
       return ran
     }
     const hasFailed = didRun && ran.isError === true
+    // Timed when it ran without a permission prompt: a prompt's wait is the person's, not the tool's.
+    if (didRun && !isSettled) await update($, tools, l => noteToolTime(normalizeTools(l), String(e.tool), tookMs, hasFailed))
     const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
     const t0 = await getTurn($)
     if (isEdit || hasFailed || (!e.agentId && t0.errorStreak > 0)) {
@@ -825,6 +836,7 @@ export const register: Register = (on, options) => {
       getInbox($),
       $.clock.now(),
     ])
+    const ts = await getTools($)
     const isRamp = e.surface !== 'terminal' || (await readRamp($))
     const k = kit(els, e.surface, { ramp: isRamp, ascii: cfg.ascii })
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
@@ -847,6 +859,7 @@ export const register: Register = (on, options) => {
       loops: lp.length === 0,
       receipt: !m.isRunning && !r,
       inbox: ib.length === 0,
+      tools: ts.length === 0,
       trends: tr.length === 0,
       log: false,
     }
@@ -1071,7 +1084,14 @@ export const register: Register = (on, options) => {
           value: pctOf(l.pct),
           pct: l.pct,
           ...(resetIn ? { d1: { text: `↻ ${resetIn}`, dim: true } } : {}),
-          d2: [resetAt ? { spans: [{ text: resetAt, dim: true }] } : null],
+          // As the status line: the reset's wall clock, the pace, and when 100% comes if before the reset.
+          d2: [
+            resetAt ? { spans: [{ text: resetAt, dim: true }] } : null,
+            (p => (p === null ? null : { spans: [paceLabel(p).role === ROLE.chrome ? { text: paceLabel(p).text, dim: true } : { text: paceLabel(p).text, color: paceLabel(p).role }] }))(
+              pace(l.pct, l.resetsAt, LIMIT_WINDOW_MS[l.kind], now),
+            ),
+            (at => (at === null ? null : { spans: [{ text: forecastLabel(at, now), color: C.warn }] }))(forecast(l.pct, l.resetsAt, LIMIT_WINDOW_MS[l.kind], now)),
+          ],
         }
       }),
     ]
@@ -1495,6 +1515,53 @@ export const register: Register = (on, options) => {
 
     // ---- trends: one sparkline per figure over the last turns, the latest reading on the right
     type TrendRow = { key: string; label: string; vals: (number | null)[]; max?: number; fmt: (n: number) => string; isHeat?: boolean }
+    // ---- tools: where the session's time went, by tool; a slow run (10 s and up) in warning, failures in error
+    const toolsPanel = (w: number) => {
+      const iw = w - 4
+      const calls = ts.reduce((n, x) => n + x.calls, 0)
+      const shown = ts.slice(0, 6)
+      const nameW = Math.min(18, Math.max(4, ...shown.map(x => cellWidth(toolLabel(x.name)))))
+      return (
+        <Box {...block(w, C.main)}>
+          {head(iw, 'tools', C.main, right([{ text: plural(calls, 'call'), dim: true }]))}
+          {shown.map(x => {
+            // Columns, each a fixed width so they line up: the tool, its calls, the average, the slowest, failures.
+            const avg = fmtDuration(x.totalMs / x.calls)
+            const max = fmtDuration(x.maxMs)
+            const room = iw - nameW - 1 - 4
+            return (
+              <Box key={`tool-${x.name}`} width={iw} overflow="hidden">
+                <Box width={nameW} flexShrink={0}>
+                  <Text wrap="truncate">{toolLabel(x.name)}</Text>
+                </Box>
+                <Box width={4} marginLeft={1} flexShrink={0} justifyContent="flex-end">
+                  <Text dimColor>{String(x.calls)}</Text>
+                </Box>
+                {room >= 12 ? (
+                  <Box width={10} marginLeft={2} flexShrink={0} columnGap={1}>
+                    <Text dimColor>avg</Text>
+                    <Text>{avg}</Text>
+                  </Box>
+                ) : null}
+                {room >= 24 ? (
+                  <Box width={10} marginLeft={1} flexShrink={0} columnGap={1}>
+                    <Text dimColor>max</Text>
+                    <Text {...(x.maxMs >= 10_000 ? { color: C.amber } : {})}>{max}</Text>
+                  </Box>
+                ) : null}
+                {x.fails && room >= 34 ? (
+                  <Box marginLeft={1} flexShrink={0}>
+                    <Text color={C.warn}>{`${x.fails} failed`}</Text>
+                  </Box>
+                ) : null}
+              </Box>
+            )
+          })}
+          {ts.length > shown.length ? <Text dimColor>{`${GLYPH.more} ${plural(ts.length - shown.length, 'more tool')}`}</Text> : null}
+        </Box>
+      )
+    }
+
     const trendPanel = (w: number) => {
       const iw = w - 4
       const n = Math.max(1, Math.min(tr.length, iw - 4 - 7 - 2))
@@ -1617,12 +1684,14 @@ export const register: Register = (on, options) => {
                     ? inboxPanel(w)
                     : p === 'trends'
                       ? trendPanel(w)
-                      : logPanel(w)
+                      : p === 'tools'
+                        ? toolsPanel(w)
+                        : logPanel(w)
 
     // Blocks one row apart, every gap alike: a connector where work flows from one block to the next (main to
     // architect, gate and the receipt), an empty row elsewhere. Hidden blocks take no gap.
     type Item = Panel | 'expanded'
-    const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops' || x === 'inbox' || x === 'trends')
+    const flows = (a: Item, b: Item) => ![a, b].some(x => x === 'agents' || x === 'expanded' || x === 'log' || x === 'loops' || x === 'inbox' || x === 'trends' || x === 'tools')
     const gapRow = (a: Item, b: Item, w: number) =>
       flows(a, b) ? rail(`link-${b}`, b === 'architect' ? advising : m.isRunning, b === 'architect' ? C.arch : C.main, w) : <Box key={`gap-${b}`} height={1} />
     const column = (ps: Panel[], w: number) => {
@@ -1759,7 +1828,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Box key="block-columns" columnGap={2}>
           {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate' || p === 'inbox'), colW)}
-          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt' || p === 'trends'), colW)}
+          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt' || p === 'tools' || p === 'trends'), colW)}
         </Box>
         {panels.includes('log') ? <Box key="gap-log" height={1} /> : null}
         {panels.includes('log') ? (

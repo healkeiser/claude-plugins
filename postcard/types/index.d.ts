@@ -13,8 +13,18 @@ export type PromptsSentAt = Readonly<Record<string, number>>
 /** The prompt the last jump landed on, which the /prompts pane marks; null is the bottom of the transcript. */
 export type PromptsCursor = string | null
 
+/**
+ * A shell command Claude ran (Bash or PowerShell, in the main loop): `at` when it started and `ms` how
+ * long it took, in `$.clock.now()` milliseconds; `state` running, ok, failed or denied. The newest 200.
+ */
+export type PromptsShellRun = { id: string; command: string; at: number; ms: number | null; state: 'running' | 'ok' | 'fail' | 'denied' }
+export type PromptsShell = readonly PromptsShellRun[]
+
+/** The /prompts pane's open tab: the prompts you sent, or the shell commands Claude ran. */
+export type PromptsTab = 'prompts' | 'shell'
+
 declare module 'claude-code' {
   interface PluginState {
-    'postcard': { version: PromptsVersion; sent: PromptsSent; query: PromptsQuery; sentAt: PromptsSentAt; cursor: PromptsCursor }
+    'postcard': { version: PromptsVersion; sent: PromptsSent; query: PromptsQuery; sentAt: PromptsSentAt; cursor: PromptsCursor; shell: PromptsShell; tab: PromptsTab }
   }
 }

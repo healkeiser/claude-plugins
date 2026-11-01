@@ -69,6 +69,8 @@ import {
   errorLine,
   inboxNewest,
   normalizeInbox,
+  noteToolTime,
+  toolLabel,
   normalizeTrend,
   pushTrend,
   sparkLevels,
@@ -188,7 +190,7 @@ test('consults open, close by id, and draw on a shared timeline', () => {
 
 test('config is read leniently: bad values fall back to defaults', () => {
   const d = parseConfig({})
-  expect([d.maxCards, d.paneColumns, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 66, 'auto', true, true, 9])
+  expect([d.maxCards, d.paneColumns, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 66, 'auto', true, true, 10])
   expect(d.architect.test('fable-advisor:fable-advisor')).toBe(true)
   expect([d.statusLine, parseConfig({ statusLine: true }).statusLine]).toEqual([false, true]) // off unless asked
   const c = parseConfig({ architectPattern: '([', maxCards: 99, layout: 'diagonal', panels: 'log, gate ,nope,gate', motion: 'off' })
@@ -531,6 +533,29 @@ test('each rate-limit window shows the time to its reset where the main panel ha
   expect(await narrow.find({ text: /^19%$/ })).toBeDefined()
   expect(await narrow.find({ text: /↻/ })).toBeUndefined() // no room: the meters stay whole
   await narrow.unmount()
+})
+
+test('a limit used faster than the clock shows its pace and when it fills, before its reset; one on track shows neither forecast', async ($, on) => {
+  engine(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  const at = (ms: number) => new Date(ms).toISOString()
+  // Two hours into five, 80% used: 2.0×, full in half an hour. The week, on track.
+  await $.session.measure({
+    context: { window: 200_000 },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 80, resetsAt: at(3 * 3_600_000) },
+      { kind: 'seven_day', percentUsed: 10, resetsAt: at(6 * 86_400_000) },
+    ],
+    changed: ['rateLimits'],
+  })
+  const ui = await $.ui.mount({ ...pane(120), surface: 'terminal' })
+  const five = textsIn(keyed(await ui.drawn(), 'meter-five_hour'))
+  const pace = five.find(t => textOf(t) === '2.0×')
+  expect(pace?.props?.color).toBe('error')
+  expect(five.map(textOf).some(t => /^full \d\d:\d\d$/.test(t))).toBe(true)
+  const week = textsIn(keyed(await ui.drawn(), 'meter-seven_day')).map(textOf)
+  expect(week.some(t => t.startsWith('full'))).toBe(false)
+  await ui.unmount()
 })
 
 test("the main box shows the last request's time to first token, and no tokens per second", async ($, on) => {
@@ -1934,4 +1959,42 @@ test('the new blocks keep one-row gaps and fit every width, and a busy session s
   expect((root.children ?? []).filter(Boolean).length <= 8).toBe(true)
   expect(await mini.find({ text: /^✕ \d+$/ })).toBeDefined()
   await mini.unmount()
+})
+
+test('tool timings: calls, failures, total and slowest per tool, the most time-consuming first; MCP tools by server', () => {
+  let t = noteToolTime([], 'Read', 100, false)
+  t = noteToolTime(t, 'Bash', 12_000, true)
+  t = noteToolTime(t, 'Read', 300, false)
+  expect(t).toEqual([
+    { name: 'Bash', calls: 1, fails: 1, totalMs: 12_000, maxMs: 12_000 },
+    { name: 'Read', calls: 2, fails: 0, totalMs: 400, maxMs: 300 },
+  ])
+  expect(toolLabel('mcp__fxhoudini__get_frame')).toBe('fxhoudini·get_frame')
+  expect(toolLabel('mcp__claude_ai_Linear__search')).toBe('claude_ai_Linear·search')
+  expect(toolLabel('Bash')).toBe('Bash')
+})
+
+test('the tools panel times each call, flags a slow run and failures, and leaves out a call that waited on a prompt', async ($, on) => {
+  const clock = engine(on)
+  // The tool beneath: Bash takes 12 s and fails, Read 0.2 s.
+  on('tool.call', async (_$, e) => {
+    await clock.sleep(e.tool === 'Bash' ? 12_000 : 200)
+    return e.tool === 'Bash' ? { result: {}, isError: true as const, text: 'boom' } : { result: {}, text: 'ok' }
+  })
+  // r2 waited on a permission prompt: not timed.
+  on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'r2' ? 'ask' : 'allow' }))
+  await $.turn.start({ text: 'go', turnId: 'TT' })
+  const call = (tool: string, id: string) => $.tool.call({ tool, command: 'x', file_path: '/x.ts', tool_use_id: id } as never)
+  const run = Promise.all([call('Bash', 'b1'), call('Read', 'r1'), call('Read', 'r2')])
+  await clock.advance(13_000)
+  await run
+  const ui = await $.ui.mount({ ...pane(120), surface: 'terminal' })
+  const rows = (await ui.drawn()) as never
+  const bash = textsIn(keyed(rows, 'tool-Bash')).map(textOf)
+  expect(bash).toEqual(['Bash', '1', 'avg', '12s', 'max', '12s', '1 failed'])
+  const slow = textsIn(keyed(rows, 'tool-Bash')).find(t => textOf(t) === '12s' && t.props?.color)
+  expect(slow?.props?.color).toBe('warning')
+  expect(textsIn(keyed(rows, 'tool-Read')).map(textOf)).toEqual(['Read', '1', 'avg', '0.2s', 'max', '0.2s'])
+  expect(await ui.find({ text: /^2 calls$/ })).toBeDefined()
+  await ui.unmount()
 })

@@ -96,6 +96,20 @@ pace() {
   if [ "$tenths" -ge 15 ]; then color=$ERROR; elif [ "$tenths" -gt 10 ]; then color=$WARNING; fi
   printf -v REPLY '%s%d.%d×%s' "$color" $((tenths / 10)) $((tenths % 10)) "$RESET"
 }
+# forecast <used_pct> <resets_at> <window_secs> -> "full 15:40" in ERROR when the
+# limit reaches 100% before it resets at its pace so far, else nothing. The same
+# rule as forecast() in the mods' style.ts; silent in the first 5% of a window.
+forecast() {
+  local left=$(( $2 - NOW )) elapsed eta
+  elapsed=$(( $3 - left ))
+  REPLY=''
+  [ "$1" -le 0 ] || [ "$elapsed" -lt $(( $3 / 20 )) ] && return
+  if [ "$1" -ge 100 ]; then printf -v REPLY '%sfull now%s' "$ERROR" "$RESET"; return; fi
+  eta=$(( NOW + (100 - $1) * elapsed / $1 ))
+  [ "$eta" -ge "$2" ] && return
+  clock_at "$eta"
+  printf -v REPLY '%sfull %s%s' "$ERROR" "$REPLY" "$RESET"
+}
 # heat <pct> -> the ramp colour for that level
 heat() {
   local i=$(( $1 / 10 )); [ "$i" -gt 9 ] && i=9
@@ -212,13 +226,14 @@ row() {
 # the full form the wall clock and pace. Countdown and clock are padded ("6d 22h",
 # "Thu 12:52" are the longest) so the pace lands in the same column on every row.
 rate_row() {
-  local detail="" p cd
+  local detail="" p cd f
   if [ -n "$3" ] && [ "$5" != bare ]; then
     countdown "$3"; cd=$REPLY
     if [ "$5" = full ]; then
       pace "$2" "$3" "$4"; p=$REPLY
+      forecast "$2" "$3" "$4"; f=$REPLY
       clock_at "$3"
-      printf -v detail '%s↻ %-7s  %-9s%s  %s' "$CHROME" "$cd" "$REPLY" "$RESET" "$p"
+      printf -v detail '%s↻ %-7s  %-9s%s  %s%s' "$CHROME" "$cd" "$REPLY" "$RESET" "$p" "${f:+  $f}"
     else
       printf -v detail '%s↻ %s%s' "$CHROME" "$cd" "$RESET"
     fi

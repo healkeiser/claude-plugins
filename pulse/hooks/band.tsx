@@ -4,14 +4,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, RenderChildren } from 'claude-code'
 
-import type { Call, Repo, Tab, View } from '../types'
+import type { Call, CheckKind, Checks, Repo, Tab, View } from '../types'
+import { readCi, runState } from './checks'
 import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
 import { SPACE, bar as kitBar, cardFrame, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
-  GLYPH, ROLE, asciiTree, canRamp, cellWidth, clip, count, isAsciiGlyphs, isFading, padCells,
+  GLYPH, LIMIT_WINDOW_MS, ROLE, asciiTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
 } from './style'
 
@@ -28,6 +29,12 @@ const NO_REPO: Repo = {
 const DEFAULT_VIEW: View = { isOpen: false, tab: 'activity' }
 const view = atom({ plugin: 'pulse', key: 'view' } as const, DEFAULT_VIEW)
 const second = atom({ plugin: 'pulse', key: 'second' } as const, 0)
+const NO_CHECKS: Checks = { local: [], runs: [], pr: null, gh: 'unread', readAt: 0 }
+const checks = atom({ plugin: 'pulse', key: 'checks' } as const, NO_CHECKS)
+// While a CI run is going, GitHub is read again this often; never while none is.
+const CI_POLL_MS = 60_000
+// After a push or a `gh` command, GitHub is read this long after, so the new run is listed.
+const CI_SOON_MS = 5_000
 /** Where the open tab and the folded state are kept across sessions. */
 const STORE_KEY = 'band'
 
@@ -37,6 +44,7 @@ const TABS: readonly { id: Tab; key: string; short: string; long: string; title:
   { id: 'context', key: '2', short: 'Ctx', long: 'Context', title: 'Context & cache' },
   { id: 'turn', key: '3', short: 'Turn', long: 'Turn', title: 'Turn' },
   { id: 'git', key: '4', short: 'Git', long: 'Git', title: 'Git' },
+  { id: 'checks', key: '5', short: 'Chk', long: 'Checks', title: 'Checks' },
 ]
 // Calls that may change the session folder's files: git is read again a second after the last.
 const REPO_TOOLS = new Set(['Bash', 'PowerShell', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
@@ -134,7 +142,61 @@ export function afterTool($: EngineInterface, tool: string) {
 }
 /** At the end of a main turn (register's `turn.complete` hook). */
 export function afterTurn($: EngineInterface) {
-  void readRepo($).catch(() => {})
+  void readRepo($)
+    .then(() => readChecks($))
+    .catch(() => {})
+}
+
+// ---------------------------------------------------------------- checks
+
+/** A check Claude starts (register's `tool.call` hook): the last of its kind, running. Resolves to its start. */
+export async function startCheck($: EngineInterface, kind: CheckKind, command: string): Promise<number> {
+  const at = await $.clock.now()
+  await update($, checks, c => ({ ...c, local: [...c.local.filter(x => x.kind !== kind), { kind, command, state: 'running' as const, at, ms: null }] }))
+  return at
+}
+
+/** The check started at `at` ended: passed or failed, and how long it took. A newer one of its kind stays. */
+export async function endCheck($: EngineInterface, kind: CheckKind, at: number, isOk: boolean) {
+  const end = await $.clock.now()
+  await update($, checks, c => ({
+    ...c,
+    local: c.local.map(x => (x.kind === kind && x.at === at ? { ...x, state: isOk ? ('ok' as const) : ('fail' as const), ms: end - at } : x)),
+  }))
+}
+
+// A newer schedule supersedes an older one.
+let ciTick = 0
+/** GitHub is read again in `ms` (after a push, or while a run is going). */
+export function checksSoon($: EngineInterface, ms = CI_SOON_MS) {
+  const mine = (ciTick += 1)
+  void $.clock
+    .sleep(ms)
+    .then(() => (mine === ciTick ? readChecks($) : undefined))
+    .catch(() => undefined)
+}
+
+/**
+ * What GitHub says about the branch: its CI runs and pull request, by `gh`, never on a draw. A run that
+ * finished since the last read raises a toast; while one is going, it is read again in a minute.
+ */
+async function readChecks($: EngineInterface) {
+  const r = await read($, repo)
+  if (!r?.isRepo || !r.branch || r.branch.startsWith('(')) return
+  const dir = await $.session.cwd().catch(() => '')
+  if (!dir) return
+  const ci = await readCi($, dir, r.branch)
+  const before = await read($, checks)
+  for (const run of ci.runs) {
+    const was = before.runs.find(x => x.id === run.id)
+    const now = runState(run)
+    if (was && runState(was) === 'running' && now !== 'running') {
+      $.ui.toast(`CI ${run.workflow} ${now === 'ok' ? `${GLYPH.ok} passed` : `${GLYPH.fail} ${run.conclusion || 'failed'}`} on ${r.branch}`)
+    }
+  }
+  const at = await $.clock.now()
+  await update($, checks, c => ({ ...c, runs: ci.runs, pr: ci.pr, gh: ci.problem, readAt: at }))
+  if (ci.runs.some(x => runState(x) === 'running')) checksSoon($, CI_POLL_MS)
 }
 
 /** Whether the band is hidden: the last `/pulse band` (remembered across sessions), else the `band` option. */
@@ -180,7 +242,9 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       $.env.get('WT_SESSION').catch(() => undefined),
     ])
     ramp = canRamp({ COLORTERM: COLORTERM ?? undefined, TERM: TERM ?? undefined, WT_SESSION: WT_SESSION ?? undefined })
-    void readRepo($).catch(() => {})
+    void readRepo($)
+      .then(() => readChecks($))
+      .catch(() => {})
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -205,7 +269,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     // It rejects only where nothing answers beneath (a test): ours still draws.
     const below = await next(e).catch(() => undefined)
 
-    const [a, list, l, c, r, now, u] = await Promise.all([
+    const [a, list, l, c, r, now, u, ck] = await Promise.all([
       read($, activity),
       read($, calls),
       read($, last),
@@ -214,7 +278,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       $.clock.now(),
       $.session.usage().catch(() => null),
       // Read so the countdown's once-a-second write redraws the band.
-      read($, second),
+      read($, second).then(() => read($, checks)),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const isTerm = e.surface === 'terminal'
@@ -225,7 +289,10 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const ctxPct = u?.context.percent
     const limits = (u?.rateLimits ?? []).map(x => {
       const at = x.resetsAt ? Date.parse(x.resetsAt) : NaN
-      return { name: limitName(x.kind), pct: x.percentUsed, left: Number.isFinite(at) ? at - now : null }
+      const resetsAt = Number.isFinite(at) ? at : null
+      // When it fills at its pace so far, if before the reset (style.ts forecast, as the status line).
+      const full = forecast(x.percentUsed, resetsAt, LIMIT_WINDOW_MS[x.kind], now)
+      return { name: limitName(x.kind), pct: x.percentUsed, left: resetsAt === null ? null : resetsAt - now, full }
     })
     const cacheLeftMs = c ? cacheLeft(c, now) : null
     const cachePct = c ? cacheUsed(c, now) : 0
@@ -375,7 +442,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     }
 
     const contextRows = () => {
-      type Row = { key: string; label: string; pct: number; num: string; numColor?: string; detail: string; detailColor?: string; title: string }
+      type Row = { key: string; label: string; pct: number; num: string; numColor?: string; detail: string; detailColor?: string; title: string; warn?: string }
       const rows: Row[] = []
       if (ctxPct !== undefined && u) {
         const t = u.context.tokens
@@ -384,7 +451,12 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       }
       for (const x of limits) {
         const d = span(x.left)
-        rows.push({ key: `limit-${x.name}`, label: x.name, pct: x.pct, num: `${wholePct(x.pct)}%`, numColor: pctColor(x.pct), detail: d ? `${GLYPH.reset} ${d}` : '', title: `${x.name} limit ${wholePct(x.pct)}% used${d ? `, resets in ${d}` : ''}` })
+        const warn = x.full === null ? undefined : forecastLabel(x.full, now)
+        rows.push({
+          key: `limit-${x.name}`, label: x.name, pct: x.pct, num: `${wholePct(x.pct)}%`, numColor: pctColor(x.pct), detail: d ? `${GLYPH.reset} ${d}` : '',
+          title: `${x.name} limit ${wholePct(x.pct)}% used${d ? `, resets in ${d}` : ''}${warn ? `, ${warn} at this pace` : ''}`,
+          ...(warn ? { warn } : {}),
+        })
       }
       if (c) {
         const ttl = c.ttlMs >= 3_600_000 ? '1h' : `${Math.round(c.ttlMs / 60_000)}m`
@@ -399,7 +471,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
         })
       }
       if (rows.length === 0) return [dim(`${GLYPH.idle} no readings yet: they come with the first reply`)]
-      const detailW = Math.max(...rows.map(x => cellWidth(x.detail)))
+      const detailW = Math.max(...rows.map(x => cellWidth(x.detail) + (x.warn ? cellWidth(x.warn) + 3 : 0)))
       const roomFor = (d: number) => inner - 6 - 2 - 4 - (d ? d + 3 : 0)
       const showDetail = roomFor(detailW) >= 6
       const cells = Math.max(4, Math.min(20, roomFor(showDetail ? detailW : 0)))
@@ -413,6 +485,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
             <Text tabular={!isTerm} {...(x.numColor ? { color: x.numColor } : { dimColor: true })}>{`  ${padCells(x.num, 4, 'right')}`}</Text>
             {showDetail && x.detail ? <Text>{'   '}</Text> : null}
             {showDetail && x.detail ? detail(x.detail, x.detailColor) : null}
+            {showDetail && x.warn ? <Text color={ROLE.error}>{`   ${x.warn}`}</Text> : null}
           </Box>,
         ),
       )
@@ -454,6 +527,94 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
         rows.push(labelled('cost', 'cost', 7, <Box flexDirection="row">{value(usd(l.costUsd))}{session !== undefined ? <Text>{'   '}</Text> : null}{session !== undefined ? detail(`session ${usd(session)}`) : null}</Box>))
       } else if (session !== undefined) {
         rows.push(labelled('cost', 'cost', 7, <Box flexDirection="row">{value(usd(session))}<Text>{'   '}</Text>{detail('session so far')}</Box>))
+      }
+      return rows
+    }
+
+    // ---- checks: what Claude last ran to test, type-check, lint and build; then CI and the pull request
+    const checksRows = () => {
+      const col = 9
+      const ago = (at: number) => `${span(Math.max(1000, now - at)) || 'now'} ago`
+      const mark = (state: 'running' | 'ok' | 'fail') =>
+        state === 'running'
+          ? { glyph: isWorking && moving ? spin(a!.frames) : GLYPH.live, color: ROLE.accent }
+          : state === 'ok'
+            ? { glyph: GLYPH.ok, color: ROLE.success }
+            : { glyph: GLYPH.fail, color: ROLE.error }
+      const rows: RenderChildren[] = []
+      const order: CheckKind[] = ['test', 'types', 'lint', 'build']
+      const local = order.map(k => ck.local.find(x => x.kind === k)).filter(x => x !== undefined)
+      if (local.length === 0) rows.push(dim(`${GLYPH.idle} no test, type check, lint or build run yet`))
+      for (const x of local) {
+        const m = mark(x.state)
+        const right = x.state === 'running' ? 'running' : `${ago(x.at)}${x.ms !== null ? `  ${took(x.ms)}` : ''}`
+        rows.push(
+          labelled(
+            `check-${x.kind}`,
+            x.kind,
+            col,
+            <Box flexDirection="row" flexGrow={1}>
+              <Text color={m.color}>{`${m.glyph} `}</Text>
+              <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                <Text wrap="truncate-end">{x.command.split(/\r?\n/)[0]}</Text>
+              </Box>
+              <Box flexShrink={0} marginLeft={2}>
+                <Text color={ROLE.chrome}>{right}</Text>
+              </Box>
+            </Box>,
+          ),
+        )
+      }
+      // GitHub: each workflow's newest run on the branch, then the pull request.
+      const why = { missing: 'gh is not installed: install the GitHub CLI to see CI', auth: 'gh is not logged in: gh auth login to see CI', remote: 'no GitHub remote' } as const
+      if (ck.gh === 'unread') rows.push(labelled('check-ci', 'ci', col, <Text color={ROLE.chrome}>reading GitHub</Text>))
+      else if (ck.gh) rows.push(labelled('check-ci', 'ci', col, <Text color={ROLE.chrome} wrap="truncate-end">{why[ck.gh]}</Text>))
+      else if (ck.runs.length === 0) rows.push(labelled('check-ci', 'ci', col, <Text color={ROLE.chrome}>no runs on this branch</Text>))
+      else {
+        rows.push(
+          labelled(
+            'check-ci',
+            'ci',
+            col,
+            <Box flexDirection="row" columnGap={2} overflow="hidden">
+              {ck.runs.slice(0, 4).map(run => {
+                const m = mark(runState(run))
+                // A run of an older commit than HEAD says which.
+                const old = r?.oid && run.sha && !r.oid.startsWith(run.sha) ? ` ${run.sha}` : ''
+                return (
+                  <Text key={`ci-${run.workflow}`} wrap="truncate-end">
+                    <Text color={m.color}>{`${m.glyph} `}</Text>
+                    {run.workflow}
+                    {old ? <Text color={ROLE.chrome}>{old}</Text> : null}
+                  </Text>
+                )
+              })}
+            </Box>,
+          ),
+        )
+      }
+      if (ck.pr) {
+        const p = ck.pr
+        const review = p.review === 'approved' ? { text: 'approved', color: ROLE.success } : p.review === 'changes_requested' ? { text: 'changes requested', color: ROLE.error } : p.review === 'review_required' ? { text: 'review required', color: ROLE.warning } : null
+        const total = p.passed + p.failed + p.pending
+        rows.push(
+          labelled(
+            'check-pr',
+            'pr',
+            col,
+            <Box flexDirection="row" columnGap={1} overflow="hidden">
+              <Text color={ROLE.accent}>{`#${p.number}`}</Text>
+              <Text wrap="truncate-end">{p.title}</Text>
+              {p.state !== 'open' ? <Text color={ROLE.chrome}>{p.state}</Text> : null}
+              {review ? <Text color={review.color}>{review.text}</Text> : null}
+              {total ? (
+                <Text color={p.failed ? ROLE.error : p.pending ? ROLE.warning : ROLE.success}>
+                  {p.failed ? `${p.failed} of ${total} checks failed` : p.pending ? `${p.passed}/${total} checks, ${p.pending} running` : `${total} checks passed`}
+                </Text>
+              ) : null}
+            </Box>,
+          ),
+        )
       }
       return rows
     }
@@ -613,7 +774,8 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       const header = kitHeader(k, { title: 'Pulse', ...(hasMeta ? { status } : {}), actions: [{ id: 'fold', label: isTerm ? '▾' : 'Collapse', onPress: () => pressFold($) }] })
       const longCells = tabsWidth(TABS.map(t => ({ label: t.long })))
       const tabs = tabRow(t => (!isTerm ? t.title : longCells <= inner ? t.long : t.short))
-      const body = tab.id === 'activity' ? activityRows() : tab.id === 'context' ? contextRows() : tab.id === 'turn' ? turnRows() : gitRows()
+      const body =
+        tab.id === 'activity' ? activityRows() : tab.id === 'context' ? contextRows() : tab.id === 'turn' ? turnRows() : tab.id === 'checks' ? checksRows() : gitRows()
       return (
         <Box {...cardFrame(ROLE.chrome, isTerm ? { width } : {})}>
           {header}

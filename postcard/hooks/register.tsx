@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PromptsCursor, PromptsQuery, PromptsSent, PromptsSentAt, PromptsVersion } from '../types'
-import { SPACE, actionsWidth, cardFrame, header, kit, search as kitSearch, space } from './kit'
+import type { PromptsCursor, PromptsQuery, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion } from '../types'
+import { SPACE, actionsWidth, cardFrame, header, kit, search as kitSearch, space, tabs } from './kit'
 import { GLYPH, ROLE, asciiTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
 // The you role: a prompt card never reads as one of gloss's grey code blocks.
@@ -21,6 +21,11 @@ const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnI
 const query = atom({ plugin: 'postcard', key: 'query' } as const, '' as PromptsQuery)
 const sentAt = atom({ plugin: 'postcard', key: 'sentAt' } as const, {} as PromptsSentAt)
 const cursor = atom({ plugin: 'postcard', key: 'cursor' } as const, null as PromptsCursor)
+const shell = atom({ plugin: 'postcard', key: 'shell' } as const, [] as PromptsShell)
+const tab = atom({ plugin: 'postcard', key: 'tab' } as const, 'prompts' as PromptsTab)
+// Shell commands the Shell tab keeps, and the cells its row gives ` copy run`.
+const SHELL_KEEP = 200
+const SHELL_ACTIONS = 9
 // Cells a pane row gives its ` edit re-send` buttons.
 const ACTIONS = 13
 // Cells a pane row keeps for the prompt's words before it drops its age, then its actions.
@@ -92,6 +97,19 @@ async function edit($: EngineInterface, text: string) {
   }
   const { isFilled } = await $.prompt.fill({ text: untagged(text) })
   $.ui.toast(isFilled ? 'In the prompt box: Esc to go there, change it and send.' : "Couldn't fill the prompt box.")
+}
+
+/**
+ * Puts a shell command in the prompt box as `!command`, so Enter runs it in the person's own shell.
+ * Never run from here, and a draft is never written over.
+ */
+async function rerun($: EngineInterface, command: string) {
+  if ((await $.prompt.read()).text.trim()) {
+    $.ui.toast('The prompt box holds a draft. Send or clear it first.')
+    return
+  }
+  const { isFilled } = await $.prompt.fill({ text: `!${command}` })
+  $.ui.toast(isFilled ? 'In the prompt box: Enter runs it in your shell.' : "Couldn't fill the prompt box.")
 }
 
 /** Sends an old prompt again, as the person's own words. Called only from the
@@ -188,6 +206,22 @@ export const register: Register = (on, options) => {
     return { text: isPlaced ? 'Prompts pane opened.' : 'The prompts pane needs a wider window.' }
   })
 
+  // The Shell tab: each command Claude runs in the main loop, timed, and how it ended.
+  on('tool.call', async ($, e, next) => {
+    if ((e.tool !== 'Bash' && e.tool !== 'PowerShell') || e.agentId !== undefined) return next(e)
+    const command = String((e as { command?: unknown }).command ?? '').trim()
+    if (!command) return next(e)
+    const at = await $.clock.now()
+    const id = e.tool_use_id
+    const run: PromptsShellRun = { id, command, at, ms: null, state: 'running' }
+    await update($, shell, l => [...l.filter(x => x.id !== id), run].slice(-SHELL_KEEP))
+    const ran = await next(e)
+    const ms = (await $.clock.now()) - at
+    const state: PromptsShellRun['state'] = ran.deny !== undefined ? 'denied' : ran.isError === true ? 'fail' : 'ok'
+    await update($, shell, l => l.map(x => (x.id === id ? { ...x, ms, state } : x)))
+    return ran
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       await update($, version, n => n + 1)
@@ -273,6 +307,8 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const k = kit(els, e.surface, { ascii: isAscii })
+    const open = await read($, tab)
+    const runs = open === 'shell' ? await read($, shell) : []
     const all = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1, age: id in times ? span(Math.max(1, now - times[id]!)) : '' }))
     // Newest first, so the hotkeys 1 to 9 reach the recent ones.
     const list = all.filter(p => matches(p.text, q)).reverse()
@@ -281,7 +317,12 @@ export const register: Register = (on, options) => {
     const inner = Math.max(8, e.props.bodyColumns)
     // The person's chord for each action (ctrl+up, ctrl+down by default) presses it from the prompt while the pane is open.
     // The header's actions go first when the title and count do not fit beside them.
-    const detail = q ? `${list.length} of ${all.length}` : `${all.length}`
+    // The open tab's own count: prompts, or shell commands.
+    const shown = open === 'shell' ? [...runs].reverse().filter(r => matches(r.command, q)) : []
+    const detail =
+      open === 'shell'
+        ? q ? `${shown.length} of ${runs.length}` : `${runs.length}`
+        : q ? `${list.length} of ${all.length}` : `${all.length}`
     const actions = [
       { id: 'prev', label: 'prev', action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
       { id: 'next', label: 'next', action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
@@ -295,6 +336,53 @@ export const register: Register = (on, options) => {
     const hasAge = ageW > 0 && room - ACTIONS - ageW - 1 >= MIN_TEXT
     const textW = Math.max(1, room - (hasActions ? ACTIONS : 0) - (hasAge ? ageW + 1 : 0))
 
+    // The Shell tab: newest first; status, the command's first line cut whole, its time, then copy and run.
+    const shellList = (rows: readonly PromptsShellRun[], total: number, at: number) => {
+      const ageOf = (r: PromptsShellRun) => (r.state === 'running' ? 'running' : span(Math.max(1, at - r.at)))
+      const ageW2 = Math.max(0, ...rows.map(r => cellWidth(ageOf(r))))
+      const room2 = inner - 2
+      const hasRun = room2 - SHELL_ACTIONS >= MIN_TEXT
+      const hasAge2 = room2 - SHELL_ACTIONS - ageW2 - 1 >= MIN_TEXT
+      const cmdW = Math.max(1, room2 - (hasRun ? SHELL_ACTIONS : 0) - (hasAge2 ? ageW2 + 1 : 0))
+      const mark = (r: PromptsShellRun) =>
+        r.state === 'running' ? { glyph: GLYPH.live, color: ROLE.accent }
+          : r.state === 'ok' ? { glyph: GLYPH.ok, color: ROLE.success }
+          : r.state === 'fail' ? { glyph: GLYPH.fail, color: ROLE.error }
+          : { glyph: GLYPH.fail, color: ROLE.chrome }
+      return (
+        <Box key="shell" flexDirection="column">
+          {total === 0 && <Text dimColor>No shell commands yet.</Text>}
+          {total > 0 && rows.length === 0 && <Text dimColor>No command matches.</Text>}
+          {rows.map((r, row) => {
+            const m = mark(r)
+            const line = r.command.split(/\r?\n/).find(l => l.trim()) ?? r.command
+            return (
+              <Box key={`sh-${r.id}`} flexDirection="row">
+                <Text color={m.color}>{`${m.glyph} `}</Text>
+                <Box width={cmdW} flexShrink={0}>
+                  <Button key={`c${row}`} plain hotkey={row < 9 ? String(row + 1) : undefined} onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>
+                    {marks(clip(line, cmdW), q).map(x => (x.isMatch ? <Text color={ROLE.accent}>{x.text}</Text> : x.text))}
+                  </Button>
+                </Box>
+                {hasAge2 && (
+                  <Box width={ageW2} marginLeft={1} flexShrink={0} justifyContent="flex-end">
+                    <Text dimColor tabular>{ageOf(r)}</Text>
+                  </Box>
+                )}
+                {hasRun && (
+                  <Box flexDirection="row" marginLeft={1} flexShrink={0}>
+                    <Button key={`y${row}`} plain dimColor onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>copy</Button>
+                    <Text> </Text>
+                    <Button key={`x${row}`} plain dimColor onPress={() => void rerun($, r.command)}>run</Button>
+                  </Box>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
     return drawn(
       <Box flexDirection="column" paddingTop={SPACE.top}>
         {header(k, { title: TITLE, detail, actions: hasMeta ? actions : [] })}
@@ -302,19 +390,29 @@ export const register: Register = (on, options) => {
         {/* Mobile draws no Input yet: the list stands there unfiltered. */}
         {kitSearch(k, {
           value: q,
-          placeholder: 'search your prompts',
+          placeholder: open === 'shell' ? "search Claude's shell commands" : 'search your prompts',
           autoFocus: true,
           count: detail,
           onInput: v => void search(v),
           onClear: () => void search(''),
           onSubmit: async v => {
             await search(v)
+            if (open === 'shell') return
             const first = all.filter(p => matches(p.text, v)).at(-1)
             if (first) {
               if (await jump($, first.id)) await land($, first.id)
             } else $.ui.toast('No prompt matches.')
           },
         })}
+        {tabs(k, {
+          items: [
+            { id: 'prompts', label: 'Prompts' },
+            { id: 'shell', label: 'Shell' },
+          ],
+          active: open,
+          onPick: id => void update($, tab, () => id as PromptsTab),
+        })}
+        {open === 'shell' ? shellList(shown, runs.length, now) : (
         <Box key="list" flexDirection="column">
           {all.length === 0 && <Text dimColor>No prompts yet.</Text>}
           {all.length > 0 && list.length === 0 && <Text dimColor>No prompt matches.</Text>}
@@ -352,6 +450,7 @@ export const register: Register = (on, options) => {
             )
           })}
         </Box>
+        )}
       </Box>
     )
   })

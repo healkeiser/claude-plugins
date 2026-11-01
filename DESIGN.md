@@ -17,7 +17,7 @@ Every pane and band draws its chrome through `kit.tsx`; a mod draws only its own
 | `card`, `cardFrame` | Rounded border in the role colour (`bold` for a viewed one, dimmed for a finished one), `paddingX` 1; `card` adds the title bold in the role colour with a status right. | every card: postcard's prompts and commands, gloss's callouts and `Next`, flightdeck's blocks and agent cards, the Pulse card |
 | `footer` | One row: key hints read as the engine draws a hotkey button (`o: open`: the key in the accent, the colon and action dim) left, a lead (Files' activity chip), then a label and a status right, the status cut from its start so a path keeps its end. | Files |
 
-**Pane layout**, the same in every pane, top to bottom: `SPACE.top` (1) blank row, the header, `SPACE.block` (1) blank row, then the tabs or the search bar, then the body. So a search bar sits on the same rows in every pane. The search card's border is its own air: the body follows it directly.
+**Pane layout**, the same in every pane, top to bottom: `SPACE.top` (1) blank row, the header, `SPACE.block` (1) blank row, then the search bar, then the tabs, then the body. So a search bar sits on the same rows in every pane, and it filters whichever tab is open (the Prompts pane: your prompts, or Claude's shell commands). A band card without a search bar has its tabs there instead, one blank row under them. The search card's border is its own air: what follows it comes directly.
 
 
 ## Colour roles

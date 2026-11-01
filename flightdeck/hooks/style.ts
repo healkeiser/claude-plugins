@@ -215,6 +215,60 @@ export const sentence = (s: string): string => s.charAt(0).toUpperCase() + s.sli
 /** `1 tool`, `3 tools`. */
 export const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`
 
+// ---------------------------------------------------------------- limits
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+/** A wall-clock time: `HH:MM`, with the weekday when a day or more out (`Thu 14:41`); empty when unknown or past. */
+export function clockAt(at: number | null | undefined, now: number): string {
+  if (at === null || at === undefined || at <= now) return ''
+  const d = new Date(at)
+  const hm = d.toTimeString().slice(0, 5)
+  return at - now >= 86_400_000 ? `${WEEKDAYS[d.getDay()]} ${hm}` : hm
+}
+
+/** Each rate-limit window's length, by the API's `kind`. */
+export const LIMIT_WINDOW_MS: Readonly<Record<string, number>> = { five_hour: 5 * 3_600_000, seven_day: 7 * 86_400_000 }
+
+/**
+ * Pace, as statusline.sh reads it: how fast a limit is used against the clock,
+ * 1 being on track to reach 100% exactly at the reset, above 1 an overrun.
+ * Null in the first 5% of a window, where the ratio is noise, or when unknown.
+ */
+export function pace(pct: number, resetsAt: number | null | undefined, windowMs: number | undefined, now: number): number | null {
+  if (!resetsAt || !windowMs) return null
+  const elapsed = windowMs - (resetsAt - now)
+  if (elapsed < windowMs / 20) return null
+  return (pct * windowMs) / (elapsed * 100)
+}
+
+/**
+ * Pace as the status line draws it: to tenths, half up, then `1.4×`, in chrome
+ * on track, warning above 1.0×, error from 1.5× (the shown number decides, so
+ * `1.0×` never alarms).
+ */
+export function paceLabel(p: number): { text: string; role: string } {
+  const tenths = Math.floor(p * 10 + 0.5)
+  return { text: `${Math.floor(tenths / 10)}.${tenths % 10}×`, role: tenths >= 15 ? ROLE.error : tenths > 10 ? ROLE.warning : ROLE.chrome }
+}
+
+/** A forecast as drawn beside a limit: `full 15:40`, in error (it comes before the reset, or it would not be drawn). */
+export const forecastLabel = (at: number, now: number): string => `full ${at <= now ? 'now' : clockAt(at, now)}`
+
+/**
+ * When a limit reaches 100% at the pace it has gone since its window opened:
+ * the time in ms, only when that comes before the reset; null otherwise (it
+ * lasts, too early to tell, or nothing used). The status line forecasts the same.
+ */
+export function forecast(pct: number, resetsAt: number | null | undefined, windowMs: number | undefined, now: number): number | null {
+  const p = pace(pct, resetsAt, windowMs, now)
+  if (p === null || pct <= 0 || !resetsAt || !windowMs) return null
+  if (pct >= 100) return now
+  const elapsed = windowMs - (resetsAt - now)
+  const at = now + ((100 - pct) * elapsed) / pct
+  return at < resetsAt ? Math.round(at) : null
+}
+
 /** A meter's colour by how full it is: accent, then warning from 60%, error from 80%. */
 export const heat = (pct: number): 'claude' | 'warning' | 'error' => {
   const shown = wholePct(pct)

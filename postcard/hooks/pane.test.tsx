@@ -46,7 +46,8 @@ test('the header is the Prompts title, bold in the accent as in every pane, the 
   const label = all.find(t => t.text === 'Prompts')!
   expect(label.props).toMatchObject({ color: 'claude', weight: 'bold' })
   expect(label.props.backgroundColor).toBeUndefined()
-  expect(all.filter(t => t.props.weight === 'bold' || t.props.bold).map(t => t.text)).toEqual(['Prompts'])
+  // Bold: the title, and the open tab as Claude Code marks its own.
+  expect(all.filter(t => t.props.weight === 'bold' || t.props.bold).map(t => t.text)).toEqual(['Prompts', ' Prompts '])
   const t = all.map(x => x.text)
   expect(t[t.indexOf('Prompts') + 1]).toBe('3')
   expect(t[t.indexOf('Prompts') + 2]).toMatch(/^─+$/)

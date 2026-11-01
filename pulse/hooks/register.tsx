@@ -2,7 +2,8 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Call } from '../types'
-import { afterTool, afterTurn, registerBand } from './band'
+import { afterTool, afterTurn, checksSoon, endCheck, registerBand, startCheck } from './band'
+import { checkKind, touchesCi } from './checks'
 import { clip, commandLine, preview, took } from './bash'
 import { cacheLeft, cacheTtl } from './glance'
 import { describe, elapsed, summarize } from './label'
@@ -83,8 +84,17 @@ export const register: Register = (on, options) => {
         return at
       })
       .catch(() => 0)
+    // A test, type check, lint or build Claude runs in the main loop: the Checks tab's last of its kind.
+    const command = (e.tool === 'Bash' || e.tool === 'PowerShell') && isMain ? String((e as { command?: unknown }).command ?? '') : ''
+    const kind = command ? checkKind(command) : null
+    const checkAt = kind ? startCheck($, kind, command).catch(() => null) : null
     const ran = await next(e)
     afterTool($, e.tool)
+    if (kind && checkAt) {
+      void checkAt.then(at => (at === null ? undefined : endCheck($, kind, at, ran.deny === undefined && !ran.isError))).catch(() => {})
+    }
+    // A push or a `gh` command may start a CI run: GitHub is read a few seconds after.
+    if (command && touchesCi(command)) checksSoon($)
     const state: Call['state'] = ran.deny !== undefined || ran.isError ? 'fail' : 'ok'
     void started
       .then(async at => {

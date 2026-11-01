@@ -62,9 +62,9 @@ Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude 
 | Mod | What it changes |
 |-----|-----------------|
 | **gloss** | Claude's replies: open-sided code blocks with a copy button, theme-aware inline-code chips, nested lists and task items, quote bars, rules, strikethrough, coloured diffs, rounded tables, accented headings, callouts, and a highlighted `Next:` line |
-| **pulse** | A band above the prompt: the turn while Claude works, the context, prompt cache, last turn and git at a glance while it waits, unfolding into tabs; the folded tool rows, compact shell command rows, and the footer that closes each turn |
-| **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them |
-| **flightdeck** | A live dashboard pane beside the transcript: the main model's vitals, an on-call architect, every permission check, subagent cards and swimlanes, the turn receipt and a session log. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) |
+| **pulse** | A band above the prompt: the turn while Claude works, the context, prompt cache, last turn and git at a glance while it waits, unfolding into tabs (activity, context and limits with a forecast, the turn, git with upstream, stash, the session's commits and the most changed files, and checks: the last test, type check, lint and build Claude ran, the branch's CI runs and pull request); the folded tool rows, compact shell command rows, and the footer that closes each turn |
+| **postcard** | Your own prompts: a blue card per prompt, a purple card per slash command, a grey card while one is queued, and a `/prompts` pane to jump back to any of them, with a Shell tab of the commands Claude ran to copy or run again |
+| **flightdeck** | A live dashboard pane beside the transcript: the main model's vitals, an on-call architect, every permission check, subagent cards and swimlanes, the turn receipt, how long each tool takes, and a session log. A restyled fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) |
 | **filetree** | An IDE-style file tree pane: what Claude reads, writes and changes, git status, previews, a treemap and diffs. A restyled fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) |
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
@@ -241,17 +241,17 @@ The `Palette` option still overrides any colour with a hex value. Two things kee
 
 ### Status line
 
-`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace.
+`statusline/statusline.sh` draws the status line as a rounded card: the model, the folder, the branch and its uncommitted changes, then one bar each for the context window and the 5-hour and 7-day limits, with their reset time and pace, and when a limit will be full if that comes before it resets.
 
 ```
-╭─ Opus 5.5 · claude-plugins ↗ · main +5 ~4 ──────────╮
-│ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k  │
-│ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1× │
-│ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8× │
-╰────────────────────────────────────────────────────╯
+╭─ Opus 5.5 · claude-plugins ↗ · main +5 ~4 ─────────────────────╮
+│ ctx  ━━━━──────   42%     18m 04s  ↑ 13.7k ↓ 2.1k              │
+│ 5h   ━━━━━━────   61%   ↻ 2h 12m   17:26      1.1×             │
+│ 7d   ━━━━━━━━━─   96%   ↻ 3d 5h    Sat 21:00  1.8×  full 19:40 │
+╰────────────────────────────────────────────────────────────────╯
 ```
 
-Each bar is a heat ramp, one step per tenth from green through yellow and orange to red, each lit cell in its own step, so the last lit cell shows how close the limit is; the percentage takes the colour of its own tenth. The unlit track is a dim grey. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
+Each bar is a heat ramp, one step per tenth from green through yellow and orange to red, each lit cell in its own step, so the last lit cell shows how close the limit is; the percentage takes the colour of its own tenth. The unlit track is a dim grey. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`. When the pace so far fills a limit before it resets, `full 19:40` in red says when; flightdeck and pulse forecast the same way.
 
 The ramp suits a dark background by default. Set `STATUSLINE_THEME=light` for darker, more saturated steps that keep at least 3:1 contrast on white, with a lighter track; `auto`, the default, picks light when `COLORFGBG` reports a white background. The other colours are the terminal's own green, yellow, red and grey, and Claude orange for the model. Set `NO_COLOR` to drop every escape code, the folder and repository links included.
 

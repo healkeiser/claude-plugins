@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   ASCII, GLYPH, HEAT_RAMP, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  heatHex, heatRuns, meterShare, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
+  LIMIT_WINDOW_MS, clockAt, forecast, forecastLabel, paceLabel, heatHex, heatRuns, meterShare, pace, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -149,4 +149,33 @@ test('meters and percentages follow the status line: half cells, nothing above z
   expect(meterShare(37.5, 10)).toBe(0.375)
   expect(meterShare(120, 10)).toBe(1)
   expect(heatHex(59.6)).toBe(HEAT_RAMP[6])
+})
+
+test('limits: pace against the clock and the time 100% comes, only when before the reset', () => {
+  const H = 3_600_000
+  const w = LIMIT_WINDOW_MS.five_hour!
+  const now = 10 * H
+  // Two hours into five, 80% used: twice the pace; 100% half an hour from now, before the reset in three hours.
+  expect(Math.round(pace(80, now + 3 * H, w, now)! * 100) / 100).toBe(2)
+  expect(forecast(80, now + 3 * H, w, now)).toBe(now + H / 2)
+  // On track or slower: it lasts.
+  expect(forecast(40, now + 3 * H, w, now)).toBeNull()
+  // The first 5% of the window is noise; nothing used, unknown reset or window: no reading.
+  expect(pace(10, now + w - 60_000, w, now)).toBeNull()
+  expect(forecast(0, now + 3 * H, w, now)).toBeNull()
+  expect(forecast(80, null, w, now)).toBeNull()
+  expect(forecast(80, now + 3 * H, undefined, now)).toBeNull()
+  // At 100% already: now.
+  expect(forecast(100, now + 3 * H, w, now)).toBe(now)
+  expect(clockAt(now - 1, now)).toBe('')
+  expect(clockAt(now + H, now)).toMatch(/^\d\d:\d\d$/)
+  expect(clockAt(now + 2 * 86_400_000, now)).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
+})
+
+test('pace and forecast read as the status line: 1.0× calm, above it warning, from 1.5× error; full HH:MM', () => {
+  expect(paceLabel(1.04)).toEqual({ text: '1.0×', role: 'subtle' })
+  expect(paceLabel(1.06)).toEqual({ text: '1.1×', role: 'warning' })
+  expect(paceLabel(1.5)).toEqual({ text: '1.5×', role: 'error' })
+  expect(forecastLabel(5, 10)).toBe('full now')
+  expect(forecastLabel(3_600_000 + 10, 10)).toMatch(/^full \d\d:\d\d$/)
 })

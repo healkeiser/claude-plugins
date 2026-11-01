@@ -150,6 +150,12 @@ export type InboxItem = {
   target: string | null
 }
 
+/**
+ * One tool's timings this session: its calls, the ones that failed, their total and slowest run in
+ * ms. A call that waited on a permission prompt is not timed: the wait was the person's, not the tool's.
+ */
+export type ToolStat = { name: string; calls: number; fails: number; totalMs: number; maxMs: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'flightdeck': {
@@ -169,6 +175,7 @@ declare module 'claude-code' {
       trend: TrendPoint[]
       split: Split | null
       inbox: InboxItem[]
+      tools: ToolStat[]
     }
   }
 }

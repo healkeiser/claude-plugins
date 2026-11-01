@@ -9,6 +9,14 @@ const STATUS = (oid: string) => [
   `# branch.oid ${oid}`, '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -0', '# stash 1',
   '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts',
 ].join('\n')
+// What gh answers: the branch's runs, and its pull request, approved, one check of two still running.
+const GH_OUT = (argv: readonly string[], runs: Record<string, unknown>[]) =>
+  argv[1] === 'run'
+    ? JSON.stringify(runs)
+    : JSON.stringify({
+        number: 12, title: 'Unify the mods', state: 'OPEN', reviewDecision: 'APPROVED', url: 'u',
+        statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }, { status: 'IN_PROGRESS', conclusion: '' }],
+      })
 // What git answers each read: status, the diff against HEAD, the last commit (an hour before T0), the
 // commits since the session began (two, once HEAD moved), the work trees.
 const GIT_OUT = (argv: readonly string[], oid: string) =>
@@ -30,7 +38,12 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
     store[e.key] = e.value
     return { value: undefined }
   })
-  const world = { cost: 1, ctx: 64, hasLimits: true, runs: [] as string[][], oid: 'abcdef1234' }
+  // `fiveLeft`: ms until the 5h window resets, from the turn's end. `ci`: the runs `gh run list` answers.
+  const world = { cost: 1, ctx: 64, hasLimits: true, runs: [] as string[][], oid: 'abcdef1234', fiveLeft: (4 * 60 + 51) * 60_000 + 30_000, ci: [] as Record<string, unknown>[], toasts: [] as string[], hasGh: true }
+  on('ui.toast', (_, e) => {
+    world.toasts.push((e as { text: string }).text)
+    return { value: undefined } as never
+  })
   // The last fetch, ten minutes before T0.
   on('fs.stat', () => ({ value: { kind: 'file', size: 41, mtimeMs: T0 - 600_000 } }) as never)
   on('fs.exists', () => ({ value: false }) as never)
@@ -47,7 +60,7 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
       // Timed from a turn's end (T0 + 67 s), where the tabs are read.
       rateLimits: world.hasLimits
         ? [
-            { kind: 'five_hour', percentUsed: 82, resetsAt: new Date(T0 + 67_000 + (4 * 60 + 51) * 60_000 + 30_000).toISOString() },
+            { kind: 'five_hour', percentUsed: 82, resetsAt: new Date(T0 + 67_000 + world.fiveLeft).toISOString() },
             { kind: 'seven_day', percentUsed: 20, resetsAt: new Date(T0 + 67_000 + 3 * 86_400_000 + 22 * 3_600_000 + 30_000).toISOString() },
           ]
         : [],
@@ -56,7 +69,9 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
   }))
   on('process.run', (_, e) => {
     world.runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: GIT_OUT(e.argv, world.oid), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    // No gh installed: running it rejects, as a missing program does.
+    if (e.argv[0] === 'gh' && !world.hasGh) throw new Error('ENOENT')
+    return { value: { exitCode: 0, stdout: e.argv[0] === 'gh' ? GH_OUT(e.argv, world.ci) : GIT_OUT(e.argv, world.oid), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -96,8 +111,10 @@ const flat = (n: unknown): string => {
   if (!n || typeof n !== 'object') return ''
   const el = n as { type?: string; children?: unknown; props?: { children?: unknown; label?: unknown; source?: unknown } }
   if (el.type === 'Svg') return ''
+  // A Button drawn from its children carries them as its label too: the text once.
   const label = typeof el.props?.label === 'string' ? el.props.label : ''
-  return label + flat(el.children ?? el.props?.children)
+  const inner = flat(el.children ?? el.props?.children)
+  return inner || label
 }
 async function look(ui: { drawn: () => Promise<unknown> }) {
   return flat(await ui.drawn())
@@ -157,7 +174,7 @@ test('folded and working: the current action, tab buttons with no digit hotkeys 
   expect(text).toContain('1 tool')
   const buttons = await ui.findAll({ type: 'Button' })
   expect(buttons.map(b => b.props.hotkey).filter(Boolean)).toEqual([])  // a bare digit in an empty prompt must stay typing, not switch tabs
-  expect(buttons.map(b => b.key)).toEqual(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'fold'])
+  expect(buttons.map(b => b.key)).toEqual(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'tab-checks', 'fold'])
   await ui.unmount()
 })
 
@@ -338,7 +355,7 @@ test('narrow widths drop the tabs, then the cost and tool count, and never wrap 
     return { text, tabs, cells: cellWidth(text) }
   }
   const wide = await at(120)
-  expect(wide.tabs).toBe(4)
+  expect(wide.tabs).toBe(5)
   expect(wide.text).toContain('$0.25')
   const mid = await at(70)
   expect(mid.tabs).toBe(0)
@@ -358,7 +375,7 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   await runTurn($, clock, world)
   const ui = await mount($, 'desktop')
   const buttons = await ui.findAll({ type: 'Button' })
-  expect(buttons.map(b => b.props.label)).toEqual(['Activity', 'Context & cache', 'Turn', 'Git', 'Expand'])
+  expect(buttons.map(b => b.props.label)).toEqual(['Activity', 'Context & cache', 'Turn', 'Git', 'Checks', 'Expand'])
   expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
   const svg = await ui.find({ type: 'Svg' })
   expect(String(svg?.props.source)).toContain('linearGradient')
@@ -432,7 +449,7 @@ test('the band takes its own rows and no more: folded one, unfolded the card, no
   const { clock, world } = engine(on, {}, 'empty')
   await startSession($)
   await runTurn($, clock, world)
-  const ui = await mount($)
+  const ui = await mount($, 'terminal', 120)
   expect(rowsOf(await ui.drawn())).toBe(1)
   await ui.press({ key: 'tab-turn' })
   // Border 2, header, a blank row, tabs, a blank row, then last turn, tools, edits, errors, cost.
@@ -506,5 +523,52 @@ test('the Git tab: the session as a line of commits, the last fetch, the work tr
   expect(text).toContain('x.ts')
   expect(text).toContain('new.ts')
   expect(text).toContain('new')
+  await ui.unmount()
+})
+
+test('the Context tab forecasts a limit that fills before its reset, in error, as flightdeck and the status line do', async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'context' } })
+  // The 5h window: 82% used with 3h left, two hours gone: 2.05×, full before the reset.
+  world.fiveLeft = 3 * 3_600_000
+  await startSession($)
+  await runTurn($, clock, world)
+  const ui = await mount($, 'terminal', 120)
+  const full = (await ui.findAll({ type: 'Text' })).find(t => /^ {3}full \d\d:\d\d$/.test(t.text))
+  expect(full?.props.color).toBe('error')
+  // The week, 20% used with most of it to go: no forecast.
+  expect((await ui.findAll({ type: 'Text' })).filter(t => /full/.test(t.text))).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('the Checks tab: the last test Claude ran and how it ended, the branch CI runs and its pull request; a run that finishes raises a toast', async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'checks' } })
+  const run = (status: string, conclusion: string) => ({ databaseId: 7, workflowName: 'ci', status, conclusion, createdAt: '2026-11-01T20:00:00Z', headSha: 'abcdef1234', url: 'u7' })
+  world.ci = [run('in_progress', '')]
+  await startSession($)
+  await clock.settle()
+  // The shell beneath fails every Bash call: the tests failed.
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'b1' } as never)
+  await clock.settle()
+  const ui = await mount($, 'terminal', 120)
+  const text = mine(await look(ui))
+  for (const part of ['test', '✕ npm test', 'ci', '● ci', '#12', 'Unify the mods', 'approved', '1/2 checks, 1 running']) expect(text).toContain(part)
+  expect(text).not.toContain('types')
+  await ui.unmount()
+  // The run is polled while it goes; once it passes, a toast says so, and polling stops.
+  world.ci = [run('completed', 'success')]
+  await clock.advance(60_000)
+  expect(world.toasts).toContain('CI ci ✓ passed on main')
+  const reads = world.runs.filter(a => a[0] === 'gh' && a[1] === 'run').length
+  await clock.advance(120_000)
+  expect(world.runs.filter(a => a[0] === 'gh' && a[1] === 'run').length).toBe(reads)
+})
+
+test('the Checks tab says why there is no CI when gh is missing', async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'checks' } })
+  world.hasGh = false
+  await startSession($)
+  await clock.settle()
+  const ui = await mount($, 'terminal', 120)
+  expect(mine(await look(ui))).toContain('gh is not installed')
   await ui.unmount()
 })

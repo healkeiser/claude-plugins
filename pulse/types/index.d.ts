@@ -52,7 +52,26 @@ export type Repo = {
   fetchedAt: number | null
 }
 
-export type Tab = 'activity' | 'context' | 'turn' | 'git'
+export type Tab = 'activity' | 'context' | 'turn' | 'git' | 'checks'
+
+/** A kind of check Claude runs from the shell. */
+export type CheckKind = 'test' | 'types' | 'lint' | 'build'
+
+/** The last run of one kind of check: the command, how it ended, when it started and how long it took (ms, null while running). */
+export type LocalCheck = { kind: CheckKind; command: string; state: 'running' | 'ok' | 'fail'; at: number; ms: number | null }
+
+/** A GitHub Actions run, the newest of its workflow on the branch: `sha` its commit's first 7, `at` when it was created (ms). */
+export type CiRun = { id: number; workflow: string; status: string; conclusion: string; sha: string; url: string; at: number }
+
+/** The branch's pull request: its state and review decision, lower case, and its checks counted. */
+export type Pr = { number: number; title: string; state: string; review: string; passed: number; failed: number; pending: number; url: string }
+
+/**
+ * The Checks tab: the last test, type check, lint and build Claude ran, and what GitHub says about the
+ * branch. `gh`: '' when it answered, else why not (not installed, not logged in, no GitHub remote),
+ * 'unread' before the first read. `readAt`: when GitHub was last read (ms).
+ */
+export type Checks = { local: LocalCheck[]; runs: CiRun[]; pr: Pr | null; gh: '' | 'missing' | 'auth' | 'remote' | 'unread'; readAt: number }
 
 /** `isOpen` and `tab` are kept in `$.store` too; `band` is `/pulse band`'s choice for this session. */
 export type View = { isOpen: boolean; tab: Tab; band?: 'on' | 'off' }
@@ -73,6 +92,7 @@ declare module 'claude-code' {
       repo: Shaped<Repo | null>
       view: View
       second: number
+      checks: Checks
     }
   }
 }

@@ -1,29 +1,8 @@
 // Pure data: defaults, reducers, formatting and layout math. Nothing here touches `$`, so every
 // behaviour is testable directly (the test kit cannot raise a subagent's tool call or a
 // permission check inside a call; these functions are what the hooks apply).
-import type {
-  AgentCard,
-  Architect,
-  Bucket,
-  Check,
-  Gate,
-  InboxItem,
-  Layout,
-  LogLine,
-  Loop,
-  Main,
-  Moment,
-  Receipt,
-  Roster,
-  Split,
-  Tally,
-  TrendPoint,
-  ToolNote,
-  Turn,
-  Usage,
-  View,
-} from '../types'
-import { HEAT_RAMP, ROLE, ascii, cellWidth, clip, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
+import type { AgentCard, Architect, Bucket, Check, Gate, InboxItem, Layout, LogLine, Loop, Main, Moment, Receipt, Roster, Split, Tally, ToolNote, ToolStat, TrendPoint, Turn, Usage, View } from '../types'
+import { HEAT_RAMP, ROLE, ascii, cellWidth, clip, clockAt, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -98,8 +77,8 @@ export const normalizeLog = (stored: unknown): LogLine[] =>
 
 // ---------------------------------------------------------------- config
 
-export type Panel = 'main' | 'architect' | 'gate' | 'inbox' | 'agents' | 'loops' | 'receipt' | 'trends' | 'log'
-const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'inbox', 'agents', 'loops', 'receipt', 'trends', 'log']
+export type Panel = 'main' | 'architect' | 'gate' | 'inbox' | 'agents' | 'loops' | 'receipt' | 'tools' | 'trends' | 'log'
+const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'inbox', 'agents', 'loops', 'receipt', 'tools', 'trends', 'log']
 
 export type Config = {
   architect: RegExp
@@ -378,15 +357,9 @@ export const limitOf = (r: { kind: string; percentUsed: number; resetsAt?: strin
 export const fmtResetIn = (resetsAt: number | null | undefined, now: number) =>
   resetsAt === null || resetsAt === undefined ? '' : span(resetsAt - now)
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /** The wall-clock time a window resets, as the statusline shows it: `14:32`, or `Thu 09:15` a day or more out. */
-export const fmtResetAt = (resetsAt: number | null | undefined, now: number) => {
-  if (resetsAt === null || resetsAt === undefined || resetsAt <= now) return ''
-  const d = new Date(resetsAt)
-  const hm = d.toTimeString().slice(0, 5)
-  return resetsAt - now >= 86_400_000 ? `${DAYS[d.getDay()]} ${hm}` : hm
-}
+export const fmtResetAt = (resetsAt: number | null | undefined, now: number) => clockAt(resetsAt, now)
 
 /**
  * How `width` cells of a bar split between `counts`: in proportion, every non-zero count keeping at least
@@ -841,6 +814,37 @@ export const splitOf = (
 
 /** A category's short name for the legend: `System prompt` → `system prompt`, cut at 14 cells. */
 export const splitLabel = (name: string) => shorten(name.toLowerCase(), 14)
+
+/** Tools the timing table keeps, the most time-consuming first. */
+export const TOOLS_MAX = 40
+
+export const normalizeTools = (stored: unknown): ToolStat[] =>
+  listOf<unknown>(stored)
+    .filter(isObject)
+    .map(x => ({
+      name: String(x.name ?? ''),
+      calls: num(x.calls) ?? 0,
+      fails: num(x.fails) ?? 0,
+      totalMs: num(x.totalMs) ?? 0,
+      maxMs: num(x.maxMs) ?? 0,
+    }))
+    .filter(x => x.name && x.calls > 0)
+
+/** `stats` with one more call of `name` that took `ms`, failed or not; the most time-consuming first, at most TOOLS_MAX. */
+export function noteToolTime(stats: readonly ToolStat[], name: string, ms: number, hasFailed: boolean): ToolStat[] {
+  const t = Math.max(0, Math.round(ms))
+  const had = stats.find(x => x.name === name)
+  const next: ToolStat = had
+    ? { ...had, calls: had.calls + 1, fails: had.fails + (hasFailed ? 1 : 0), totalMs: had.totalMs + t, maxMs: Math.max(had.maxMs, t) }
+    : { name, calls: 1, fails: hasFailed ? 1 : 0, totalMs: t, maxMs: t }
+  return [next, ...stats.filter(x => x.name !== name)].sort((a, b) => b.totalMs - a.totalMs).slice(0, TOOLS_MAX)
+}
+
+/** A tool's name for the table: an MCP tool as `server·tool` (`mcp__fxhoudini__get_frame` reads `fxhoudini·get_frame`). */
+export const toolLabel = (name: string) => {
+  const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name)
+  return m ? `${m[1]}·${m[2]}` : name
+}
 
 /** Items the inbox keeps. */
 export const INBOX_MAX = 40
