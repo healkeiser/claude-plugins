@@ -10,23 +10,29 @@ shopt -s extglob
 # One jq for every field. \x1f separates them: a tab is IFS whitespace, so read
 # would collapse empty fields and shift the rest. -j drops the trailing newline,
 # which jq.exe writes as CRLF and would leave a \r on the last field.
-IFS=$'\x1f' read -r MODEL DIR PCT DURATION_MS TOK_IN TOK_OUT RATE_5H RATE_7D RESET_5H RESET_7D < <(
+IFS=$'\x1f' read -r MODEL DIR PCT_PM DURATION_MS TOK_IN TOK_OUT RATE_5H_PM RATE_7D_PM RESET_5H RESET_7D < <(
   # Anything not a number reads as 0 (num) or as absent (opt): bash arithmetic
   # on a null, a float or a date string would abort the script.
   jq -j 'def num: if type == "number" then floor else 0 end;
     def opt: if type == "number" then floor else "" end;
+    # percentages in tenths, so the bar keeps sub-percent detail and 9.6% rounds to 10%
+    def pm: if type == "number" then (. * 10 | round) else 0 end;
+    def optpm: if type == "number" then (. * 10 | round) else "" end;
     [ (.model.display_name // ""), (.workspace.current_dir // ""),
-      (.context_window.used_percentage | num),
+      (.context_window.used_percentage | pm),
       (.cost.total_duration_ms | num),
       (.context_window.total_input_tokens | num),
       (.context_window.total_output_tokens | num),
-      (.rate_limits.five_hour.used_percentage | opt),
-      (.rate_limits.seven_day.used_percentage | opt),
+      (.rate_limits.five_hour.used_percentage | optpm),
+      (.rate_limits.seven_day.used_percentage | optpm),
       (.rate_limits.five_hour.resets_at | opt),
       (.rate_limits.seven_day.resets_at | opt)
     ] | map(tostring) | join("\u001f")' 2>/dev/null)
 # Empty or unreadable input leaves every field empty: draw zeros, not errors.
-PCT=${PCT:-0} DURATION_MS=${DURATION_MS:-0} TOK_IN=${TOK_IN:-0} TOK_OUT=${TOK_OUT:-0} DIR=${DIR:-$PWD}
+PCT_PM=${PCT_PM:-0} DURATION_MS=${DURATION_MS:-0} TOK_IN=${TOK_IN:-0} TOK_OUT=${TOK_OUT:-0} DIR=${DIR:-$PWD}
+# Shown percentages round to the nearest whole, as flightdeck does.
+PCT=$(( (PCT_PM + 5) / 10 ))
+RATE_5H=${RATE_5H_PM:+$(( (RATE_5H_PM + 5) / 10 ))} RATE_7D=${RATE_7D_PM:+$(( (RATE_7D_PM + 5) / 10 ))}
 
 # Colour roles as ANSI. success, warning and error are the terminal's own green,
 # yellow and red, and chrome its bright black, so the terminal's palette decides
@@ -98,9 +104,15 @@ heat() {
 # bar <pct> -> thin gradient bar: each lit cell carries its own heat, so the
 # rightmost lit cell is the severity; the unlit track in GREY.
 bar() {
-  local filled=$(( $1 / 10 )) i out=""
+  # $1 in tenths of a percent. Half-cell steps (╸), and any value above zero
+  # lights at least half a cell, so 3% never reads as an empty bar.
+  local units=$(( ($1 + 25) / 50 )) full half i out=""
+  [ "$1" -gt 0 ] && [ "$units" -eq 0 ] && units=1
+  [ "$units" -gt 20 ] && units=20
+  full=$(( units / 2 )) half=$(( units % 2 ))
   for ((i = 0; i < 10; i++)); do
-    if [ "$i" -lt "$filled" ]; then out+="${HEAT[i]}━"
+    if [ "$i" -lt "$full" ]; then out+="${HEAT[i]}━"
+    elif [ "$i" -eq "$full" ] && [ "$half" -eq 1 ]; then out+="${HEAT[i]}╸"
     else out+="${TRACK}─"; fi
   done
   REPLY="$out$RESET"
@@ -193,7 +205,7 @@ HEADS=(
 # The percentage takes the heat of its own value, so 95% reads red.
 row() {
   local b
-  bar "$2"; b=$REPLY; heat "$2"
+  bar "${4:-$(( $2 * 10 ))}"; b=$REPLY; heat "$2"
   printf -v REPLY '%s%-3s%s  %s  %s%3d%%%s%s' "$CHROME" "$1" "$RESET" "$b" "$REPLY" "$2" "$RESET" "${3:+   $3}"
 }
 # rate_row <label> <pct> <resets_at> <window_secs> <form> -> countdown, then in
@@ -211,7 +223,7 @@ rate_row() {
       printf -v detail '%s↻ %s%s' "$CHROME" "$cd" "$RESET"
     fi
   fi
-  row "$1" "$2" "$detail"
+  row "$1" "$2" "$detail" "$6"
 }
 
 fmt_k "$TOK_IN"; IN=$REPLY; fmt_k "$TOK_OUT"; OUT=$REPLY
@@ -226,9 +238,9 @@ rows() {
   elif [ "$1" = compact ]; then
     printf -v detail '  %s%s%s' "$CHROME" "$DUR" "$RESET"
   fi
-  row ctx "$PCT" "$detail"; ROWS=("$REPLY")
-  [ -n "$RATE_5H" ] && { rate_row 5h "$RATE_5H" "$RESET_5H" 18000 "$1"; ROWS+=("$REPLY"); }
-  [ -n "$RATE_7D" ] && { rate_row 7d "$RATE_7D" "$RESET_7D" 604800 "$1"; ROWS+=("$REPLY"); }
+  row ctx "$PCT" "$detail" "$PCT_PM"; ROWS=("$REPLY")
+  [ -n "$RATE_5H" ] && { rate_row 5h "$RATE_5H" "$RESET_5H" 18000 "$1" "$RATE_5H_PM"; ROWS+=("$REPLY"); }
+  [ -n "$RATE_7D" ] && { rate_row 7d "$RATE_7D" "$RESET_7D" 604800 "$1" "$RATE_7D_PM"; ROWS+=("$REPLY"); }
 }
 
 ###### Card: as wide as its widest row, the header set into the top edge, and
