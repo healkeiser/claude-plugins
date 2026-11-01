@@ -121,6 +121,21 @@ export function parseNumstat(out: string) {
   return { add, del, files }
 }
 
+/** `git log --format=%h%x00%s`: commits as short hash and subject, in the order given. */
+export function parseCommits(out: string): { hash: string; subject: string }[] {
+  return out
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(l => {
+      const [hash = '', subject = ''] = l.split('\0')
+      return { hash, subject }
+    })
+    .filter(c => c.hash)
+}
+
+/** `git worktree list --porcelain`: how many work trees the repo has, this one included. */
+export const countWorktrees = (out: string): number => out.split(/\r?\n/).filter(l => l.startsWith('worktree ')).length
+
 /** `git log -1 --format=%h%x00%s%x00%ct`: HEAD's short hash, subject and commit time in ms; null with no commit. */
 export function parseLastCommit(out: string): { hash: string; subject: string; at: number } | null {
   const [hash, subject, at] = out.trim().split('\0')

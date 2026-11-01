@@ -5,15 +5,19 @@ import type { Engine } from 'claude-code/testing'
 import { bareEmoji, cellWidth } from './style'
 
 const T0 = 1_000_000
-const STATUS = [
-  '# branch.oid abcdef1234', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -0', '# stash 1',
+const STATUS = (oid: string) => [
+  `# branch.oid ${oid}`, '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -0', '# stash 1',
   '1 .M N... 100644 100644 100644 a b x.ts', '? new.ts',
 ].join('\n')
-// What git answers each read: status, the diff against HEAD, the last commit (an hour before T0).
-const GIT_OUT = (argv: readonly string[]) =>
-  argv.includes('status') ? STATUS
+// What git answers each read: status, the diff against HEAD, the last commit (an hour before T0), the
+// commits since the session began (two, once HEAD moved), the work trees.
+const GIT_OUT = (argv: readonly string[], oid: string) =>
+  argv.includes('status') ? STATUS(oid)
     : argv.includes('--numstat') ? '12\t3\tx.ts\n'
+    : argv.includes('rev-list') ? '2\n'
+    : argv.includes('--reverse') ? 'c0ffee1\0feat: one\nc0ffee2\0feat: two\n'
     : argv.includes('log') ? `abc1234\0fix: token expiry\0${Math.floor((T0 - 3_600_000) / 1000)}\n`
+    : argv.includes('worktree') ? 'worktree /repo\nHEAD abc\n\nworktree /repo-b\nHEAD def\n'
     : ''
 
 // The world beneath pulse: clock, store, usage, git, and a band row of another mod's.
@@ -26,7 +30,10 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
     store[e.key] = e.value
     return { value: undefined }
   })
-  const world = { cost: 1, ctx: 64, hasLimits: true, runs: [] as string[][] }
+  const world = { cost: 1, ctx: 64, hasLimits: true, runs: [] as string[][], oid: 'abcdef1234' }
+  // The last fetch, ten minutes before T0.
+  on('fs.stat', () => ({ value: { kind: 'file', size: 41, mtimeMs: T0 - 600_000 } }) as never)
+  on('fs.exists', () => ({ value: false }) as never)
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', (_, e) => (e.tool === 'Bash' ? { result: {}, isError: true as const, text: 'boom' } : { result: {} }))
@@ -49,7 +56,7 @@ function engine(on: On, store: Record<string, unknown> = {}, beneath: 'row' | 'e
   }))
   on('process.run', (_, e) => {
     world.runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: GIT_OUT(e.argv), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: 0, stdout: GIT_OUT(e.argv, world.oid), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -470,5 +477,34 @@ test('edits list only the files of that turn, cut with … at the card width, ne
   // The label column (7), the value (6) and the gap (3) inside the card's border and padding.
   expect(cellWidth(edits!)).toBeLessThanOrEqual(cols - 4 - 7 - 6 - 3)
   expect(mine(await look(ui))).not.toContain('parse.ts')
+  await ui.unmount()
+})
+
+test('the Git tab: the session as a line of commits, the last fetch, the work trees, and files in a column of their own when wide', async ($, on) => {
+  const { clock, world } = engine(on, { band: { isOpen: true, tab: 'git' } })
+  await startSession($)
+  await clock.settle()
+  // Two commits later: HEAD moved, git is read again after an edit.
+  world.oid = 'fedcba9876'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  let ui = await mount($, 'terminal', 90)
+  let text = mine(await look(ui))
+  expect(text).toContain('●─●')
+  expect(text).toContain('─○')
+  expect(text).toContain('2 commits, then uncommitted work')
+  expect(text).toContain('fetched 10m ago')
+  expect(text).toContain('2 worktrees')
+  expect(world.runs.some(a => a.includes('rev-list') && a.includes('abcdef1234..fedcba9876'))).toBe(true)
+  // Narrow: the files stack under the state.
+  expect(await ui.find({ key: 'git-columns' })).toBeUndefined()
+  await ui.unmount()
+  // Wide: the files beside it, untracked ones after the changed.
+  ui = await mount($, 'terminal', 140)
+  expect(await ui.find({ key: 'git-columns' })).toBeDefined()
+  text = mine(await look(ui))
+  expect(text).toContain('x.ts')
+  expect(text).toContain('new.ts')
+  expect(text).toContain('new')
   await ui.unmount()
 })

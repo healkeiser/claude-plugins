@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, fit, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
+import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 
 test('the cache TTL: Claude Code switches first, then an hour for a subscription, else five minutes', () => {
   expect(cacheTtl({}, true)).toBe(CACHE_1H)
@@ -89,4 +89,10 @@ test('the SVG meter paints the ramp as a gradient and glides from the last width
   expect(first.source).not.toContain('<animate')
   expect(svgMeter(80, 10, first.width, false, 'ctx 80%').source).toContain('<animate')
   expect(svgMeter(80, 10, first.width, true, 'ctx 80%').source).not.toContain('<animate')
+})
+
+test('commits and work trees: hash and subject per line, one work tree per `worktree` line', () => {
+  expect(parseCommits('c0ffee1\0feat: one\nc0ffee2\0feat: two\n')).toEqual([{ hash: 'c0ffee1', subject: 'feat: one' }, { hash: 'c0ffee2', subject: 'feat: two' }])
+  expect(parseCommits('')).toEqual([])
+  expect(countWorktrees('worktree /a\nHEAD x\n\nworktree /b\nHEAD y\n')).toBe(2)
 })

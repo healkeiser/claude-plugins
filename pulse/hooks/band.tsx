@@ -6,7 +6,7 @@ import type { EngineInterface, On, PluginOptions, RenderChildren } from 'claude-
 
 import type { Call, Repo, Tab, View } from '../types'
 import { took } from './bash'
-import { cacheLeft, cacheUsed, countdown, fit, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
+import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
 import { SPACE, bar as kitBar, cardFrame, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
@@ -20,10 +20,10 @@ const calls = atom({ plugin: 'pulse', key: 'calls' } as const, [])
 const last = atom({ plugin: 'pulse', key: 'last' } as const, null)
 const cache = atom({ plugin: 'pulse', key: 'cache' } as const, null)
 // Tagged: a Repo stored before its fields grew reads as absent, then is read again.
-const repo = atom({ plugin: 'pulse', key: 'repo' } as const, null as Repo | null, { shape: 'repo-2' })
+const repo = atom({ plugin: 'pulse', key: 'repo' } as const, null as Repo | null, { shape: 'repo-3' })
 const NO_REPO: Repo = {
   isRepo: false, branch: '', oid: '', upstream: '', ahead: 0, behind: 0, stash: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0,
-  add: 0, del: 0, files: [], last: null, op: '', startOid: '', commits: 0,
+  add: 0, del: 0, files: [], last: null, op: '', startOid: '', commits: 0, session: [], worktrees: 1, fetchedAt: null,
 }
 const DEFAULT_VIEW: View = { isOpen: false, tab: 'activity' }
 const view = atom({ plugin: 'pulse', key: 'view' } as const, DEFAULT_VIEW)
@@ -43,6 +43,8 @@ const REPO_TOOLS = new Set(['Bash', 'PowerShell', 'Edit', 'MultiEdit', 'Write', 
 // Single-line bands put two spaces either side of `·` (DESIGN.md, Spacing).
 const DOT = `  ${GLYPH.dot}  `
 const ACTIVITY_ROWS = 6
+// From this many cells inside the card, the Git tab lays its files in a column of their own.
+const GIT_WIDE = 100
 
 const isTab = (x: unknown): x is Tab => TABS.some(t => t.id === x)
 const base = (path: string) => path.split(/[\\/]/).pop() || path
@@ -85,7 +87,16 @@ async function readRepo($: EngineInterface) {
     const n = parseNumstat(diff?.exitCode === 0 ? diff.stdout : '')
     const letters = statusLetters(st.stdout)
     const startOid = before?.isRepo && before.startOid ? before.startOid : s.oid
-    const count = startOid && s.oid && startOid !== s.oid ? await git('rev-list', '--count', `${startOid}..${s.oid}`) : null
+    const since = startOid && s.oid && startOid !== s.oid
+    const [count, log50, trees, fetched] = await Promise.all([
+      since ? git('rev-list', '--count', `${startOid}..${s.oid}`) : null,
+      since ? git('log', '--reverse', '--max-count=50', '--format=%h%x00%s', `${startOid}..${s.oid}`) : null,
+      git('worktree', 'list', '--porcelain'),
+      // shortcut: a linked worktree's FETCH_HEAD is in the main repo's git dir; read `git rev-parse --git-common-dir` if that matters.
+      $.fs.stat(`${dir}/.git/FETCH_HEAD`).catch(() => null),
+    ])
+    // Untracked files have no line counts; they follow the changed ones.
+    const untracked = [...letters].filter(([, l]) => l === '?').map(([path]) => ({ path, add: null, del: null, status: '?' }))
     found = {
       isRepo: true,
       ...s,
@@ -95,11 +106,15 @@ async function readRepo($: EngineInterface) {
       files: n.files
         .map(f => ({ ...f, status: letters.get(f.path) ?? 'M' }))
         .sort((a, b) => (b.add ?? 1) + (b.del ?? 1) - ((a.add ?? 1) + (a.del ?? 1)))
-        .slice(0, 3),
+        .concat(untracked)
+        .slice(0, 6),
       last: log?.exitCode === 0 ? parseLastCommit(log.stdout) : null,
       op: await gitOp($, dir),
       startOid,
       commits: count?.exitCode === 0 ? Number(count.stdout.trim()) || 0 : 0,
+      session: log50?.exitCode === 0 ? parseCommits(log50.stdout) : [],
+      worktrees: trees?.exitCode === 0 ? Math.max(1, countWorktrees(trees.stdout)) : 1,
+      fetchedAt: fetched && fetched.mtimeMs > 0 ? fetched.mtimeMs : null,
     }
   }
   const value: Repo = found ?? { ...NO_REPO }
@@ -447,18 +462,22 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       if (!r) return [dim(`${GLYPH.idle} reading git status`)]
       if (!r.isRepo) return [dim(`${GLYPH.idle} not a git repository`)]
       const col = 9
+      // Wide, the files take a column of their own beside the state.
+      const isWide = inner >= GIT_WIDE
+      const leftW = isWide ? Math.floor(inner * 0.55) : inner
       const sep = (key: string) => <Text key={key} color={ROLE.chrome}>{GLYPH.dot}</Text>
-      const rows: RenderChildren[] = []
+      const ago = (at: number) => `${span(Math.max(1000, now - at)) || 'now'} ago`
+      const left: RenderChildren[] = []
       // A rebase or merge under way, or conflicts: what needs the person, first and in warning.
       if (r.op || r.conflicted) {
         const what = [r.op, r.conflicted ? plural(r.conflicted, 'conflict') : ''].filter(Boolean).join(` ${GLYPH.dot} `)
-        rows.push(
+        left.push(
           <Box key="git-alert" flexDirection="row">
             <Text color={r.conflicted ? ROLE.error : ROLE.warning} wrap="truncate-end">{`${GLYPH.warn} ${what}`}</Text>
           </Box>,
         )
       }
-      // The branch, where it tracks, and how far apart: ⇡ to push, ⇣ to pull.
+      // The branch, where it tracks and how far apart (⇡ to push, ⇣ to pull), as of the last fetch; stash; work trees.
       const sync = r.upstream
         ? [
             r.ahead ? <Text key="ahead" color={ROLE.success}>{`⇡${r.ahead}`}</Text> : null,
@@ -466,17 +485,22 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
             !r.ahead && !r.behind ? <Text key="even" color={ROLE.chrome}>in sync</Text> : null,
           ]
         : [<Text key="none" color={ROLE.chrome}>no upstream</Text>]
-      rows.push(
+      const extras = [
+        r.upstream ? (r.fetchedAt ? `fetched ${ago(r.fetchedAt)}` : 'never fetched') : '',
+        r.stash ? `stash ${r.stash}` : '',
+        r.worktrees > 1 ? plural(r.worktrees, 'worktree') : '',
+      ].filter(Boolean)
+      left.push(
         labelled(
           'git-branch',
           'branch',
           col,
-          <Box flexDirection="row" columnGap={1}>
+          <Box flexDirection="row" columnGap={1} overflow="hidden">
             <Text wrap="truncate-end">{r.branch || '(no branch)'}</Text>
             {r.upstream ? <Text color={ROLE.chrome} wrap="truncate-end">{`→ ${r.upstream}`}</Text> : null}
             {sync}
-            {r.stash ? sep('stash-sep') : null}
-            {r.stash ? <Text key="stash" color={ROLE.chrome}>{`stash ${r.stash}`}</Text> : null}
+            {extras.length ? sep('extras-sep') : null}
+            {extras.length ? <Text color={ROLE.chrome} wrap="truncate-end">{extras.join(` ${GLYPH.dot} `)}</Text> : null}
           </Box>,
         ),
       )
@@ -487,7 +511,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
         r.unstaged ? `${r.unstaged} unstaged` : '',
         r.untracked ? `${r.untracked} untracked` : '',
       ].filter(Boolean)
-      rows.push(
+      left.push(
         labelled(
           'git-changes',
           'changes',
@@ -495,7 +519,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           isClean ? (
             <Text color={ROLE.success}>{`${GLYPH.ok} clean`}</Text>
           ) : (
-            <Box flexDirection="row" columnGap={1}>
+            <Box flexDirection="row" columnGap={1} overflow="hidden">
               {r.add || r.del ? <Text color={ROLE.success}>{`+${count(r.add)}`}</Text> : null}
               {r.add || r.del ? <Text color={ROLE.error}>{`-${count(r.del)}`}</Text> : null}
               {(r.add || r.del) && counts.length ? sep('lines-sep') : null}
@@ -504,41 +528,68 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
           ),
         ),
       )
-      // HEAD's commit and how long ago; the commits made since the session began.
+      // HEAD's commit and how long ago.
       if (r.last) {
-        rows.push(
+        left.push(
           labelled(
             'git-last',
             'last',
             col,
-            <Box flexDirection="row" columnGap={1}>
+            <Box flexDirection="row" columnGap={1} overflow="hidden">
               <Text color={ROLE.accent}>{r.last.hash}</Text>
               <Text wrap="truncate-end">{r.last.subject}</Text>
-              <Text color={ROLE.chrome}>{`${span(Math.max(1000, now - r.last.at)) || 'now'} ago`}</Text>
+              <Text color={ROLE.chrome}>{ago(r.last.at)}</Text>
             </Box>,
           ),
         )
       }
-      if (r.commits) rows.push(labelled('git-session', 'session', col, <Text>{`${plural(r.commits, 'commit')} since it began`}</Text>))
-      // The most changed files: status, path cut from its start, lines.
-      const color = (st: string) => (st === 'U' ? ROLE.error : st === 'D' ? ROLE.error : st === 'A' || st === '?' ? ROLE.success : ROLE.warning)
-      for (const f of r.files) {
-        const lines = f.add === null ? 'bin' : `+${f.add} -${f.del}`
-        rows.push(
-          <Box key={`git-file-${f.path}`} flexDirection="row">
-            <Box width={col} flexShrink={0}>
-              <Text color={color(f.status)}>{f.status}</Text>
-            </Box>
-            <Box flexGrow={1} flexShrink={1} overflow="hidden">
-              <Text wrap="truncate-start">{f.path}</Text>
-            </Box>
-            <Box flexShrink={0} marginLeft={2}>
-              <Text color={ROLE.chrome}>{lines}</Text>
-            </Box>
-          </Box>,
+      // The session as a line: a ● per commit made since it began, oldest first, then ○ for work not yet committed.
+      if (r.commits) {
+        const tail = `${plural(r.commits, 'commit')}${isClean ? '' : ', then uncommitted work'}`
+        const room = Math.max(1, Math.floor((leftW - col - cellWidth(tail) - 4) / 2))
+        const shown = Math.min(r.commits, room)
+        const nodes = `${r.commits > shown ? `${GLYPH.more}${GLYPH.track}` : ''}${Array.from({ length: shown }, () => GLYPH.live).join(GLYPH.track)}`
+        left.push(
+          labelled(
+            'git-session',
+            'session',
+            col,
+            <Box flexDirection="row" overflow="hidden">
+              <Text color={ROLE.accent}>{nodes}</Text>
+              {isClean ? null : <Text color={ROLE.warning}>{`${GLYPH.track}${GLYPH.idle}`}</Text>}
+              <Text color={ROLE.chrome} wrap="truncate-end">{` ${tail}`}</Text>
+            </Box>,
+          ),
         )
       }
-      return rows
+      // The most changed files: status, path cut from its start, lines.
+      const color = (st: string) => (st === 'U' || st === 'D' ? ROLE.error : st === 'A' || st === '?' ? ROLE.success : ROLE.warning)
+      const fileRow = (f: (typeof r.files)[number], lead: number) => (
+        <Box key={`git-file-${f.path}`} flexDirection="row">
+          <Box width={lead} flexShrink={0}>
+            <Text color={color(f.status)}>{f.status}</Text>
+          </Box>
+          <Box flexGrow={1} flexShrink={1} overflow="hidden">
+            <Text wrap="truncate-start">{f.path}</Text>
+          </Box>
+          <Box flexShrink={0} marginLeft={2}>
+            <Text color={ROLE.chrome}>{f.add === null ? (f.status === '?' ? 'new' : 'bin') : `+${f.add} -${f.del}`}</Text>
+          </Box>
+        </Box>
+      )
+      if (!isWide) return [...left, ...r.files.slice(0, 3).map(f => fileRow(f, col))]
+      // Two columns: the state left, as many files right as the state has rows (at least 3).
+      const files = r.files.slice(0, Math.max(3, left.length))
+      return [
+        <Box key="git-columns" flexDirection="row" columnGap={3}>
+          <Box flexDirection="column" width={leftW} flexShrink={0}>
+            {left}
+          </Box>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+            {files.length ? files.map(f => fileRow(f, 2)) : <Text color={ROLE.chrome}>no changed files</Text>}
+          </Box>
+        </Box>,
+      ]
     }
 
     const unfolded = () => {

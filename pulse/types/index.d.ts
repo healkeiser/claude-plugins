@@ -21,10 +21,12 @@ export type RepoFile = { path: string; status: string; add: number | null; del: 
  * The session folder's git state, read after edits and turns, never on a draw.
  * `upstream` is '' with no tracking branch; `ahead`/`behind` against it. `staged`,
  * `unstaged`, `untracked`, `conflicted` count files; `add`/`del` count lines
- * against HEAD; `files` are the most changed, at most 3. `last`: HEAD's commit,
+ * against HEAD; `files` are the most changed, at most 6. `last`: HEAD's commit,
  * `at` in ms. `op`: a rebase, merge, cherry-pick, revert or bisect under way,
- * '' otherwise. `startOid`: HEAD when the session first read it, so `commits`
- * counts the commits made since.
+ * '' otherwise. `startOid`: HEAD when the session first read it, so `session`
+ * lists the commits made since, oldest first (at most 50; `commits` counts
+ * them all). `worktrees`: the repo's work trees, this one included.
+ * `fetchedAt`: when the repo last fetched (FETCH_HEAD's time, ms), null if never.
  */
 export type Repo = {
   isRepo: boolean
@@ -45,6 +47,9 @@ export type Repo = {
   op: string
   startOid: string
   commits: number
+  session: { hash: string; subject: string }[]
+  worktrees: number
+  fetchedAt: number | null
 }
 
 export type Tab = 'activity' | 'context' | 'turn' | 'git'
@@ -64,7 +69,7 @@ declare module 'claude-code' {
       calls: Call[]
       last: Last | null
       cache: Cache | null
-      /** Tagged `repo-2`: a value stored before its fields grew reads as absent. */
+      /** Tagged `repo-3`: a value stored before its fields grew reads as absent. */
       repo: Shaped<Repo | null>
       view: View
       second: number
