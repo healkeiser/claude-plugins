@@ -7,6 +7,20 @@ const XTERM: Rgb[] = [
   [127, 127, 127], [255, 0, 0], [0, 255, 0], [255, 255, 0], [92, 92, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
 ]
 
+// The built-in Claude themes' values for the theme keys the pane names, dark
+// then light: the treemap paints pixels, so it needs a key as an RGB triple.
+const THEME_RGB: Record<string, [Rgb, Rgb]> = {
+  claude: [[215, 119, 87], [215, 119, 87]],
+  suggestion: [[177, 185, 249], [87, 105, 247]],
+  success: [[78, 186, 101], [44, 122, 57]],
+  warning: [[255, 193, 7], [150, 108, 30]],
+  error: [[255, 107, 128], [171, 43, 63]],
+  merged: [[175, 135, 255], [135, 0, 255]],
+  subtle: [[80, 80, 80], [175, 175, 175]],
+  text: [[255, 255, 255], [0, 0, 0]],
+  inverseText: [[0, 0, 0], [255, 255, 255]],
+}
+
 export const CELL_PROBE = 'import fcntl,os,struct,termios\nfd=os.open("/dev/tty",os.O_RDONLY)\nr,c,x,y=struct.unpack("HHHH",fcntl.ioctl(fd,termios.TIOCGWINSZ,b"\\0"*8))\nprint(x//c if c and x else 0,y//r if r and y else 0)'
 
 export const GHOSTTY_ARGS = 'p=$PPID; while [ "$p" -gt 1 ] 2>/dev/null; do case "$(cat /proc/$p/comm 2>/dev/null)" in ghostty*) tr "\\0" "\\n" < /proc/$p/cmdline; exit 0;; esac; p=$(cut -d" " -f4 /proc/$p/stat 2>/dev/null) || exit 0; done'
@@ -35,5 +49,7 @@ export function colorOf(color: string, term: TermColors, light: boolean): Rgb {
   if (hex) return hex
   const n = /^ansi256\((\d+)\)$/.exec(color)
   if (n) return term.palette[Number(n[1])] ?? XTERM[Number(n[1])] ?? [128, 128, 128]
+  const key = THEME_RGB[color]
+  if (key) return key[light ? 1 : 0]
   return term.fg ?? (light ? [32, 32, 32] : [220, 220, 220])
 }

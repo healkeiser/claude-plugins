@@ -115,12 +115,12 @@ export function fileIcon(n: FileNode, open: boolean, isRepo: boolean): string {
 }
 
 export const GIT_COLOR: Record<string, string> = {
-  A: 'ansi256(2)',
-  '?': 'ansi256(2)',
-  R: 'ansi256(4)',
-  C: 'ansi256(4)',
-  M: 'ansi256(3)',
-  T: 'ansi256(3)',
+  A: 'success',
+  '?': 'success',
+  R: 'suggestion',
+  C: 'suggestion',
+  M: 'warning',
+  T: 'warning',
 }
 
 const PRIORITY = ['U', 'D', 'M', 'T', 'R', 'C', 'A', '?']

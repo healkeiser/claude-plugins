@@ -34,6 +34,19 @@ export const TONES: Record<string, { bright: string[]; dim: string[]; solid: str
   red: { bright: ['#ef4444', '#f87171', '#fca5a5', '#fee2e2'], dim: ['#954343', '#a43434', '#b54040', '#c96a6a'], solid: '#f87171' },
 }
 
+// The theme key each activity tone draws as where one solid colour is enough
+// (the activity chip, the branch row): reads purple, writes orange, git green.
+// The shimmer keeps the hex ramps above, which a theme key cannot express.
+export const TONE_KEY: Record<string, string> = {
+  orange: 'claude',
+  green: 'success',
+  teal: 'suggestion',
+  blue: 'suggestion',
+  purple: 'merged',
+  cyan: 'suggestion',
+  red: 'error',
+}
+
 export const LIGHT_TONES: Record<string, { bright: string[]; dim: string[]; solid: string }> = {
   orange: { bright: ['#7c2d12', '#69250e', '#561c0b', '#431407'], dim: ['#5d362e', '#52322c', '#482d2a', '#3e2828'], solid: '#7c2d12' },
   green: { bright: ['#14532d', '#0f4725', '#0a3a1e', '#052e16'], dim: ['#244b3d', '#214439', '#1e3d35', '#1b3731'], solid: '#14532d' },

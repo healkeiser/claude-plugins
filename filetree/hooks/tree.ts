@@ -6,12 +6,15 @@ export type Row = { node: FileNode; depth: number; open: boolean }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
+// Theme keys, not ANSI indices: they follow the person's Claude theme, light,
+// dark and auto alike. Claude orange is the accent; the selected row takes the
+// tint the engine draws behind the person's own prompts.
 export const DEFAULT_THEME: Theme = {
   fg: '',
-  accent: 'ansi256(4)',
+  accent: 'claude',
   muted: '',
-  urgent: 'ansi256(1)',
-  selection: 'ansi256(0)',
+  urgent: 'error',
+  selection: 'userMessageBackground',
   bg: '',
 }
 

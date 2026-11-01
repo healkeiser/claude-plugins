@@ -4,7 +4,7 @@ import type { ButtonProps } from './button'
 import { CACHE_KEEP, cacheName, CLEAN, coderFor, EXIT_FAILED, EXIT_LOCKED, EXIT_MISSING, fitCells, PNG_DIRECT_BYTES, PNG_DIRECT_PIXELS, pictureKind, pngSize, POLICY, POSTER } from './peek'
 
 import type { Activity, FileNode, FileTree, Theme } from '../types'
-import { BRANCH_ICON, chainOf, type GitAction, gitActions, LIGHT_TONES, readOnly, readTargets, resolve, TONES } from './git'
+import { BRANCH_ICON, chainOf, type GitAction, gitActions, LIGHT_TONES, readOnly, readTargets, resolve, TONE_KEY, TONES } from './git'
 import type { RowSpec, RowsProps, Seg } from './rows'
 import { type DiffLine, diffWindow, splitPatch } from './diff'
 import { counted, formatLoc, locArgv, locUsage, parseLoc, sumDirs } from './loc'
@@ -2184,6 +2184,13 @@ export const register: Register = (on, options) => {
       const room = e.props.bodyColumns - title - buttons.reduce((w, b) => w + b.label.length + (e.surface === 'desktop' ? 2 : 1), 0) - 2
       return text.length <= room ? <Text {...mutedText}>{`${text} `}</Text> : null
     }
+    // A dim rule that fills what is left of a header row, as gloss
+    // rules a code block's label: one word of dashes, clipped by its box.
+    const fill = (key: string) => (
+      <Box key={key} flexGrow={1} flexShrink={1} height={1} overflow="hidden" marginX={1}>
+        <Text color="subtle">{'─'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
+      </Box>
+    )
     if (t.preview) {
       if (previewed?.path !== t.preview) await loadPreview($, t.preview)
       const p = previewed
@@ -2194,15 +2201,17 @@ export const register: Register = (on, options) => {
       const win = p?.diff ? diffWindow(p.diff, start, previewRows) : previewLines(p?.text ?? '', start, previewRows, markdown)
       previewLine = win.top + 1
       const name = t.preview !== t.root && inside(t.root, t.preview) ? relative(t.root, t.preview) : shortPath(t.preview)
+      const previewRuled = e.surface === 'terminal' && name.length + 16 <= e.props.bodyColumns
       const external = { id: 'external', label: glyphSetting === 'text' ? 'open' : unicode ? '↗' : '\u{eb14}', dim: true, hint: 'open in default app' }
       return (
         <Box flexDirection="column" minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
           <Box flexDirection="row">
             <Button key="back" plain hotkey="h" autoFocus={editWithSetting || inTmux || inHerdr ? undefined : true} label={unicode ? '← files' : '\u{ea9b} files'} onPress={() => void closePreview($)} />
             <Text> </Text>
-            <Box flexShrink={1} flexGrow={1}>
+            <Box flexShrink={previewRuled ? 0 : 1} flexGrow={previewRuled ? 0 : 1}>
               <Text bold wrap="truncate-start">{name}</Text>
             </Box>
+            {previewRuled ? fill('pv-rule') : null}
             {hint([external], 8 + name.length)}
             {button(external)}
           </Box>
@@ -2274,7 +2283,7 @@ export const register: Register = (on, options) => {
       if (!c) return []
       const out: Seg[] = []
       if (c[0] > 0) out.push({ t: ` ?:${c[0]}`, c: gitColors['?'] ?? addColor })
-      if (c[1] > 0) out.push({ t: ` M:${c[1]}`, c: gitColors.M ?? 'ansi256(3)' })
+      if (c[1] > 0) out.push({ t: ` M:${c[1]}`, c: gitColors.M ?? 'warning' })
       if (c[2] > 0) out.push({ t: ` D:${c[2]}`, c: theme.urgent })
       return out
     }
@@ -2292,8 +2301,9 @@ export const register: Register = (on, options) => {
     const wordButtons = plainButtons.map(b => ({ ...b, label: WORDS[b.id] ?? b.label }))
     const wordWidth = wordButtons.reduce((w, b) => w + b.label.length + 1, 1)
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
-    const rootGlyph = unicode ? '■' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
+    const rootGlyph = unicode ? '▪' : t.top === t.root ? '\u{f02a2}' : '\u{e5fe}'
     const header = t.top ? [t.top.split('/').pop() ?? t.top, t.prefix.replace(/\/$/, '')].filter(Boolean).join('/') : t.root.split('/').pop() || t.root
+    const headerRuled = e.surface === 'terminal' && header.length + 6 + buttons.reduce((w, b) => w + [...b.label].length + 1, 0) <= e.props.bodyColumns
 
     const rowSpec = (r: (typeof rows)[number]): RowSpec => {
       const n = r.node
@@ -2340,7 +2350,7 @@ export const register: Register = (on, options) => {
       const name = n.name.length > cols ? n.name.slice(0, cols - 1) + '…' : n.name
       const caret = n.kind === 'dir' ? (unicode ? (r.open ? '▾' : '▸') : r.open ? CHEVRON_OPEN : CHEVRON_CLOSED) + ' ' : '  '
       const isRepo = n.kind === 'dir' && n.id === t.top
-      const glyph = unicode ? (n.kind === 'dir' ? '■' : '∙') : fileIcon(n, r.open, isRepo)
+      const glyph = unicode ? (n.kind === 'dir' ? '▪' : '∙') : fileIcon(n, r.open, isRepo)
       const lit = isBright || isDim
       const left: Seg[] = [
         { t: '  '.repeat(r.depth) },
@@ -2384,12 +2394,12 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="row" height={1} overflow="hidden">
           <Box flexDirection="row" flexShrink={0}>
-            <Text color={isFlash ? (tones[tone]?.solid ?? theme.accent) : theme.accent}>{(unicode ? BRANCH_ICON.plain : BRANCH_ICON.nerd) + ' '}</Text>
-            <Text bold color={isFlash ? (tones[tone]?.solid ?? (theme.fg || undefined)) : theme.fg || undefined}>
+            <Text color={isFlash ? (TONE_KEY[tone] ?? theme.accent) : theme.accent}>{(unicode ? BRANCH_ICON.plain : BRANCH_ICON.nerd) + ' '}</Text>
+            <Text bold color={isFlash ? (TONE_KEY[tone] ?? (theme.fg || undefined)) : theme.fg || undefined}>
               {label}
             </Text>
-            {b.ahead > 0 && <Text color={tones.teal?.solid}>{` ↑${b.ahead}`}</Text>}
-            {b.behind > 0 && <Text color={tones.blue?.solid}>{` ↓${b.behind}`}</Text>}
+            {b.ahead > 0 && <Text color="suggestion">{` ↑${b.ahead}`}</Text>}
+            {b.behind > 0 && <Text color="warning">{` ↓${b.behind}`}</Text>}
           </Box>
           {b.upstream && (
             <Box flexShrink={1} overflow="hidden">
@@ -2405,15 +2415,14 @@ export const register: Register = (on, options) => {
             {rootCounts.map(c => (
               <Text color={c.c}>{c.t}</Text>
             ))}
-            {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text {...mutedText}> clean</Text>}
+            {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text color="success"> ✔ clean</Text>}
           </Box>
         </Box>
       )
     }
 
     const chip = (a: Activity) => {
-      const tone = a.state === 'failed' ? 'red' : a.tone
-      const color = tones[tone]?.solid ?? theme.accent
+      const color = a.state === 'failed' ? 'error' : (TONE_KEY[a.tone] ?? theme.accent)
       const icon = unicode ? a.plain : a.nerd
       const hash = a.state === 'done' && a.kind === 'git commit' ? a.detail.split(' ')[0] ?? '' : ''
       return (
@@ -2446,7 +2455,9 @@ export const register: Register = (on, options) => {
         overPeek = false
       }
       let start = peekTop
-      const rule = <Text key="peek-rule" {...mutedText}>{'─'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
+      // Framed as gloss frames a code block: a labelled rule above, a
+      // plain one below, open sides so a selection of the body copies it alone.
+      const rule = <Text key="peek-rule" color="subtle">{`╰${'─'.repeat(Math.max(0, e.props.bodyColumns - 1))}`}</Text>
       const shown = target || anchor
       const name = shown ? (shown === t.root ? shown.split('/').pop() || shown : inside(t.root, shown) ? relative(t.root, shown) : shortPath(shown)) : ''
       const docKind = target ? pictureKind(target) : ''
@@ -2477,7 +2488,7 @@ export const register: Register = (on, options) => {
         const accent = colorOf(theme.accent, termColors, light)
         const ink = colorOf(theme.fg, termColors, light)
         const paper = termColors.bg ?? (theme.bg ? colorOf(theme.bg, termColors, light) : light ? ([255, 255, 255] satisfies Rgb) : ([24, 24, 24] satisfies Rgb))
-        const muted = colorOf(theme.muted || 'ansi256(8)', termColors, light)
+        const muted = colorOf(theme.muted || 'subtle', termColors, light)
         const hex = (c: Rgb) => `#${c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
         const inks = [ink, paper, colorOf('ansi256(15)', termColors, light), colorOf('ansi256(0)', termColors, light)]
         const known = shade || Boolean(termColors.bg)
@@ -2509,7 +2520,7 @@ export const register: Register = (on, options) => {
             return { name: c, size: c, bold: true, bg: hex(box.fill), rank: 0 }
           }
           const top = !dimmed(tile) && !(tile.depth % 2)
-          return { name: top ? 'ansi256(0)' : 'ansi256(15)', size: top ? 'ansi256(0)' : 'ansi256(15)', bold: true, bg: top ? 'ansi256(4)' : 'ansi256(8)', rank: 0 }
+          return { name: top ? 'inverseText' : 'text', size: top ? 'inverseText' : 'text', bold: true, bg: top ? theme.accent : 'subtle', rank: 0 }
         }
         const amount = scan.loc ? formatLoc : formatSize
         status = pick ? `${pick.name} ${amount(pick.bytes)} ${pct(pick.bytes)}` : `${amount(total)}${scan.loc ? ' lines' : ''}${scan.done ? '' : ' …'}`
@@ -2598,23 +2609,24 @@ export const register: Register = (on, options) => {
           ? <Client key="peek" module="./rows.tsx" props={{ rows: [], active: '', ...rowColors, pointer, ...(bar ? { bar } : {}), preview: { text: win.text, path: target, startLine: win.top + 1, markdown, rows: peekRows } } satisfies RowsProps} />
           : <Text {...mutedText}>{raw?.state === 'pending' ? 'converting…' : peeked.note || 'empty file'}</Text>
       }
+      const titleFits = name.length + status.length + 16 <= e.props.bodyColumns
       const title = (
         <Box key="peek-title" flexDirection="row" height={1} overflow="hidden">
-          <Box flexShrink={1} flexGrow={1} overflow="hidden">
+          <Text color="subtle">{'╭─ '}</Text>
+          <Box flexShrink={titleFits ? 0 : 1} flexGrow={0} overflow="hidden">
             {anchor && anchor !== t.root && !target ? (
               <Button key="map-up" plain label={`${glyphSetting === 'text' ? 'up ' : unicode ? '↑ ' : '\u{eaa1} '}${name}`} onPress={() => void mapUp($, anchor)} />
             ) : (
               <Text bold wrap="truncate-start">{name}</Text>
             )}
           </Box>
-          {status ? <Box flexShrink={0}><Text {...mutedText}>{` ${status}`}</Text></Box> : null}
+          {fill('peek-fill')}
+          {status ? <Box flexShrink={0}><Text {...mutedText}>{status}</Text></Box> : null}
           {peeked?.note && peeked.text && !pic ? <Text {...mutedText}>{' partial'}</Text> : null}
         </Box>
       )
       const box = <Box key="peek-body" flexDirection="column" height={peekRows} overflow="hidden">{content}</Box>
-      return splitAt === 'top'
-        ? <Box key="peek-split" flexDirection="column" flexShrink={0}>{title}{box}{rule}</Box>
-        : <Box key="peek-split" flexDirection="column" flexShrink={0}>{rule}{title}{box}</Box>
+      return <Box key="peek-split" flexDirection="column" flexShrink={0}>{title}{box}{rule}</Box>
     }
     const split = await peek()
 
@@ -2653,15 +2665,16 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
         <Box flexDirection="row">
-          <Box flexDirection="row" flexShrink={1} overflow="hidden" backgroundColor={t.cursor === t.root ? rowColors.activeBg || undefined : undefined}>
+          <Box flexDirection="row" flexShrink={headerRuled ? 0 : 1} overflow="hidden">
             <Button key="root" plain onPress={() => void selectRoot($).then(() => focusPane($, t.root, treeKey()))}>
               <Text color={theme.accent}>{`${rootGlyph} `}</Text>
-              <Text bold color={theme.accent}>{header}</Text>
+              {/* The root picked reads as a chip, as gloss draws inline code. */}
+              <Text bold color={theme.accent} backgroundColor={t.cursor === t.root ? rowColors.activeBg || undefined : undefined}>{header}</Text>
             </Button>
           </Box>
-          <Box flexGrow={1} />
+          {headerRuled ? fill('header-rule') : <Box flexGrow={1} />}
           {hint(buttons, header.length + 2)}
-          <Box flexDirection="row" gap={1}>
+          <Box flexDirection="row" gap={1} flexShrink={0}>
             {buttons.map(button)}
             <Text> </Text>
           </Box>

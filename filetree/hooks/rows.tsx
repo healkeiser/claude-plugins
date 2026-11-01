@@ -18,6 +18,9 @@ type Local = { hover: number; phase: number; drag: boolean; ref: { stop?: () => 
 const TICK_MS = 90
 const TREE_BUDGET = 70_000
 const MAX_ROWS = 1_500
+// The scrollbar draws its thumb alone, no track line: a mouse selection of a
+// preview or a path then picks up a blank column, not a border.
+const THUMB = '┃'
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 function shimmer(i: number, phase: number, len: number, palette: string[]): string {
@@ -94,7 +97,14 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
         <Column flexDirection="column">
           {p.segments.map((g, i) => (
             <Column key={`seg-${i}`} flexDirection="column">
-              {g.title ? <Title bold color={p.titleColor || undefined}>{g.title}</Title> : null}
+              {g.title ? (
+                // A labelled dim rule, as gloss heads a code block: `─ path ───`.
+                <Title>
+                  <Title color="subtle">{'─ '}</Title>
+                  <Title bold color={p.titleColor || undefined}>{g.title}</Title>
+                  <Title color="subtle">{` ${'─'.repeat(Math.max(1, surface.columns - [...g.title].length - 3))}`}</Title>
+                </Title>
+              ) : null}
               {g.source ? <Code source={g.source} path={g.title || p.path} format="diff" wrap="truncate-end" /> : null}
             </Column>
           ))}
@@ -115,7 +125,7 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
           <Column flexDirection="column" flexShrink={0}>
             {Array.from({ length: p.rows }, (_, i) => {
               const on = i >= bar.pos && i < bar.pos + bar.size
-              return <Title color={(on ? bar.thumb : bar.track) || undefined} dimColor={!on && !bar.track}>{on ? '┃' : '│'}</Title>
+              return <Title color={on ? bar.thumb || undefined : undefined}>{on ? THUMB : ' '}</Title>
             })}
           </Column>
         ) : null}
@@ -168,8 +178,8 @@ const Rows: ClientModule<RowsProps, Local> = (props, surface) => {
       <Box flexGrow={1} />
       {r.right.map(draw)}
       {props.bar && (
-        <Text color={(i >= props.bar.pos && i < props.bar.pos + props.bar.size ? props.bar.thumb : props.bar.track) || undefined} dimColor={!props.bar.track && !(i >= props.bar.pos && i < props.bar.pos + props.bar.size)}>
-          {i >= props.bar.pos && i < props.bar.pos + props.bar.size ? '┃' : '│'}
+        <Text color={i >= props.bar.pos && i < props.bar.pos + props.bar.size ? props.bar.thumb || undefined : undefined}>
+          {i >= props.bar.pos && i < props.bar.pos + props.bar.size ? THUMB : ' '}
         </Text>
       )}
     </Box>

@@ -9,8 +9,8 @@ export type Palette = {
   unknown: string[]
 }
 
-export const ADD_COLOR = 'ansi256(2)'
-export const DEL_COLOR = 'ansi256(1)'
+export const ADD_COLOR = 'success'
+export const DEL_COLOR = 'error'
 
 const THEME_KEYS = ['fg', 'bg', 'accent', 'muted', 'urgent', 'selection'] as const
 const isThemeKey = (key: string): key is (typeof THEME_KEYS)[number] => THEME_KEYS.some(k => k === key)
