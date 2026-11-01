@@ -939,7 +939,7 @@ export const register: Register = (on, options) => {
         }
       }),
     ]
-    // The label row as the statusline's header: model, folder ↗ (the folder and origin as links), branch and
+    // The label row as the statusline's header: model, folder, the ↗︎ link (the folder and origin as links), branch and
     // its changes, zeros left out. Narrower, the link and the changes go first, then the branch, then the folder.
     const headVariants = (): Piece[][] => {
       const model: Piece = { spans: [{ text: modelName, color: C.main, bold: true }] }
