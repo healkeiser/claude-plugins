@@ -32,11 +32,21 @@ PCT=${PCT:-0} DURATION_MS=${DURATION_MS:-0} TOK_IN=${TOK_IN:-0} TOK_OUT=${TOK_OU
 # yellow and red, and chrome its bright black, so the terminal's palette decides
 # how they read on a light or dark background; the accent is Claude's orange,
 # a mid tone that reads on both. NO_COLOR (https://no-color.org) drops them all.
+# The meters keep a 256-colour heat ramp, green -> yellow -> orange -> red, one
+# step per 10%, so a bar has ten states instead of three. GREY is "not used yet".
+# STATUSLINE_THEME=light swaps in darker steps, each at least 3:1 on white, and
+# a track that stays faint there; auto reads COLORFGBG ("0;15" is light) if set.
+THEME=${STATUSLINE_THEME:-auto}
+[ "$THEME" = auto ] && case ${COLORFGBG:-} in *';7' | *';15') THEME=light ;; esac
+if [ "$THEME" = light ]; then RAMP=(22 28 64 100 136 130 166 202 160 124) GREY=248
+else RAMP=(46 82 118 154 190 226 220 214 208 196) GREY=239; fi
 if [ -n "${NO_COLOR:-}" ]; then
-  ACCENT='' SUCCESS='' WARNING='' ERROR='' CHROME='' BOLD='' RESET=''
+  ACCENT='' SUCCESS='' WARNING='' ERROR='' CHROME='' BOLD='' RESET='' TRACK=''
+  HEAT=('' '' '' '' '' '' '' '' '' '')
 else
   ACCENT=$'\033[38;2;217;119;87m' SUCCESS=$'\033[32m' WARNING=$'\033[33m' ERROR=$'\033[31m'
-  CHROME=$'\033[90m' BOLD=$'\033[1m' RESET=$'\033[0m'
+  CHROME=$'\033[90m' BOLD=$'\033[1m' RESET=$'\033[0m' TRACK=$'\033[38;5;'"${GREY}m"
+  HEAT=(); for c in "${RAMP[@]}"; do HEAT+=($'\033[38;5;'"${c}m"); done
 fi
 # ↗ with U+FE0E, so no terminal draws it as a two-cell emoji.
 EXTERNAL=$'\xe2\x86\x97\xef\xb8\x8e'
@@ -80,17 +90,18 @@ pace() {
   if [ "$tenths" -ge 15 ]; then color=$ERROR; elif [ "$tenths" -gt 10 ]; then color=$WARNING; fi
   printf -v REPLY '%s%d.%d×%s' "$color" $((tenths / 10)) $((tenths % 10)) "$RESET"
 }
-# heat <pct> -> the meter's colour: accent, warning from 60%, error from 80%
+# heat <pct> -> the ramp colour for that level
 heat() {
-  if [ "$1" -ge 80 ]; then REPLY=$ERROR; elif [ "$1" -ge 60 ]; then REPLY=$WARNING; else REPLY=$ACCENT; fi
+  local i=$(( $1 / 10 )); [ "$i" -gt 9 ] && i=9
+  REPLY=${HEAT[i]}
 }
-# bar <pct> -> ten cells: each lit cell in the heat of its own decile, so the
-# rightmost lit cell is the severity; the track in chrome.
+# bar <pct> -> thin gradient bar: each lit cell carries its own heat, so the
+# rightmost lit cell is the severity; the unlit track in GREY.
 bar() {
   local filled=$(( $1 / 10 )) i out=""
   for ((i = 0; i < 10; i++)); do
-    if [ "$i" -lt "$filled" ]; then heat $(( i * 10 )); out+="$REPLY━"
-    else out+="${CHROME}─"; fi
+    if [ "$i" -lt "$filled" ]; then out+="${HEAT[i]}━"
+    else out+="${TRACK}─"; fi
   done
   REPLY="$out$RESET"
 }
@@ -122,17 +133,32 @@ URI_PATH="${DIR//\\//}"   # backslashes -> forward slashes for the file URI
 URI_PATH=${URI_PATH#/}     # "/home/x" and "C:/x" both follow file:/// once
 SEP=" ${CHROME}·${RESET} "
 printf -v H_MODEL '%s%s%s%s' "$ACCENT" "$BOLD" "$MODEL" "$RESET"
-printf -v H_FOLDER '\033]8;;file:///%s\007%s\033]8;;\007' "${URI_PATH// /%20}" "$NAME"
+H_FOLDER=$NAME
+# NO_COLOR means no escapes at all, so no links either (and no ↗ without one).
+[ -z "${NO_COLOR:-}" ] && printf -v H_FOLDER '\033]8;;file:///%s\007%s\033]8;;\007' "${URI_PATH// /%20}" "$NAME"
 H_LINK='' H_BRANCH='' H_DIFF=''
-# -C: the session's folder, not wherever the status line was started.
-# --no-optional-locks: never take index.lock, which the git commands Claude runs
-# meanwhile would fail on.
-if ST=$(git -C "$DIR" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null); then
-  REMOTE=$(git -C "$DIR" remote get-url origin 2>/dev/null)
+# Git's answers are cached 5 s per folder: the status line refreshes often and
+# git costs two forks. The file holds the time, 1 for a repo (0 not), the remote,
+# then the status lines. An unwritable temp dir only means no cache.
+CACHE="${TMPDIR:-/tmp}/claude-statusline-${DIR//[^A-Za-z0-9]/_}"
+C=()
+[ -r "$CACHE" ] && mapfile -t C < "$CACHE" 2>/dev/null
+if [[ ${C[0]:-} =~ ^[0-9]+$ ]] && (( NOW >= C[0] && NOW - C[0] < 5 )); then
+  IS_REPO=${C[1]} REMOTE=${C[2]}; printf -v ST '%s\n' "${C[@]:3}"
+else
+  # -C: the session's folder, not wherever the status line was started.
+  # --no-optional-locks: never take index.lock, which the git commands Claude runs
+  # meanwhile would fail on.
+  IS_REPO=0 REMOTE=''
+  ST=$(git -C "$DIR" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null) &&
+    { IS_REPO=1; REMOTE=$(git -C "$DIR" remote get-url origin 2>/dev/null); }
+  { printf '%s\n%s\n%s\n%s\n' "$NOW" "$IS_REPO" "$REMOTE" "$ST" > "$CACHE"; } 2>/dev/null
+fi
+if [ "$IS_REPO" = 1 ]; then
   REMOTE=${REMOTE%.git}
   # scp-style "git@host:owner/repo" -> "https://host/owner/repo"
   [[ $REMOTE =~ ^[^@/]+@([^:/]+):(.+)$ ]] && REMOTE="https://${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
-  [ -n "$REMOTE" ] && printf -v H_LINK ' \033]8;;%s\007%s%s%s\033]8;;\007' "$REMOTE" "$CHROME" "$EXTERNAL" "$RESET"
+  [ -n "$REMOTE" ] && [ -z "${NO_COLOR:-}" ] && printf -v H_LINK ' \033]8;;%s\007%s%s%s\033]8;;\007' "$REMOTE" "$CHROME" "$EXTERNAL" "$RESET"
   # working-tree summary: +added ~modified -deleted (zeros omitted)
   BRANCH='' OID='' ADD=0 MOD=0 DEL=0
   while IFS= read -r l; do
@@ -225,6 +251,14 @@ for HEAD in "${HEADS[@]}"; do
 done
 INNER=$(( HEAD_W + 2 > ROWS_W ? HEAD_W + 2 : ROWS_W ))
 
+# Too narrow for any card: the model and the context percentage on one line,
+# the model cut to fit.
+if [ "$MAX" -gt 0 ] && [ $(( INNER + 4 )) -gt "$MAX" ]; then
+  heat "$PCT"; printf -v P '%s%d%%%s' "$REPLY" "$PCT" "$RESET"; width "$P"
+  M=$(( MAX - REPLY - 1 ))
+  if [ "$M" -gt 0 ] && [ -n "$MODEL" ]; then printf '%s%s%s %s\n' "$ACCENT" "${MODEL:0:M}" "$RESET" "$P"; else printf '%s\n' "$P"; fi
+  exit 0
+fi
 line $(( INNER - HEAD_W - 1 ))
 printf '%s╭─%s %s %s%s╮%s\n' "$CHROME" "$RESET" "$HEAD" "$CHROME" "$REPLY" "$RESET"
 for r in "${ROWS[@]}"; do

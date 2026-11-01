@@ -232,9 +232,13 @@ The `Palette` option still overrides any colour with a hex value. Two things kee
 ╰────────────────────────────────────────────────────╯
 ```
 
-The bars heat as the mods' meters do: Claude orange, yellow from 60%, red from 80%, each cell in the colour of its own tenth. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
+Each bar is a heat ramp, one step per tenth from green through yellow and orange to red, each lit cell in its own step, so the last lit cell shows how close the limit is; the percentage takes the colour of its own tenth. The unlit track is a dim grey. The pace compares how fast a limit is being used with how much of its window has passed: `1.0×` finishes the window right at 100%, and above that it turns yellow, then red at `1.5×`.
 
-Its colours are the terminal's own green, yellow, red and grey, so a light theme's palette keeps them readable; the orange is a mid tone that reads on both. Set `NO_COLOR` to drop every colour. When Claude Code passes `COLUMNS`, the card fits it: the wall clock, pace and token counts go first, then the reset times, and the header drops the link and changes, then the branch, then the folder.
+The ramp suits a dark background by default. Set `STATUSLINE_THEME=light` for darker, more saturated steps that keep at least 3:1 contrast on white, with a lighter track; `auto`, the default, picks light when `COLORFGBG` reports a white background. The other colours are the terminal's own green, yellow, red and grey, and Claude orange for the model. Set `NO_COLOR` to drop every escape code, the folder and repository links included.
+
+When Claude Code passes `COLUMNS`, the card fits it: the wall clock, pace and token counts go first, then the reset times, and the header drops the link and changes, then the branch, then the folder. Below the narrowest card, about 25 columns, it falls back to one line: the model and the context percentage in its heat colour.
+
+The git status and origin URL are cached for 5 seconds per folder in the temp directory, so frequent refreshes do not run git each time; changing folder reads git afresh, and an unwritable temp directory only turns the cache off.
 
 Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/settings.json`:
 
