@@ -10,17 +10,22 @@ shopt -s extglob
 # would collapse empty fields and shift the rest. -j drops the trailing newline,
 # which jq.exe writes as CRLF and would leave a \r on the last field.
 IFS=$'\x1f' read -r MODEL DIR PCT DURATION_MS TOK_IN TOK_OUT RATE_5H RATE_7D RESET_5H RESET_7D < <(
-  jq -j 'def opt: if . == null then "" else floor end;
-    [ .model.display_name, .workspace.current_dir,
-      (.context_window.used_percentage // 0 | floor),
-      (.cost.total_duration_ms // 0 | floor),
-      (.context_window.total_input_tokens // 0 | floor),
-      (.context_window.total_output_tokens // 0 | floor),
+  # Anything not a number reads as 0 (num) or as absent (opt): bash arithmetic
+  # on a null, a float or a date string would abort the script.
+  jq -j 'def num: if type == "number" then floor else 0 end;
+    def opt: if type == "number" then floor else "" end;
+    [ (.model.display_name // ""), (.workspace.current_dir // ""),
+      (.context_window.used_percentage | num),
+      (.cost.total_duration_ms | num),
+      (.context_window.total_input_tokens | num),
+      (.context_window.total_output_tokens | num),
       (.rate_limits.five_hour.used_percentage | opt),
       (.rate_limits.seven_day.used_percentage | opt),
-      (.rate_limits.five_hour.resets_at // ""),
-      (.rate_limits.seven_day.resets_at // "")
-    ] | map(tostring) | join("\u001f")')
+      (.rate_limits.five_hour.resets_at | opt),
+      (.rate_limits.seven_day.resets_at | opt)
+    ] | map(tostring) | join("\u001f")' 2>/dev/null)
+# Empty or unreadable input leaves every field empty: draw zeros, not errors.
+PCT=${PCT:-0} DURATION_MS=${DURATION_MS:-0} TOK_IN=${TOK_IN:-0} TOK_OUT=${TOK_OUT:-0} DIR=${DIR:-$PWD}
 
 GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; RESET=$'\033[0m'; BOLD=$'\033[1m'
 ACCENT=$'\033[38;2;217;119;87m'   # Claude orange, as in the mods
@@ -95,17 +100,24 @@ line() {
 
 NAME="${DIR##*[/\\]}"
 URI_PATH="${DIR//\\//}"   # backslashes -> forward slashes for the file URI
+URI_PATH=${URI_PATH#/}     # "/home/x" and "C:/x" both follow file:/// once
 printf -v HEAD '%s%s%s%s %s·%s \033]8;;file:///%s\007%s\033]8;;\007' \
-  "$ACCENT" "$BOLD" "$MODEL" "$RESET" "$DIM" "$RESET" "$URI_PATH" "$NAME"
-if ST=$(git status --porcelain=v2 --branch 2>/dev/null); then
-  REMOTE=$(git remote get-url origin 2>/dev/null)
-  REMOTE=${REMOTE%.git}; REMOTE=${REMOTE/#git@github.com:/https://github.com/}
+  "$ACCENT" "$BOLD" "$MODEL" "$RESET" "$DIM" "$RESET" "${URI_PATH// /%20}" "$NAME"
+# -C: the session's folder, not wherever the status line was started.
+# --no-optional-locks: never take index.lock, which the git commands Claude runs
+# meanwhile would fail on.
+if ST=$(git -C "$DIR" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null); then
+  REMOTE=$(git -C "$DIR" remote get-url origin 2>/dev/null)
+  REMOTE=${REMOTE%.git}
+  # scp-style "git@host:owner/repo" -> "https://host/owner/repo"
+  [[ $REMOTE =~ ^[^@/]+@([^:/]+):(.+)$ ]] && REMOTE="https://${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
   [ -n "$REMOTE" ] && printf -v HEAD '%s \033]8;;%s\007%s↗%s\033]8;;\007' "$HEAD" "$REMOTE" "$DIM" "$RESET"
   # working-tree summary: +added ~modified -deleted (zeros omitted)
-  BRANCH='' ADD=0 MOD=0 DEL=0
+  BRANCH='' OID='' ADD=0 MOD=0 DEL=0
   while IFS= read -r l; do
     case $l in
-      '# branch.head (detached)') ;;
+      '# branch.oid '*) OID=${l#'# branch.oid '} ;;
+      '# branch.head (detached)') BRANCH="(${OID:0:7})" ;;  # oid comes first
       '# branch.head '*) BRANCH=${l#'# branch.head '} ;;
       '? '*) ADD=$((ADD + 1)) ;;
       [12u]' '*)  # "1 XY ...": X is the index status, Y the worktree status
