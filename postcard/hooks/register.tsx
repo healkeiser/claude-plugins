@@ -159,7 +159,7 @@ export const register: Register = on => {
     const list = [...prompts].map(([id, text], n) => ({ id, text, n: n + 1 })).reverse()
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" paddingTop={1}>
         {list.length === 0 && <Text dimColor>No prompts yet.</Text>}
         {list.map((p, row) => {
           // The first line with words, past a leading blank or paste tag; cut by

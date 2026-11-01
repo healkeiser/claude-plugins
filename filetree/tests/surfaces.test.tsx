@@ -1887,7 +1887,7 @@ for (const hints of ['on', 'off'] as const) {
     await clock.settle()
     const drawn = await ui.drawn()
     expect(JSON.stringify(drawn).includes('git init')).toBe(hints === 'on')
-    expect(treeRows(drawn).rows.length).toBe(hints === 'on' ? 14 : 15)
+    expect(treeRows(drawn).rows.length).toBe(hints === 'on' ? 13 : 14)  // one row less: the blank row under the pane's tab
     await ui.unmount()
   })
 }
@@ -1901,7 +1901,7 @@ test('spacing off and shortcuts off drop the blank lines and the shortcut row, a
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } } })
   await clock.settle()
   const drawn = await ui.drawn()
-  expect(treeRows(drawn).rows.length).toBe(18)
+  expect(treeRows(drawn).rows.length).toBe(17)  // one row less: the blank row under the pane's tab
   expect(await ui.find({ key: 'nav-j' })).toBeUndefined()
   expect(await ui.find({ key: 'gap-above' })).toBeUndefined()
   await ui.post({ key: 'j' }, { in: 'rows' })

@@ -148,6 +148,8 @@ let showAge = false
 let showHints = true
 let focusOnOpen = true
 let ignoreNames: string[] = []
+// One blank row under the pane's tab, so the header doesn't sit flush against it.
+const TOP_GAP = 1
 let searchGap = true
 let shortcutsSetting: 'auto' | 'always' | 'off' = 'auto'
 let shortcutsShown = false
@@ -2204,7 +2206,7 @@ export const register: Register = (on, options) => {
       const previewRuled = e.surface === 'terminal' && name.length + 16 <= e.props.bodyColumns
       const external = { id: 'external', label: glyphSetting === 'text' ? 'open' : unicode ? '↗' : '\u{eb14}', dim: true, hint: 'open in default app' }
       return (
-        <Box flexDirection="column" minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
+        <Box flexDirection="column" paddingTop={TOP_GAP} minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
           <Box flexDirection="row">
             <Button key="back" plain hotkey="h" autoFocus={editWithSetting || inTmux || inHerdr ? undefined : true} label={unicode ? '← files' : '\u{ea9b} files'} onPress={() => void closePreview($)} />
             <Text> </Text>
@@ -2246,12 +2248,12 @@ export const register: Register = (on, options) => {
     const rows = visibleRows(t)
     const body = e.props.scroll?.bodyRows ?? 40
     const footer = t.nodes.find(n => n.id === t.cursor)?.id ?? (t.selected || '')
-    const chrome = 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
+    const chrome = TOP_GAP + 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
     const spare = body - chrome - 5
     const splitRows = t.split && !nativeScroll && spare >= 6 && (treemapSetting !== 'off' || Boolean(peekTarget(t))) ? Math.min(Math.max(6, Math.floor(body * 0.45)), spare) : 0
     splitShown = splitRows > 0
     if (!splitShown) overPeek = false
-    const fixed = splitRows + 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
+    const fixed = TOP_GAP + splitRows + 1 + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
     const room = nativeScroll ? Math.max(1, rows.length) : Math.max(5, (e.props.scroll?.bodyRows ?? 40) - fixed)
     const isLit = (id: string) => bright.has(id) || dimmed.has(id)
     const focus = followClaude && t.flashOn ? ([...t.flash].reverse().find(id => id !== BRANCH_ROW) ?? t.cursor) : t.cursor
@@ -2663,7 +2665,7 @@ export const register: Register = (on, options) => {
     ]
 
     return (
-      <Box flexDirection="column" minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
+      <Box flexDirection="column" paddingTop={TOP_GAP} minHeight={Math.max(1, e.props.scroll?.bodyRows ?? 1)} backgroundColor={theme.bg || undefined}>
         <Box flexDirection="row">
           <Box flexDirection="row" flexShrink={headerRuled ? 0 : 1} overflow="hidden">
             <Button key="root" plain onPress={() => void selectRoot($).then(() => focusPane($, t.root, treeKey()))}>
