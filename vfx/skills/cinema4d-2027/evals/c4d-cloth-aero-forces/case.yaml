@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: c4d-cloth-aero-forces
+expected_outcome: |
+  cloth_aero.py adds a c4d.Tcloth tag to the active object with undo, sets c4d.CLOTH_PBD_AERO_DRAG to 0.25 and c4d.CLOTH_PBD_AERO_LIFT to 0.1, calls c4d.EventAdd, and cites the Maxon docs.

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: c4d-rs-camera-autofocus
+expected_outcome: |
+  rs_autofocus_cam.py creates a Redshift camera (c4d.Orscamera) and enables c4d.RSCAMERAOBJECT_FOCUS_AUTO_DISTANCE, new in 2027, then inserts it and calls c4d.EventAdd; the explanation cites the Maxon docs.

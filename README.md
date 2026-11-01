@@ -182,6 +182,7 @@ The `vfx` plugin holds one skill per release of each piece of software, named `<
 | `vfx:rez-3-4` | rez 3.4.0: user guide, `rez-*` CLI pages, Python API |
 | `vfx:deadline-10-4` | Deadline 10.4 User Manual, Scripting Reference, Standalone Python Reference |
 | `vfx:blender-5-2` | Blender 5.2 LTS manual and Python API, Blender developer docs |
+| `vfx:houdini-22` | Houdini 22.0 help (nodes, VEX, HOM, Solaris, Karma, PDG…) and the HDK guide pages |
 | `vfx:cinema4d-2027` | Cinema 4D 2027 user manual and Python SDK 2027.0.0 |
 | `vfx:kitsu` | Kitsu developer docs (Zou, gazu, integrations, self-hosting) and the Zou REST API from its OpenAPI spec; unversioned, the crawl records the Zou and gazu versions |
 
@@ -191,7 +192,7 @@ claude plugin install vfx@healkeiser --scope user
 
 The docs themselves are not in this repository: they belong to their publishers. A skill builds its copy the first time it is used, into the plugin's data folder (`~/.claude/plugins/data/`), where it survives plugin updates. Uninstalling the plugin deletes it unless you pass `--keep-data`. Each crawler fetches exactly its release and refuses any other version.
 
-Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also needs `git`, because it builds the docs from the rez release tag.
+Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also needs `git`, because it builds the docs from the rez release tag. `houdini-22` builds its help from an installed Houdini 22.0 (sidefx.com's robots.txt disallows crawling the versioned docs), found via `$HFS` or SideFX's default install path.
 
 
 
