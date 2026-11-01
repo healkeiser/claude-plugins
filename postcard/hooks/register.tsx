@@ -75,7 +75,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'prompts' }, async $ => {
-    const { isPlaced } = await $.ui.open({ id: PANE, title: 'Your prompts', focus: true })
+    const { isPlaced } = await $.ui.open({ id: PANE, backgroundColor: 'transparent', title: 'Your prompts', focus: true })
     return { text: isPlaced ? 'Prompts pane opened.' : 'The prompts pane needs a wider window.' }
   })
 
