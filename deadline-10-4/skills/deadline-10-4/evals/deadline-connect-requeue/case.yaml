@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: deadline-connect-requeue
+expected_outcome: |
+  requeue_failed.py imports Deadline.DeadlineConnect, connects with DeadlineCon('farmweb01', port), lists failed jobs via a documented Jobs call, filters on the pool, and resumes failed tasks with a documented method; the notes say the web service must run and the port comes from Repository Options.

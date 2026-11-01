@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: inherits-vs-specializes
+expected_outcome: |
+  answer.md places inherits (I) and specializes (S) correctly in LIVRPS, explains that specializes opinions are weaker than all others including the referenced asset's local opinions while inherits are stronger, gives a valid .usda example and cites openusd.org or the Survival Guide.

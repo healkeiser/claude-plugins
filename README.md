@@ -2,10 +2,10 @@
 
   <img src="https://cdn.simpleicons.org/claude/D97757" alt="Claude" width="96">
 
-  <h3 align="center">claude-mods</h3>
+  <h3 align="center">claude-plugins</h3>
 
   <p align="center">
-    Claude Code mods that make the terminal easier to read: polished replies, a live working band, and prompts you can find again.
+    Claude Code plugins: mods that make the terminal easier to read, and version-pinned documentation skills for VFX and pipeline software.
     <br/><br/>
     <a href="https://claude.com/resources/articles/claude-code-mods"><strong>What are mods?</strong></a>
   </p>
@@ -20,12 +20,12 @@
     <!-- Claude Code version -->
     <img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757?&logo=claude&logoColor=white" alt="Claude Code 2.1.287+"/>&nbsp;&nbsp;
     <!-- Last Commit -->
-    <img src="https://img.shields.io/github/last-commit/healkeiser/claude-mods?logo=github&label=Last%20Commit" alt="Last Commit"/>&nbsp;&nbsp;
+    <img src="https://img.shields.io/github/last-commit/healkeiser/claude-plugins?logo=github&label=Last%20Commit" alt="Last Commit"/>&nbsp;&nbsp;
     <!-- Commit Activity -->
-    <a href="https://github.com/healkeiser/claude-mods/pulse" alt="Activity">
-      <img src="https://img.shields.io/github/commit-activity/m/healkeiser/claude-mods?&logo=github&label=Commit%20Activity"/></a>&nbsp;&nbsp;
+    <a href="https://github.com/healkeiser/claude-plugins/pulse" alt="Activity">
+      <img src="https://img.shields.io/github/commit-activity/m/healkeiser/claude-plugins?&logo=github&label=Commit%20Activity"/></a>&nbsp;&nbsp;
     <!-- GitHub stars -->
-    <img src="https://img.shields.io/github/stars/healkeiser/claude-mods" alt="GitHub Stars"/>
+    <img src="https://img.shields.io/github/stars/healkeiser/claude-plugins" alt="GitHub Stars"/>
   </p>
 
 </div>
@@ -42,6 +42,7 @@
   - [working-band](#working-band)
   - [prompt-cards](#prompt-cards)
   - [Status line](#status-line)
+- [Documentation skills](#documentation-skills)
 - [Security](#security)
 - [Development](#development)
 - [License](#license)
@@ -62,6 +63,8 @@ Three [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude
 
 A matching [status line](#status-line) script comes alongside. It is not a mod, so it installs on its own.
 
+The repository also ships [documentation skills](#documentation-skills): each one gives Claude a local, searchable copy of one software release's official docs.
+
 
 
 <!-- INSTALLATION -->
@@ -70,10 +73,10 @@ A matching [status line](#status-line) script comes alongside. It is not a mod, 
 Add this repository as a plugin marketplace, then install the mods you want at user scope:
 
 ``` shell
-claude plugin marketplace add healkeiser/claude-mods
-claude plugin install pretty-markdown@claude-mods --scope user
-claude plugin install working-band@claude-mods --scope user
-claude plugin install prompt-cards@claude-mods --scope user
+claude plugin marketplace add healkeiser/claude-plugins
+claude plugin install pretty-markdown@healkeiser --scope user
+claude plugin install working-band@healkeiser --scope user
+claude plugin install prompt-cards@healkeiser --scope user
 ```
 
 Run `/reload-plugins` in a session that is already open; new sessions load them by themselves.
@@ -146,21 +149,46 @@ Copy the script into `~/.claude/` and point `statusLine` at it in `~/.claude/set
 
 
 
+<!-- SKILLS -->
+## Documentation skills
+
+Each skill is pinned to one release of one piece of software, and named `<software>-<version>`. It holds a `SKILL.md` that tells Claude how to search and cite the docs, and a `scripts/crawl.py` that builds the local Markdown copy of them.
+
+| Skill | Sources |
+|-------|---------|
+| **openusd-26-11** | openusd.org 26.11 (user docs and API guide pages), the USD Survival Guide |
+| **unreal-5-8** | Unreal Engine 5.8 documentation (without the generated API reference) |
+| **rez-3-4** | rez 3.4.0: user guide, `rez-*` CLI pages, Python API |
+| **deadline-10-4** | Deadline 10.4 User Manual, Scripting Reference, Standalone Python Reference |
+| **blender-5-2** | Blender 5.2 LTS manual and Python API, Blender developer docs |
+
+``` shell
+claude plugin install openusd-26-11@healkeiser --scope user
+```
+
+The docs themselves are not in this repository: they belong to their publishers. The first time a skill finds its `docs/` folder missing, it runs its crawler, which fetches that exact release and refuses any other version. You can also run it yourself from the skill folder with `uv run scripts/crawl.py`. A plugin update replaces the skill folder, so the docs are rebuilt after one.
+
+Requirements: [uv](https://docs.astral.sh/uv/) for the crawlers. `rez-3-4` also needs `git`, because it builds the docs from the rez release tag.
+
+
+
 <!-- SECURITY -->
 ## Security
 
 Mods are not sandboxed: they run with the same access to your machine as Claude Code itself. These three only draw and count; none of them runs a command, reads your files, or makes a network call. Read `hooks/` before installing, as you would for any plugin.
+
+The documentation skills run no hooks. Their crawlers make network requests to the docs sites listed above and write only inside the skill's own `docs/` folder.
 
 
 
 <!-- DEVELOPMENT -->
 ## Development
 
-Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, and the hooks module `hooks/register.tsx`, with its tests beside it.
+Each mod is a plugin folder: `.claude-plugin/plugin.json`, `hooks/hooks.json`, and the hooks module `hooks/register.tsx`, with its tests beside it. Each documentation skill is a plugin folder with `skills/<name>/SKILL.md`, its crawler in `scripts/`, and test cases in `evals/` that `claude plugin eval` can run.
 
 ``` shell
-git clone https://github.com/healkeiser/claude-mods
-cd claude-mods
+git clone https://github.com/healkeiser/claude-plugins
+cd claude-plugins
 claude plugin marketplace add ./
 claude plugin validate ./pretty-markdown
 claude plugin test ./pretty-markdown
@@ -183,7 +211,7 @@ MIT. See [LICENSE](./LICENSE).
 <!-- CONTACT -->
 ## Contact
 
-Project Link: [claude-mods](https://github.com/healkeiser/claude-mods)
+Project Link: [claude-plugins](https://github.com/healkeiser/claude-plugins)
 
 <p align='center'>
   <!-- GitHub profile -->

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: sdf-batch-author-instances
+expected_outcome: |
+  build_forest.py authors with the low-level Sdf API inside an Sdf.ChangeBlock, adds references, instanceable metadata and translate ops, and runs to produce a valid forest.usda with 5000 instanceable prims.

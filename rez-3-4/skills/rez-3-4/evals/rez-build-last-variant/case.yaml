@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: rez-build-last-variant
+expected_outcome: |
+  answer.md gives a rez-build command using --variants -1 (negative index, new in 3.4.0) with --install and --prefix /mnt/rez/staging, explains -i vs --prefix, and cites rez 3.4.0 docs.

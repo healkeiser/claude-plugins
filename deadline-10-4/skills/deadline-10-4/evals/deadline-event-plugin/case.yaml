@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: deadline-event-plugin
+expected_outcome: |
+  answer.md gives NotifyOnFinish.py, NotifyOnFinish.param and the repository custom/events location, with a DeadlineEventListener that calls super().__init__() first, wires OnJobFinishedCallback with += and removes it in Cleanup, defines GetDeadlineEventListener/CleanupDeadlineEventListener, reads the URL with GetConfigEntry, and targets Python 3.10.

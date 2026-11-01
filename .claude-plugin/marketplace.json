@@ -1,10 +1,51 @@
 {
-  "name": "claude-mods",
-  "owner": { "name": "healkeiser" },
-  "metadata": { "description": "Personal Claude Code mods: readable replies, a working band, prompt cards." },
+  "name": "healkeiser",
+  "owner": {
+    "name": "healkeiser"
+  },
+  "metadata": {
+    "description": "Claude Code plugins: terminal mods (readable replies, a working band, prompt cards) and version-pinned documentation skills for VFX and pipeline software."
+  },
   "plugins": [
-    { "name": "pretty-markdown", "source": "./pretty-markdown", "description": "Bordered code blocks with copy and fold, inline-code chips, coloured diffs, tables, headings, callouts and a Next: box." },
-    { "name": "working-band", "source": "./working-band", "description": "A live line above the prompt while Claude works, tidier tool rows, and a turn footer with tool and file counts." },
-    { "name": "prompt-cards", "source": "./prompt-cards", "description": "Your prompts as blue cards, dimmed while queued, and /prompts to jump to any one." }
+    {
+      "name": "pretty-markdown",
+      "source": "./pretty-markdown",
+      "description": "Bordered code blocks with copy and fold, inline-code chips, coloured diffs, tables, headings, callouts and a Next: box."
+    },
+    {
+      "name": "working-band",
+      "source": "./working-band",
+      "description": "A live line above the prompt while Claude works, tidier tool rows, and a turn footer with tool and file counts."
+    },
+    {
+      "name": "prompt-cards",
+      "source": "./prompt-cards",
+      "description": "Your prompts as blue cards, dimmed while queued, and /prompts to jump to any one."
+    },
+    {
+      "name": "openusd-26-11",
+      "source": "./openusd-26-11",
+      "description": "OpenUSD 26.11 docs and the USD Survival Guide, mirrored locally as searchable Markdown."
+    },
+    {
+      "name": "unreal-5-8",
+      "source": "./unreal-5-8",
+      "description": "Unreal Engine 5.8 documentation, mirrored locally as searchable Markdown."
+    },
+    {
+      "name": "rez-3-4",
+      "source": "./rez-3-4",
+      "description": "rez 3.4 documentation (guide, CLI and Python API), mirrored locally as searchable Markdown."
+    },
+    {
+      "name": "deadline-10-4",
+      "source": "./deadline-10-4",
+      "description": "Deadline 10.4 User Manual, Scripting Reference and Standalone Python Reference, mirrored locally as searchable Markdown."
+    },
+    {
+      "name": "blender-5-2",
+      "source": "./blender-5-2",
+      "description": "Blender 5.2 LTS manual, Python API and developer docs, mirrored locally as searchable Markdown."
+    }
   ]
 }

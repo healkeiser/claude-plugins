@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: usd-stage-materials
+expected_outcome: |
+  answer.md explains how the 5.8 USD Stage Actor translates UsdPreviewSurface and MaterialX materials, names the controlling options (render context, material purpose and similar), and cites the UE 5.8 USD documentation.

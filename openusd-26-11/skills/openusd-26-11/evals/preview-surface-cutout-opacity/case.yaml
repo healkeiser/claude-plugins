@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: preview-surface-cutout-opacity
+expected_outcome: |
+  answer.md names opacity, opacityThreshold and opacityMode with their fallback values from the UsdPreviewSurface spec, recommends opacityThreshold > 0 for masked leaves, and cites openusd.org.

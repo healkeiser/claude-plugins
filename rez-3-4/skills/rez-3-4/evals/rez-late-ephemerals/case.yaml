@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: rez-late-ephemerals
+expected_outcome: |
+  answer.md explains that ephemerals became available to @late functions in rez 3.4.0 but only when in_context() is true (after the resolve), so a @late requires cannot add debugpy during the solve; it gives a working alternative such as variants keyed on .debug-0/.debug-1, names debug_shell_startup, and cites rez 3.4.0 docs.
