@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { layout, parseMermaid, splitMermaid, toSvg } from './mermaid'
+import { layout, parseMermaid } from './mermaid'
 import { cellWidth } from './style'
 
 const FLOW = 'graph TD\n  A[Start] --> B{Ok?}\n  B -- yes --> C[Ship]\n  B -->|no| D(Fix)\n  D --> B'
@@ -66,23 +66,9 @@ test('a sequence diagram draws lifelines, arrows both ways and a self-call', () 
   expect(all).toContain('├◂─╯')
 })
 
-test('the SVG drawing has a box per node and an arrowhead per arrow', () => {
-  const d = parseMermaid(FLOW)
-  if ('error' in d) throw new Error(d.error)
-  const svg = toSvg(layout(d, 200)!)
-  expect(svg.startsWith('<svg')).toBe(true)
-  expect(svg.match(/<rect /g)?.length).toBe(4)
-  expect(svg.match(/<polygon /g)?.length).toBe(4)
-  expect(svg).toContain('>Start</text>')
-})
-
-test('splitMermaid keeps the text around each fence', () => {
-  expect(splitMermaid('Look:\n\n```mermaid\ngraph TD\nA-->B\n```\n\nDone.').map(p => p.kind)).toEqual(['text', 'mermaid', 'text'])
-})
-
-const mountAt = ($: Engine, text: string, columns = 100, surface = 'terminal') =>
+const mountAt = ($: Engine, text: string, columns = 100) =>
   $.ui.mount({
-    plugin: 'gloss', surface, component: 'AssistantMessage',
+    plugin: 'gloss', surface: 'terminal', component: 'AssistantMessage',
     props: { text, isFirstOfReply: true }, viewport: { columns, rows: 40 },
   } as never)
 
@@ -117,9 +103,3 @@ test('glyphs: text draws the diagram in ASCII', { options: { glyphs: 'text' } },
   expect(/^[\x20-\x7e]*$/.test((await texts(ui)).join(''))).toBe(true)
 })
 
-test('a graphical surface draws the diagram as SVG and the rest natively', async $ => {
-  const ui = await mountAt($, 'Here:\n\n```mermaid\ngraph TD\n  A --> B\n```\n\nDone.', 100, 'desktop')
-  const svg = await ui.find({ type: 'Svg' })
-  expect(String(svg?.props.source)).toContain('<svg')
-  expect((await ui.findAll({ type: 'Markdown' })).length).toBe(2)
-})

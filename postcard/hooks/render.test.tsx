@@ -106,16 +106,6 @@ test('graphical surfaces keep their own prompt and command drawing', async ($, o
   }
 })
 
-test('prompts drawn natively on desktop still fill the /prompts pane there', async ($, on) => {
-  on('ui.render', { component: 'UserMessage' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine row</Text>
-  })
-  await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'UserMessage', requestId: 'd1', props: props('composer', 'from the app') })
-  const pane = await $.ui.mount({ plugin: 'postcard', surface: 'desktop', component: 'Pane', requestId: 'prompts', props: { bodyColumns: 60 } as never })
-  expect(await rowTexts(pane)).toEqual(['#1 from the app'])
-})
-
 test('glyphs: text draws ASCII stand-ins and classic borders', { options: { glyphs: 'text' } }, async $ => {
   const ui = await $.ui.mount({ plugin: 'postcard', surface: 'terminal', component: 'CommandOutput', props: { command: 'cost', args: '', text: 'nope', isErrored: true } as never })
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('x /cost')

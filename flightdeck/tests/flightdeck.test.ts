@@ -4,7 +4,6 @@ import type { TestBody } from 'claude-code/testing'
 import { bareEmoji } from '../hooks/style'
 
 import {
-  svgMeter,
   DEFAULT_ARCHITECT,
   DEFAULT_GATE,
   DEFAULT_TURN,
@@ -43,7 +42,6 @@ import {
   limitLabel,
   limitOf,
   logRows,
-  marksIn,
   momentOf,
   normalizeCard,
   normalizeGate,
@@ -75,7 +73,6 @@ import {
   pushTrend,
   sparkLevels,
   splitOf,
-  svgSpark,
   jumpTo,
 } from '../hooks/core'
 import type { Check, InboxItem, TrendPoint } from '../types'
@@ -219,7 +216,6 @@ test('layout math: lanes share one axis, the log gets 4-8 rows, the legend never
   expect((b?.before ?? 0) + (b?.bar ?? 0) + (b?.after ?? 0)).toBe(20)
   expect([logRows(10, 40), logRows(50, 40), logRows(200, 40)]).toEqual([4, 7, 8])
   expect(fitLegend([{ label: 'main' }, { label: 'agents' }, { label: 'architect' }], 20).map(x => x.label)).toEqual(['main', 'agents'])
-  expect([marksIn(64, true), marksIn(64, false), marksIn(6, false)]).toEqual([64, 42, 4])
   expect(limitLabel('five_hour')).toBe('5h')
   expect(prettyModel('claude-opus-5-5[1m]')).toBe('Opus 5.5 1M')
   expect(prettyModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe('Sonnet 4.5')
@@ -304,12 +300,12 @@ const spawn = (subagentType: string, description: string) => ({
   fork: false,
 })
 
-test('a fresh session draws on every surface and width, empty panels hidden', async ($, on) => {
+test('a fresh session draws at every width, empty panels hidden', async ($, on) => {
   engine(on)
-  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+  for (const surface of ['terminal'] as const) {
     for (const cols of [40, 60, 86, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
-      expect(surface === 'terminal' ? await ui.find({ text: /· main$/ }) : await ui.find({ key: 'g-model' })).toBeDefined()
+      expect(await ui.find({ text: /· main$/ })).toBeDefined()
       expect(await ui.find({ text: /Session log/ })).toBeDefined()
       expect(await ui.find({ text: /agents ·/ })).toBeUndefined() // no subagents: no agents panel
       expect(await ui.find({ text: /permissions/ })).toBeUndefined() // no checks yet: no gate panel
@@ -326,7 +322,7 @@ test('inline above the prompt, the pane is a summary of at most 8 rows', async (
   await $.turn.start({ text: 'go', turnId: 'M1' })
   for (const d of ['one', 'two', 'three', 'four', 'five']) await $.agent.spawn(spawn('general-purpose', `task ${d}`))
   await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'm-k1' })
-  for (const surface of ['terminal', 'vscode'] as const) {
+  for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(80), props: { ...pane(80).props, placement: 'inline' as const }, surface })
     const root = (await ui.drawn()) as { children?: unknown[] }
     expect((root.children ?? []).filter(Boolean).length <= 8).toBe(true)
@@ -385,10 +381,6 @@ test('subagents become cards, then swimlanes past the card limit; a card expands
   expect(await lanesUi.find({ text: /4 total/ })).toBeDefined()
   expect(await lanesUi.find({ text: /━/ })).toBeDefined()
   await lanesUi.unmount()
-  const listUi = await $.ui.mount({ ...pane(64), surface: 'desktop' })
-  expect(await listUi.find({ text: /^4 running$/ })).toBeDefined()
-  for (const id of ['ag1', 'ag2', 'ag3', 'ag4']) expect(await listUi.find({ key: `g-agent-${id}` })).toBeDefined()
-  await listUi.unmount()
 })
 
 test('the server-side advisor is read from assistant rows: consulting, then on call', async ($, on) => {
@@ -591,7 +583,7 @@ test("the main box shows the last request's time to first token, and no tokens p
   }
 })
 
-test('on a graphical surface, rows of marks hold fewer marks and clip at their box; the gate is a meter', async ($, on) => {
+test('rows of marks clip at their box; the gate is a meter', async ($, on) => {
   engine(on)
   // The newest check is the one refused: its ✕ must stay in sight.
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'g29' ? 'deny' : 'allow' }))
@@ -621,18 +613,7 @@ test('on a graphical surface, rows of marks hold fewer marks and clip at their b
     expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
     expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.wrap).toBe('truncate-start')
     expect(keyed(await ui.drawn(), 'timeline')?.children?.filter(isDrawn)[0]?.props?.wrap).toBe('truncate-middle')
-    expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBe(0)
-    await ui.unmount()
-  }
-  // A graphical surface draws the gate as the app's Context panel draws a split: one bar, the denied run
-  // last in the app's red, then a legend with each count.
-  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
-    const ui = await $.ui.mount({ ...pane(64), surface })
-    const svg = (await ui.findAll({ type: 'Svg' })).find(x => /allowed by a rule/.test(String((x as Drawn).props?.alt))) as Drawn | undefined
-    const source = String(svg?.props?.source ?? '')
-    expect(String(svg?.props?.alt)).toMatch(/^29 allowed by a rule, 0 cleared .*, 0 waiting, 1 denied$/)
-    expect(source.indexOf('#dc3c3d')).toBeGreaterThan(source.indexOf('#16a34a'))
-    expect(textsIn(keyed(await ui.drawn(), 'g-gate-deny')).map(textOf)).toEqual(['Denied', '1'])
+    expect((await ui.find({ key: 'legend' }))?.props.marginBottom).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -641,7 +622,7 @@ test("the inline summary's gate is the meter, with its counts", async ($, on) =>
   engine(on)
   on('tool.check', (_$, e) => ({ decision: e.tool_use_id === 'n59' ? 'deny' : 'allow' }))
   for (let i = 0; i < 60; i += 1) await $.tool.check({ tool: 'Bash', input: { command: `ls ${i}` }, tool_use_id: `n${i}` })
-  for (const surface of ['terminal', 'vscode'] as const) {
+  for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(80), props: { ...pane(80).props, placement: 'inline' as const }, surface })
     const bar = (await ui.find({ type: 'Text', text: /^━{10}$/ })) as unknown as Drawn
     expect(bar?.children?.filter(isDrawn).map(x => x.props?.color)).toEqual(['success', 'error'])
@@ -705,6 +686,22 @@ test('the docked pane asks for the width set in paneColumns, over a transparent 
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
   expect(asked).toEqual([46])
   expect(backdrops).toEqual(['transparent'])
+})
+
+test('on the desktop app flightdeck steps aside: the engine draws the pane, and nothing opens one', async ($, on) => {
+  engine(on)
+  const opened: unknown[] = []
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', (_$, e) => (opened.push(e.id), { value: { isPlaced: true as const } }))
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine pane' }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'desktop' })
+  expect((await ui.findAll({ type: 'Text' })).map(t => textOf(t as Drawn))).toEqual(['engine pane'])
+  await ui.unmount()
+  const r = await $.command.run({ command: 'flightdeck', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(JSON.stringify(r)).toContain('terminal only')
+  expect(opened).toEqual([])
 })
 
 test('the context gauge measures against a compaction window set below the model window', () => {
@@ -1048,25 +1045,6 @@ const needs = (n: unknown, out: string[], path: string): number => {
   return (p.overflow === 'hidden' ? 0 : need) + margin
 }
 
-/**
- * What a graphical surface needs of a line of text: no `truncate` Text nests Texts (the desktop app wraps the
- * nested pieces, or lays truncating ones out as blocks of their own), and no Text placed in a Box starts or
- * ends with a space (it collapses spaces, so a gap between pieces is the Box's, not the text's).
- */
-const desktopFaults = (n: unknown, out: string[], path = '', parent = ''): string[] => {
-  if (!isDrawn(n)) return out
-  const p = n.props ?? {}
-  const here = `${path}/${String(p.key ?? n.type)}`
-  const kids = (n.children ?? []).filter(isDrawn)
-  if (n.type === 'Text') {
-    const text = textOf(n)
-    if (p.wrap === 'truncate' && kids.some(k => k.type === 'Text')) out.push(`${here}: truncates nested Texts "${text}"`)
-    if (parent === 'Box' && text !== text.trim()) out.push(`${here}: edge spaces "${text}"`)
-    return out
-  }
-  kids.forEach((k, i) => desktopFaults(k, out, `${here}[${i}]`, n.type))
-  return out
-}
 const spillsOf = (tree: unknown, columns: number) => {
   const out: string[] = []
   const need = needs(tree, out, '')
@@ -1128,7 +1106,7 @@ const busySession = async ($: Parameters<TestBody>[0], on: On) => {
   return clock
 }
 
-test('every panel fits the pane at every width from 24 columns, on every surface and placement, in lines a graphical surface keeps whole', { timeoutMs: 60_000 }, async ($, on) => {
+test('every panel fits the pane at every width from 24 columns, docked and inline', { timeoutMs: 60_000 }, async ($, on) => {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   await busySession($, on)
@@ -1137,7 +1115,7 @@ test('every panel fits the pane at every width from 24 columns, on every surface
   await $.session.start({ cwd: '/w/proj', surface: 'terminal', isInteractive: true })
   const failures: string[] = []
   const check = async (label: string) => {
-    for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    for (const surface of ['terminal'] as const) {
       for (let cols = 24; cols <= 40; cols += 1) {
         for (const placement of ['dock', 'inline'] as const) {
           const ui = await $.ui.mount({ ...pane(cols), props: { ...pane(cols).props, placement }, surface })
@@ -1160,17 +1138,8 @@ test('every panel fits the pane at every width from 24 columns, on every surface
   await opener.unmount()
   await $.turn.start({ text: 'and once more', turnId: 'B2' })
   await check('drill-down, expanded, running')
-  for (const surface of ['terminal', 'desktop'] as const) {
-    for (const cols of [24, 32, 40, 64, 120]) {
-      for (const placement of ['dock', 'inline'] as const) {
-        const ui = await $.ui.mount({ ...pane(cols), props: { ...pane(cols).props, placement }, surface })
-        for (const f of desktopFaults(await ui.drawn(), [])) failures.push(`${surface} ${placement} ${cols}: ${f}`)
-        await ui.unmount()
-      }
-    }
-  }
-  // One line per panel and width that spills, the surface left out (they draw the same boxes).
-  expect([...new Set(failures.map(f => f.replace(/ (terminal|desktop|vscode|mobile) /, ' ')))]).toEqual([])
+  // One line per panel and width that spills.
+  expect([...new Set(failures.map(f => f.replace(/ terminal /, ' ')))]).toEqual([])
 })
 
 test('a single agent card fits from 24 columns, and the time axis scales to the pane', async ($, on) => {
@@ -1180,11 +1149,10 @@ test('a single agent card fits from 24 columns, and the time axis scales to the 
   await $.turn.start({ text: 'go', turnId: 'O1' })
   await $.agent.spawn(spawn('general-purpose', 'Write the configuration loader regression tests'))
   const failures: string[] = []
-  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+  for (const surface of ['terminal'] as const) {
     for (let cols = 24; cols <= 40; cols += 1) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       for (const s of spillsOf(await ui.drawn(), cols)) failures.push(`${surface} ${cols}: ${s}`)
-      if (surface !== 'terminal') expect(await ui.find({ key: 'g-agent-one' })).toBeDefined()
       await ui.unmount()
     }
   }
@@ -1537,18 +1505,6 @@ test("Claude Code's Reduce motion stills the connectors, as motion: off does", a
   await ui.unmount()
 })
 
-test('a graphical meter glides to a new reading on an ease-out, and stands still when motion is off', () => {
-  const runs = (on: number) => [{ cells: on, color: 'claude' }, { cells: 10 - on, color: 'subtle', isTrack: true }]
-  const first = svgMeter(runs(4), 10, [], false)
-  expect(first.source).not.toContain('<animate')
-  expect(first.widths).toEqual([28])
-  const next = svgMeter(runs(7), 10, first.widths, false)
-  expect(next.source).toContain('from="28" to="49"')
-  expect(next.source).toContain('keySplines="0.33 1 0.68 1"')
-  expect(svgMeter(runs(7), 10, first.widths, true).source).not.toContain('<animate')
-  expect(svgMeter(runs(7), 10, next.widths, false).source).not.toContain('<animate')
-})
-
 // ---------------------------------------------------------------- heat ramp and glyphs: text
 
 const measured = async ($: Parameters<TestBody>[0], on: On) => {
@@ -1574,19 +1530,6 @@ test('a terminal with 256 colours or more draws the status line heat ramp, one s
     ['64%', '#ffd700'],
     ['128k/200k', undefined],
   ])
-  await ui.unmount()
-})
-
-test('a graphical surface draws usage as the app does: a thin round bar, blue, red from 80%', async ($, on) => {
-  await measured($, on)
-  const ui = await $.ui.mount({ ...pane(66), surface: 'desktop' })
-  const svgs = (await ui.findAll({ type: 'Svg' })) as Drawn[]
-  const bar = (label: RegExp) => String(svgs.find(x => label.test(String(x.props?.alt)))?.props?.source ?? '')
-  expect(bar(/^Context: /)).toContain('rx="3"')
-  for (const x of svgs.filter(x => /% used/.test(String(x.props?.alt)))) {
-    const pct = Number(/(\d+)% used/.exec(String(x.props?.alt))?.[1])
-    expect(String(x.props?.source)).toContain(pct >= 80 ? '#dc3c3d' : '#257de0')
-  }
   await ui.unmount()
 })
 
@@ -1623,13 +1566,6 @@ test('meters show what the status line shows: the same rounding, half cells, not
     const row = textsIn(keyed(await ui.drawn(), 'meter-five_hour')).map(textOf)
     expect([row[1], row.includes(shown)]).toEqual([bar, true])
     await ui.unmount()
-    // On a graphical surface the fill is the reading's own share of the bar, as the app draws it.
-    const g = await $.ui.mount({ ...pane(66), surface: 'desktop' })
-    const svg = ((await g.findAll({ type: 'Svg' })) as Drawn[]).find(x => /^Current session: /.test(String(x.props?.alt)))
-    const lit = /<rect x="0\.00%" width="([\d.]+)%"/.exec(String(svg?.props?.source))?.[1]
-    expect(lit === undefined ? 0 : Number(lit)).toBe(pct === 0 ? 0 : Math.max(1.2, Math.min(100, pct)))
-    expect(await g.find({ text: `${shown.replace('%', '')}% used` })).toBeDefined()
-    await g.unmount()
   }
 })
 
@@ -1725,20 +1661,6 @@ test('sparklines scale from zero: flat, zero, unknown, over the top and the smal
   expect(/^[\x20-\x7e]{8}$/.test(SPARK_ASCII)).toBe(true)
 })
 
-test('a graphical sparkline glides each bar to its new height on the meters\' ease-out, still when motion is off', () => {
-  const colors = ['claude', '#ff0000', 'subtle']
-  const a = svgSpark([0, 7, null], colors, 3, [], false)
-  expect(a.heights).toEqual([1, 12, 0]) // zero a one-pixel baseline, unknown nothing
-  expect((a.source.match(/<rect/g) ?? []).length).toBe(2)
-  expect(a.source).toContain('fill="#d97757"') // a theme key as its role's hex
-  expect(a.source).toContain('width="21"')
-  expect(a.source).not.toContain('<animate')
-  const b = svgSpark([7, 7, null], colors, 3, a.heights, false)
-  expect(b.source).toContain('<animate attributeName="height" from="1" to="12" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>')
-  expect(b.source).toContain('attributeName="y" from="11" to="0"')
-  expect((b.source.match(/<animate /g) ?? []).length).toBe(2) // the bar that moved, not the one that did not
-  expect(svgSpark([7, 7, null], colors, 3, a.heights, true).source).not.toContain('<animate')
-})
 
 test('the context split keeps what fills the window, largest first', () => {
   const sp = splitOf(BREAKDOWN as never, 5)
@@ -1783,12 +1705,6 @@ test('the main block splits the context by category, with a legend, and the spli
   await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 'S1', reason: 'answer' })
   expect(asked.filter(Boolean).length - n).toBe(1)
   expect(asked.filter(Boolean).every(x => x === 'summary')).toBe(true) // never `full`, which sends requests
-  const g = await $.ui.mount({ ...pane(66), surface: 'desktop' })
-  const legend = textsIn(keyed(await g.drawn(), 'g-mix')).map(textOf)
-  expect(legend.slice(0, 2)).toEqual(['Context by category', 'Estimated'])
-  expect(legend.slice(2, 4)).toEqual(['Messages', '320k'])
-  expect(legend.join('|')).not.toContain('Free space')
-  await g.unmount()
   for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...pane(66), surface })
     const tree = await ui.drawn()
@@ -1847,18 +1763,6 @@ test('the trends block draws a sparkline per figure over the last turns, the fil
   expect(row('out').slice(1)).toEqual([['▃▆█', 'claude'], ['1.2k', undefined]])
   await ui.unmount()
 
-  // On a graphical surface each is SVG, and the next turn glides from the last drawing.
-  const svgOf = async () => {
-    const d = await $.ui.mount({ ...pane(66), surface: 'desktop' })
-    const svgs = (await d.findAll({ type: 'Svg' })) as Drawn[]
-    // Time scales to its own largest turn, so a longer turn redraws every bar.
-    const src = String(svgs.find(x => /^time over the last/.test(String(x.props?.alt)))?.props?.source ?? '')
-    await d.unmount()
-    return src
-  }
-  expect(await svgOf()).not.toContain('<animate')
-  await turn(4, 30)
-  expect(await svgOf()).toContain('<animate attributeName="height"')
 })
 
 test('glyphs: text draws the sparklines in ASCII', { options: { glyphs: 'text' } }, async ($, on) => {
@@ -1949,8 +1853,8 @@ const fmtClockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 test('the new blocks keep one-row gaps and fit every width, and a busy session shows them all', { timeoutMs: 60_000 }, async ($, on) => {
   await busySession($, on)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const keys = surface === 'terminal' ? ['block-inbox', 'block-trends', 'meter-split'] : ['g-inbox', 'g-trends', 'g-mix', 'g-tools']
+  for (const surface of ['terminal'] as const) {
+    const keys = ['block-inbox', 'block-trends', 'meter-split']
     for (const cols of [24, 40, 64, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
       const json = JSON.stringify(await ui.drawn())

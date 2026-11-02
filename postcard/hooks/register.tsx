@@ -3,8 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { PromptsCursor, PromptsQuery, PromptsQueue, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion, QueuedPrompt } from '../types'
 import { isQueueable, moveQueued } from './queue'
-import { gIconButton, pressHit } from './app'
-import { SPACE, actionsWidth, card, cardFrame, header, kit, nerdFont, search as kitSearch, space, tabs } from './kit'
+import { SPACE, actionsWidth, card, cardFrame, header, isTerminal, kit, nerdFont, search as kitSearch, space, tabs } from './kit'
 import type { Kit } from './kit'
 import { GLYPH, ROLE, glyphSet, glyphTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
 
@@ -17,7 +16,6 @@ const PANE = 'prompts'
 const KEEP = 500
 // Prompt and command cards are the terminal's: desktop, VS Code and mobile draw
 // your messages well already, so they stay native (DESIGN.md). The pane is everywhere.
-const SURFACES = new Set(['terminal'])
 
 const version = atom({ plugin: 'postcard', key: 'version' } as const, 0 as PromptsVersion)
 const sent = atom({ plugin: 'postcard', key: 'sent' } as const, { ids: [], turnId: null, opener: '' } as PromptsSent)
@@ -166,23 +164,6 @@ function queueRows($: EngineInterface, k: Kit, q: PromptsQueue, w: number, keyOf
   const textW = Math.max(1, w - 3 - (hasActions ? ACT : 0))
   return q.items.map((item, i) => {
     const line = untagged(item.text).split(/\r?\n/).find(l => l.trim()) ?? item.text
-    // A graphical surface: a row as the app's lists draw one, its controls as icon buttons.
-    if (!k.isTerm) {
-      return (
-        <Box key={`${keyOf}-${item.id}`} flexDirection="row" alignItems="center" gap="sm">
-          <Text dimColor tabular>{`${i + 1}`}</Text>
-          <Box flexGrow={1} flexShrink={1} overflow="hidden">
-            <Text wrap="truncate-end" {...(q.isHeld ? { dimColor: true } : {})}>{line}</Text>
-          </Box>
-          <Box flexDirection="row" flexShrink={0}>
-            {gIconButton(k, { key: `${keyOf}-up-${i}`, icon: 'chevronUp', label: 'Move up', onPress: () => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, -1) })) })}
-            {gIconButton(k, { key: `${keyOf}-down-${i}`, icon: 'chevronDown', label: 'Move down', onPress: () => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, 1) })) })}
-            {gIconButton(k, { key: `${keyOf}-edit-${i}`, icon: 'edit', label: 'Edit', onPress: () => void editQueued($, item) })}
-            {gIconButton(k, { key: `${keyOf}-drop-${i}`, icon: 'clear', label: 'Remove', onPress: () => void setQueue($, x => ({ ...x, items: x.items.filter(y => y.id !== item.id) })) })}
-          </Box>
-        </Box>
-      )
-    }
     return (
       <Box key={`${keyOf}-${item.id}`} flexDirection="row">
         <Text color={ROLE.chrome} tabular>{`${i + 1}`.padStart(2)}</Text>
@@ -202,16 +183,14 @@ function queueRows($: EngineInterface, k: Kit, q: PromptsQueue, w: number, keyOf
   })
 }
 
-/** A control's word: lower case in the terminal, sentence case where the app draws its own buttons. */
-const sentenceIf = (k: Kit, s: string) => (k.isTerm ? s : s.charAt(0).toUpperCase() + s.slice(1))
 
 /** The queue's own controls: hold or resume, and clear. */
 function queueActions($: EngineInterface, k: Kit, q: PromptsQueue, keyOf: string) {
   const { Box, Button } = k.els
   return (
     <Box flexDirection="row" columnGap={2} flexShrink={0}>
-      <Button key={`${keyOf}-hold`} plain dimColor label={sentenceIf(k, q.isHeld ? 'resume' : 'hold')} onPress={() => void toggleHold($)} />
-      <Button key={`${keyOf}-clear`} plain dimColor label={sentenceIf(k, 'clear')} onPress={() => void setQueue($, x => ({ ...x, items: [] }))} />
+      <Button key={`${keyOf}-hold`} plain dimColor label={q.isHeld ? 'resume' : 'hold'} onPress={() => void toggleHold($)} />
+      <Button key={`${keyOf}-clear`} plain dimColor label={'clear'} onPress={() => void setQueue($, x => ({ ...x, items: [] }))} />
     </Box>
   )
 }
@@ -268,9 +247,9 @@ export const register: Register = (on, options) => {
   const ids = () => [...prompts.keys()]
 
   const isOurQueue = options?.queue !== 'engine'
-
-  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: rows, icon buttons) on the desktop.
-  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
+  // Whether this session draws in a terminal (session.start): postcard runs there only. Elsewhere it
+  // draws nothing and holds no prompt, since a queue it could not show would hide what was typed.
+  let onTerminal = true
 
   // A prompt the person asks to wait its turn (`chat:queueSubmit`, ctrl+x enter: `e.wait`) waits in
   // postcard's queue, not the engine's: it can be seen, reordered, edited, held or dropped, and the next
@@ -282,7 +261,7 @@ export const register: Register = (on, options) => {
   // 10 s at most, so a prompt that never starts a turn cannot hold the queue.
   let sentAtMs: number | null = null
   on('prompt.submit', async ($, e, next) => {
-    if (!isOurQueue || !e.wait || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
+    if (!onTerminal || !isOurQueue || !e.wait || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
     const at = await $.clock.now()
     const isBusy = e.turnId !== undefined || (sentAtMs !== null && at - sentAtMs < 10_000)
     if (!isBusy) {
@@ -327,6 +306,8 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.start', async ($, e, next) => {
+    onTerminal = isTerminal(e.surface)
+    if (!onTerminal) return next(e)
     hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     // A queue left by an earlier session comes back held: nothing is sent without the person.
     const saved = (await $.store.get(QUEUE_STORE).catch(() => undefined)) as Partial<PromptsQueue> | undefined
@@ -387,9 +368,9 @@ export const register: Register = (on, options) => {
   // The queue above the prompt, a grey card like a queued prompt's: what waits, in order, and its controls.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const q = await read($, queue)
-    if (!isOurQueue || q.items.length === 0 || e.props.hasSurvey) return next(e)
+    if (!isTerminal(e.surface) || !isOurQueue || q.items.length === 0 || e.props.hasSurvey) return next(e)
     const below = await next(e).catch(() => undefined)
-    const k = kit($.ui.resolve(e), e.surface, { ascii: isAscii })
+    const k = kit($.ui.resolve(e), { ascii: isAscii })
     const { Box } = k.els
     const w = Math.max(16, e.props.bodyColumns - 4)
     return (
@@ -429,7 +410,7 @@ export const register: Register = (on, options) => {
     if (isQueued) prompts.delete(e.requestId)
     else if (prompts.has(e.requestId)) prompts.set(e.requestId, e.props.text)
     else remember(prompts, e.requestId, e.props.text, KEEP)
-    if (!SURFACES.has(e.surface)) return next(e)
+    if (!isTerminal(e.surface)) return next(e)
 
     const { Box, Text, Code } = $.ui.resolve(e)
     const isCommand = e.props.text.trimStart().startsWith('/')
@@ -467,7 +448,7 @@ export const register: Register = (on, options) => {
   // card headed by the command, so commands read apart from prompts. The engine
   // draws the typed line itself; a command that prints nothing has no row.
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
-    if (!SURFACES.has(e.surface)) return next(e)
+    if (!isTerminal(e.surface)) return next(e)
     const { Box, Text, Markdown } = $.ui.resolve(e)
     const head = `/${e.props.command}${e.props.args ? ` ${e.props.args}` : ''}`
     const body = e.props.text.trim()
@@ -479,7 +460,8 @@ export const register: Register = (on, options) => {
     )
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!isTerminal(e.surface)) return next(e)
     await read($, version)
     const q = await read($, query)
     const times = await read($, sentAt)
@@ -488,7 +470,7 @@ export const register: Register = (on, options) => {
     const now = Object.keys(times).length ? await $.clock.now() : 0
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    const k = kit(els, e.surface, { ascii: isAscii })
+    const k = kit(els, { ascii: isAscii })
     const open = await read($, tab)
     const runs = open === 'shell' ? await read($, shell) : []
     const waiting = await read($, queue)
@@ -507,8 +489,8 @@ export const register: Register = (on, options) => {
         ? q ? `${shown.length} of ${runs.length}` : `${runs.length}`
         : q ? `${list.length} of ${all.length}` : `${all.length}`
     const actions = [
-      { id: 'prev', label: 'prev', icon: 'chevronUp' as const, action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
-      { id: 'next', label: 'next', icon: 'chevronDown' as const, action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
+      { id: 'prev', label: 'prev', action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
+      { id: 'next', label: 'next', action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
     ]
     const hasMeta = inner >= cellWidth(` ${TITLE} `) + 1 + cellWidth(detail) + 3 + actionsWidth(actions)
     // Row columns: cursor mark, number, words, age, actions. Narrow, the age goes, then the actions, then words.
@@ -555,9 +537,9 @@ export const register: Register = (on, options) => {
                 )}
                 {hasRun && (
                   <Box flexDirection="row" marginLeft={1} flexShrink={0}>
-                    <Button key={`y${row}`} plain dimColor onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>{sentenceIf(k, 'copy')}</Button>
+                    <Button key={`y${row}`} plain dimColor onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>{'copy'}</Button>
                     <Text> </Text>
-                    <Button key={`x${row}`} plain dimColor onPress={() => void rerun($, r.command)}>{sentenceIf(k, 'run')}</Button>
+                    <Button key={`x${row}`} plain dimColor onPress={() => void rerun($, r.command)}>{'run'}</Button>
                   </Box>
                 )}
               </Box>
@@ -639,9 +621,9 @@ export const register: Register = (on, options) => {
                 )}
                 {hasActions && (
                   <Box flexDirection="row" marginLeft={1} flexShrink={0}>
-                    <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>{sentenceIf(k, 'edit')}</Button>
+                    <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>{'edit'}</Button>
                     <Text> </Text>
-                    <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>{sentenceIf(k, 're-send')}</Button>
+                    <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>{'re-send'}</Button>
                   </Box>
                 )}
               </Box>

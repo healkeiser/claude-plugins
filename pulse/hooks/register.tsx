@@ -6,7 +6,7 @@ import { afterTool, afterTurn, checksSoon, endCheck, font, notePlan, registerBan
 import { checkKinds, touchesCi } from './checks'
 import { clip, commandLine, preview, took } from './bash'
 import { cacheLeft, cacheTtl } from './glance'
-import { pressHit } from './app'
+import { isTerminal } from './kit'
 import { describe, elapsed, summarize } from './label'
 import { FRAME_MS, GLYPH, ROLE, motionOn, plural, remember, spin, glyphSet, nerd } from './style'
 
@@ -17,9 +17,6 @@ const last = atom({ plugin: 'pulse', key: 'last' } as const, null)
 const cache = atom({ plugin: 'pulse', key: 'cache' } as const, null)
 const second = atom({ plugin: 'pulse', key: 'second' } as const, 0)
 
-// Tool rows are the terminal's: desktop, VS Code and mobile draw them well
-// already, so they stay native (DESIGN.md).
-const ROWS = new Set(['terminal'])
 const EDITS = /^(Edit|MultiEdit|Write|NotebookEdit)$/
 
 const costNow = ($: EngineInterface) =>
@@ -43,8 +40,6 @@ export const register: Register = (on, options) => {
 
   registerBand(on, options, () => isMoving)
 
-  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: the band's icon buttons) on the desktop.
-  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
@@ -194,8 +189,7 @@ export const register: Register = (on, options) => {
 
   // `✻ Baked for 29s · 6 tools · 2 files edited`
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
-    // Raised on the terminal only.
-    if (e.surface !== 'terminal') return next(e)
+    if (!isTerminal(e.surface)) return next(e)
     if (!footers.has(e.requestId) && finished) {
       remember(footers, e.requestId, finished)
       finished = null
@@ -214,7 +208,7 @@ export const register: Register = (on, options) => {
 
   // `◇ 3 reads  ·  ⌕ 2 searches`, dim, so the replies stand out.
   on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
-    if (!ROWS.has(e.surface)) return next(e)
+    if (!isTerminal(e.surface)) return next(e)
     if (e.props.isExpanded || e.props.calls.length === 0) return next(e)
     const { Text } = $.ui.resolve(e)
     const { text, failed } = summarize(e.props.calls)
@@ -234,7 +228,7 @@ export const register: Register = (on, options) => {
   //   └ Successfully rebased and updated…  +3 lines
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     // ctrl+o and --verbose show the engine's full drawing.
-    if (!ROWS.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded) return next(e)
+    if (!isTerminal(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const { isRunning, isErrored, isInterrupted, output } = e.props
     const input = (e.props.input ?? {}) as { command?: unknown; description?: unknown }
@@ -288,7 +282,7 @@ export const register: Register = (on, options) => {
   // The compact Bash row above previews the output, so its result block would
   // say it twice; an error keeps the engine's block, its full text.
   on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
-    if (!ROWS.has(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
+    if (!isTerminal(e.surface) || e.props.tool !== 'Bash' || e.props.isExpanded || e.props.isErrored) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })

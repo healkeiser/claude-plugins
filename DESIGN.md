@@ -2,6 +2,8 @@
 
 One look for the five mods (gloss, pulse, postcard, flightdeck, filetree) and the status line.
 
+**Terminal only.** The mods draw in the terminal (the CLI). On the desktop app, VS Code and mobile every hook leaves the drawing to Claude Code (`next(e)`), opens no pane and holds no prompt: `isTerminal(e.surface)` in `kit.tsx` is the one test. A desktop version was built and removed: its rows and buttons, redrawn through the plugin a tenth of a second at a time, could not match the app's own panels, which run in the page.
+
 **One source.** `shared/style.ts` holds the tokens, glyphs, formatters and motion primitives below; `shared/kit.tsx` holds the components every pane and band draws its chrome with (Components). A plugin cannot import from another plugin, so each mod carries copies in `hooks/`, written by `node scripts/check-style.mjs --write`. Edit `shared/`, never a mod's copy. Without `--write` the script fails when a copy drifts, when a mod draws its own search field or card frame instead of the kit's, or when a drawn glyph is emoji-capable.
 
 ## Components
@@ -11,7 +13,7 @@ Every pane and band draws its chrome through `kit.tsx`; a mod draws only its own
 | Part | Shape | Used by |
 |------|-------|---------|
 | `header` | One row, never wraps: the **title** (the pane's name, bold in its role colour, no fill: a filled title read as one of Claude Code's own pane tabs just above it, and it is never pressable, so it has no hover state), the detail in chrome (cut from its start), a status, a `─` rule in chrome, the actions right (a lit action is accent, the rest dim). A one-glyph action is three cells (`iconLabel`: a cell of air a side, no gap between them), so the pointer has a wider target and the hover highlight centres on the glyph, which fonts draw narrower than its cell. A hovered action's hint takes the rule's place, cut at its end, so the row never grows or moves. | Files, Prompts, Flightdeck, the Pulse card |
-| `tabs` | As Claude Code marks its own pane tabs: the active tab inverse and bold, the others dim, a cell of air a side. Graphical surfaces: buttons, the active one `primary`. | Pulse (folded and unfolded) |
+| `tabs` | As Claude Code marks its own pane tabs: the active tab inverse and bold, the others dim, a cell of air a side. | Pulse (folded and unfolded) |
 | `search` | A rounded card, three rows: `⌕` and the field, the match count and a `×` clear button while there is a query; the border and `⌕` turn accent while it holds one. | Files, Prompts |
 | `bar`, `pct`, `pctColor` | The heat-ramp meter and its right-aligned percentage (Formatting). Every fill meter takes it, flightdeck's context `mix` too: its categories are named in the legend below it, not coloured in the bar. | Pulse, Flightdeck |
 | `card`, `cardFrame` | Rounded border in the role colour (`bold` for a viewed one, dimmed for a finished one), `paddingX` 1; `card` adds the title bold in the role colour with a status right. | every card: postcard's prompts and commands, gloss's callouts and `Next`, flightdeck's blocks and agent cards, the Pulse card |
@@ -48,7 +50,6 @@ Decisions that resolve old double meanings:
 Where a surface cannot take theme keys, fixed colours are allowed and documented:
 
 - flightdeck `palette: pastel`: fixed hex for dark terminals, by the person's choice.
-- flightdeck's gate bar (desktop, VS Code, mobile): each role's mid-tone hex (`svgColor` in `core.ts`), which reads on light and dark.
 - The heat ramp of fill meters (see Formatting): the status line's 256-colour ramp, xterm 46 82 118 154 190 226 220 214 208 196 with 239 unlit, as those entries' hex (`HEAT_RAMP`, `HEAT_UNLIT` in `style.ts`). A ramp needs ten fixed steps; a theme has three.
 - filetree's activity shimmer and treemap: four-step hex ramps per hue, light and dark sets; a theme key is one colour. The shimmer's hues are filetree's own categorical code for kinds of git action (upstream's), not roles.
 - statusline.sh: ANSI. accent is the Claude orange (truecolor `217;119;87`); success, warning and error are the terminal's own green, yellow and red (`32`, `33`, `31`); chrome is bright black (`90`). The terminal's palette then decides light or dark. `NO_COLOR` drops every colour.
@@ -132,7 +133,7 @@ One formatter per kind, in `style.ts`, and the status line matches them.
 | separator | ` · ` in chrome | `effort high · mode auto` |
 | meter | `━` filled in half-cell steps (`╸` the half), each lit cell its own heat step, `─` track unlit; above zero, at least half a cell | `━━━━━━╸───  64%` `╸─────────   3%` |
 
-Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). A graphical surface draws usage as the app does instead: its blue, red from 80% (see Graphical surfaces). Every terminal draws the ramp, as `statusline.sh` does, except consoles known to lack 256 colours (`TERM` `dumb`, `linux`, `vt100`, `ansi`), which get three role colours instead (`heat`); an unset `TERM` (Windows) draws the ramp: accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
+Heat, for fill meters (context, rate limits) and their percentage, is the status line's 256-colour ramp: ten steps from green through yellow and orange to red, xterm 46 82 118 154 190 226 220 214 208 196, the unlit track 239. Each lit cell takes the step of where it sits along the bar (`heatRuns`), so the last lit cell shows the severity; the percentage takes the step of its tens (`heatHex`: 64% is 220). Every terminal draws the ramp, as `statusline.sh` does, except consoles known to lack 256 colours (`TERM` `dumb`, `linux`, `vt100`, `ansi`), which get three role colours instead (`heat`); an unset `TERM` (Windows) draws the ramp: accent under 60%, warning from 60%, error from 80%. A meter split by kind (flightdeck's gate) keeps its roles. The percentage always takes the heat too, so a meter never relies on colour alone: the number says it.
 
 Text is measured in terminal cells, not characters: `cellWidth` counts East Asian wide and fullwidth characters and emoji as 2, combining marks and variation selectors as 0, and cuts by grapheme (`Intl.Segmenter`), so a cut never splits a character. Truncation ends with `…` inside the width.
 
@@ -165,7 +166,6 @@ Running work moves; finished work is still. Motion never carries meaning alone: 
 | sweep | filetree's activity shimmer | a soft band (raised-cosine falloff over a four-step ramp) crossing the name with an ease-in-out, about 1.6 s a pass |
 | packets | flightdeck's connectors, drawn on the upper block's own bottom edge (one cell in from each side, so its rounded corners stay; at rest the line is the edge itself, in its colour) | a `●` head and `•` trail, one cell per tick, one packet per 24 cells |
 | fade | pulse's band label, filetree's flash | a new label draws dim for 200 ms, then normal; a flashed row steps down its ramp over 2.7 s |
-| glide | flightdeck's sparklines on graphical surfaces | a sparkline bar glides from its last height on an ease-out over 400 ms, as SVG animation (SMIL), so no tick runs; `glide` in `style.ts` is the same curve for a meter redrawn on a tick. The terminal's text meters and sparklines step, as a cell has no in-between |
 
 - **One tick per mod**: `FRAME_MS = 100` (10 frames a second, a third of the engine's 30-a-second redraw cap). A hooks module runs one `$.clock.every(FRAME_MS)`; a `Client` region ticks on its surface's frame clock with the same `FRAME_MS`, imported from `style.ts` (a surface module imports its plugin's files like the hooks module does, so it keeps no copies). No element starts a timer of its own.
 - **Ease, never blink**: positions move on `easeInOut`, intensities fall off on a raised cosine, so nothing switches on and off.
@@ -183,58 +183,3 @@ Same name, same meaning, wherever a mod has the concern.
 | `heat` | `session` (default), `sessions`, `off` | count Claude's edits per file this session, or also earlier sessions' (halved each new session, bounded), or not at all; drawn as a heat-ramp meter with its count | filetree |
 
 `glyphs: text` swaps every glyph of the vocabulary for a one-cell ASCII stand-in (`ASCII` in `style.ts`: `✓` `v`, `✕` `x`, `●` `*`, `○` `o`, `━` `=`, `─` `-`, `…` `~`, corners `+`, the spinner `|/-\`, and so on), and draws rounded and bold borders `classic`. One cell each, so every width holds. It goes over the mod's whole tree (`asciiTree`), so text a person wrote inside a card is swapped too; code blocks, Markdown and pictures keep theirs. In filetree, `text` turns the header buttons into words. gloss and postcard draw no motion. The status line reads `NO_COLOR` (no colour) and `COLUMNS` (its width: it drops the clock, pace and token counts first, then the details, then the header's link and changes, branch and folder; its narrowest form is 25 cells).
-
-## Graphical surfaces
-
-Desktop, VS Code and mobile already draw the transcript well: proportional type, real code blocks and tables, their own message bubbles and tool rows. The mods never replace a good native drawing with a terminal imitation. Where a mod adds nothing the surface lacks, its hook returns `next(e)`; where it adds something, it layers only that.
-
-| Site | Terminal | Desktop | VS Code | Mobile | Why |
-|------|----------|---------|---------|--------|-----|
-| gloss replies (`AssistantMessage`) | restyled | native | native | native | the surfaces draw code, tables, lists and quotes well; the restyle exists to fix the terminal's |
-| postcard prompts and command output (`UserMessage`, `CommandOutput`) | cards | native | native | native | the surfaces have their own message bubbles; prompts still fill the `/prompts` pane |
-| postcard `/prompts` pane | yes | yes | yes | yes | no surface has a prompt index |
-| pulse tool rows (`ToolUse`, `ToolResult`, `ToolGroup`) | compact | native | native | native | the surfaces draw tool calls as collapsible rows |
-| pulse footer (`TurnDuration`) | yes | - | - | - | the engine raises it on the terminal only |
-| pulse band (`AbovePrompt`) | yes | yes | - | - | no surface has it; the engine raises it on the terminal and desktop |
-| flightdeck pane | text meters, sparklines, rails | SVG meters and sparklines that glide, SVG swimlanes | same | same | no surface has a dashboard |
-| filetree pane | yes | yes, native scroll | - | - | it draws through `Client` regions, which VS Code and mobile do not have |
-
-A graphical pane or band is drawn as the desktop app draws its own panels, never as the terminal drawing translated. There are two kits: `shared/kit.tsx` for the terminal, `shared/app.tsx` for graphical surfaces. The app kit's values are the Claude Design System's (`CDS`), read from the desktop app's own stylesheet (`docs/cds/tokens.txt` keeps the extract: `--cds-fill-ghost-hover`, `--cds-fill-ghost-selected`, `--cds-text-git-*`, `--cds-radius--*`, `--cds-dur-*`, `--cds-ease-*`) and checked pixel for pixel against the app's Environment, Files and Usage panels.
-
-How the app kit draws what the element set cannot say directly:
-
-- **No `Client` draws on a graphical surface.** The desktop lays a `Client` out as a terminal grid, which is what made Files look like a terminal. Trees and lists are native Boxes. The one `Client` there draws nothing: the hit zone (below).
-- **Layers.** A `position: absolute` Box paints over the flow, so a row's content is in the flow and its selection (white at 15%, `ghostSelectedOver`), its hover (white at 7.5%, `ghostHoverOver`) and its hit zone lie over it, in that order. A layer is laid over the content as a share of white, never a solid grey, which would hide it.
-- **Presses are hit zones, never a Button laid over a part** (`gHit`, `hit.tsx`): an empty `Client` as large as the part, which reports the pointer; the mod's `ui.message` hook hands its posts to `pressHit`. So a row or an icon is pressed anywhere on it, and shows no hover, focus ring or size of a Button's own. Every overlaid Button we tried drew its hover off the part (it did not stretch), and a Button whose face was the row's name lit only the name. This is how the app's own rows work (a `button` whose `::before` covers the row) and how the upstream filetree draws its desktop rows. VS Code and mobile have no `Client`: there `gHit` falls back to a plain Button with a blank face. Keys: `hit:<part>`, a long part key (a path) hashed (`hitKey`).
-- **Cards** (`card` in the kit) are no frame on a graphical surface: a section, the title in the text colour, its status right, its rows, a hairline under it.
-- **Hovers are the surface's own** (`gHover`): a rounded ghost layer drawn `display: none` with `hover: { display: 'flex' }` inside the part's keyed Box, which the surface shows while the pointer is anywhere over that Box, the hit zone included: no hook runs and nothing redraws, so it is immediate, as the app's rows light with `hover:bg-fill-ghost-hover`. Never a hover driven by the hit zone's posts and a redraw: it lagged. A named `scope` group did not show under a hit zone; the keyed Box does. A selected row keeps its selection under the pointer.
-- **Rounded grounds** (`gGround`, `gHoverGround`) are one SVG, `width="100%"`, a rect with `rx` `--cds-radius--xs` (6px), in a column box: a `100%` width stretches there, as `gDivider`'s and `gBar`'s do.
-- **Icon buttons** (`gIconButton`): the outline icon (Lucide shapes) in a 28px square, `xs` apart; a switch that is on sits on the ghost-selected square, an action never does; the ghost hover square shows under the pointer; the hit zone is the square. `onHover` gives the head its hint. A chord (`action`) presses a Button on the terminal only, so a graphical icon has none.
-- **Tabs** (`gTabs`): each a Button with its label on its face, never an overlay (a blank press laid over a tab showed its own small hover and focus ring): the active one the app's standard grey button, the others plain with the ghost hover.
-- **Search** (`search` in the kit): the surface's own Input, alone. It has a fixed width and takes no icon; a field drawn round it showed the Input's edge as a second, brighter box, so none is drawn.
-- **The head**: the title grey, the detail in the text colour, icon buttons right, then a 1px rule (`gDivider`, `#252525`: every separator is the app's own, sampled from its Environment panel). Icon buttons stand `xs` apart, as the app's own head buttons do, so two lit ones never merge.
-- **Motion** is the app's own keyframes redrawn as SVG animation (a mod has no CSS), on CDS's durations and easings: `gWorkingDot` (cds-working-dot-halo: a halo breathing to 1.5x every 2.5s) on anything running (a turn in Pulse, the model and each running agent in Flightdeck, a file Claude is on), `gSheen` (cds-shimmer-text-band: a soft band crossing the row every 3s) over a file Claude is on, `gSkeleton` (cds-skeleton-breathe and -sweep, 2s) where a size or line count is still being read, `gSpinner` (spin, 0.8s) for a running git action, `gBar` readings gliding from their last value (--cds-dur-slow, ease-out), and a folder's chevron turning as it opens (--cds-dur-base, ease-snap). Motion off or Reduce motion on: the dot holds still and no sheen crosses.
-- **Size.** A pane's whole drawing is held to 100,000 characters: keep rows lean (the Files tree fits about 50 short rows with their hover and hit layers, and cuts the rest with a note).
-
-The parts, each copied from a native panel:
-
-| Part | Copied from | What it is |
-| --- | --- | --- |
-| Files rows (`appRow`) | the app's Files tree, from its code | 32px (`--cds-h-control`), rounded; padding 8px + 12px a level, a 4px gap; a folder's caret alone, turned when open, a file's type icon; 1px guides per level in `#252525` |
-| `gPane` | the Environment panel | sections one under the other, a `gDivider` hairline between each two (1px, `CDS.hairline`, `#252525` on `#191919`), `gap="md"` around it |
-| `gSection` | Environment's "Environment", "Connectors" | a plain title, the rows' size and weight, never semibold or a chip; a grey meta right; rows under it at `gap="sm"` (a 32px rhythm) |
-| `gRow` | Environment's rows | one line: an outline icon (`gIcon`, 16px, `#9c9c9c`, Lucide shapes) or another lead in its own column, the label, a grey ` · detail` after it, the value right in grey or a colour |
-| `gUsage`, `gChartRow` | Settings > Usage | the name with a grey line (and a coloured note) under it in a 36% column, a thin bar (`gBar`: 6px, round ends, faint track) or a sparkline as wide as is left, the value right |
-| `gBar` + `gLegend` | the Context panel | one bar split by kind, then a legend: a rounded swatch, the label, the value right |
-| `header`, `search` | the app's pane heads | the title plain, the detail grey, a hovered action's words grey, then native `Button`s; a plain native `Input` |
-
-Colours inside a graphical pane are the app's: its usage blue `#257de0`, red `#dc3c3d` from 80% (`APP`, `usageColor`), grey icons and details. The heat ramp and the terminal's role colours stay on the terminal. Spacing is the surface's own steps (`xs` to `xl`), never cells; a number given to `width` is cells, so a graphical part never sets one.
-
-What a graphical version of a mod's own pane keeps from the system: the glyph meanings, sentence case, the number beside every meter.
-
-Capabilities the graphical surfaces have and the terminal lacks, for future features:
-
-- `Svg` (desktop, VS Code, mobile), with `isInteractive` for hover, `:hover`, `<title>` tooltips and SMIL animation in a sandboxed frame (desktop).
-- Hover groups and reveals: a `hover` with a `scope` on `Box` and `Text` lights every element of the group while one is hovered, across a pane and the transcript.
-- Type scale and weights: `size` (`caption` to `title`) and `weight` (`regular` to `bold`); the terminal has one size and draws only bold.
-- Native scrolling in a pane, and `Markdown` with `onLinkPress` to catch a link press.

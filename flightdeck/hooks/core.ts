@@ -2,7 +2,7 @@
 // behaviour is testable directly (the test kit cannot raise a subagent's tool call or a
 // permission check inside a call; these functions are what the hooks apply).
 import type { AgentCard, Architect, Bucket, Check, Gate, InboxItem, Layout, LogLine, Loop, Main, Moment, Receipt, Roster, Split, Tally, ToolNote, ToolStat, TrendPoint, Turn, Usage, View } from '../types'
-import { HEAT_RAMP, ROLE, ascii, cellWidth, clip, clockAt, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
+import { ROLE, ascii, cellWidth, clip, clockAt, count, duration, isAsciiGlyphs, meter, plural as sharedPlural, span, usd, wholePct } from './style'
 
 export const SCHEMA_VERSION = 2
 
@@ -175,66 +175,6 @@ export const PALETTES: Record<Palette, Colors> = {
     faint: '#3f4654',
     text: '#e5e7eb',
   },
-}
-
-/** SVG cannot name theme keys: mid-tone colours that read on light and dark backgrounds. */
-export const SVG_COLORS = { running: '#3b82f6', done: '#16a34a', failed: '#dc2626', other: '#8b5cf6', label: '#6b7280' }
-
-/** Each role's theme key as a mid-tone hex for SVG, which cannot name theme keys; a hex passes through. */
-const SVG_ROLE: Record<string, string> = {
-  claude: '#d97757',
-  suggestion: '#6b7bd6',
-  merged: '#8b5cf6',
-  planMode: '#14917f',
-  ide: '#3b82f6',
-  success: '#16a34a',
-  warning: '#d97706',
-  error: '#dc2626',
-  subtle: '#9ca3af',
-  inactive: '#9ca3af',
-  text: '#6b7280',
-}
-export const svgColor = (color: string | undefined) =>
-  color?.startsWith('#') || color === HEAT_FILL ? color : SVG_ROLE[color ?? ''] ?? SVG_ROLE.subtle!
-
-/** A run coloured `HEAT_FILL` takes the heat ramp as a gradient across the whole meter, as the status line's cells step along it. */
-export const HEAT_FILL = 'url(#heat)'
-
-/**
- * A meter as SVG for a graphical surface: a rounded track, then each lit run in its colour. A run whose
- * width changed since the last drawing (`before`, in pixels) glides to the new width on an ease-out over
- * 400 ms (SMIL, so no tick); `isStill` drops the glide.
- */
-export const svgMeter = (runs: readonly { cells: number; color?: string; isTrack?: boolean }[], cells: number, before: readonly number[], isStill: boolean) => {
-  const CELL = 7
-  const w = cells * CELL
-  let x = 0
-  const widths: number[] = []
-  const rects = runs
-    .filter(r => !r.isTrack && r.cells > 0)
-    .map((r, i) => {
-      const rw = Math.round(r.cells * CELL * 100) / 100
-      const from = before[i]
-      const glide =
-        !isStill && from !== undefined && from !== rw
-          ? `<animate attributeName="width" from="${from}" to="${rw}" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>`
-          : ''
-      const rect = `<rect x="${x}" y="0" width="${rw}" height="6" fill="${svgColor(r.color)}">${glide}</rect>`
-      widths.push(rw)
-      x += rw
-      return rect
-    })
-    .join('')
-  const source =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="6" viewBox="0 0 ${w} 6">` +
-    `<clipPath id="m"><rect width="${w}" height="6" rx="3"/></clipPath>` +
-    (runs.some(r => r.color === HEAT_FILL)
-      ? `<linearGradient id="heat" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${w}" y2="0">` +
-        HEAT_RAMP.map((c, i) => `<stop offset="${(i * 100) / (HEAT_RAMP.length - 1)}%" stop-color="${c}"/>`).join('') +
-        `</linearGradient>`
-      : '') +
-    `<g clip-path="url(#m)"><rect width="${w}" height="6" fill="${SVG_ROLE.subtle}" fill-opacity="0.35"/>${rects}</g></svg>`
-  return { source, widths }
 }
 
 // ---------------------------------------------------------------- formatting
@@ -683,13 +623,6 @@ export const piecesThatFit = (pieces: readonly { width: number; lead?: number }[
   return pieces.length
 }
 
-/**
- * How many marks (● ✓ ○) a row of `cells` columns holds. A terminal draws each mark in one
- * cell; a graphical surface draws them wider (■ measured about 1.4 cells on the desktop app), so
- * there a row holds fewer and its newest marks still show.
- */
-export const marksIn = (cells: number, isTerminal: boolean) => (isTerminal ? cells : Math.floor(cells / 1.5))
-
 /** A card's title row: the task in the agent's own words, the type only when there is none. */
 export const cardTitle = (c: AgentCard) => c.description || c.type
 
@@ -765,32 +698,6 @@ export const SPARK_ASCII = ascii(SPARK)
 export const sparkLevels = (values: readonly (number | null)[], max?: number): (number | null)[] => {
   const top = max ?? Math.max(0, ...values.map(v => v ?? 0))
   return values.map(v => (v === null ? null : v <= 0 || top <= 0 ? 0 : Math.min(7, Math.max(1, Math.round((Math.min(v, top) / top) * 7)))))
-}
-
-/**
- * A sparkline as SVG for a graphical surface: one bar per value, `cells` wide at 7 pixels a cell as the
- * meters are, each bar's height its level over 7 (level 0 a one-pixel baseline, null none). A bar whose
- * height changed since the last drawing (`before`) glides there on the meters' 400 ms ease-out; `isStill` drops it.
- */
-export const svgSpark = (levels: readonly (number | null)[], colors: readonly string[], cells: number, before: readonly number[], isStill: boolean) => {
-  const CELL = 7
-  const H = 12
-  const w = Math.max(1, cells) * CELL
-  const heights: number[] = []
-  const bars = levels
-    .map((lv, i) => {
-      const h = lv === null ? 0 : Math.max(1, Math.round((lv / 7) * H * 100) / 100)
-      heights.push(h)
-      if (lv === null) return ''
-      const from = before[i]
-      const anim = (attr: string, a: number, b: number) =>
-        `<animate attributeName="${attr}" from="${a}" to="${b}" dur="0.4s" calcMode="spline" keyTimes="0;1" keySplines="0.33 1 0.68 1" fill="freeze"/>`
-      const top = (x: number) => Math.round((H - x) * 100) / 100
-      const glide = !isStill && from !== undefined && from !== h ? anim('height', from, h) + anim('y', top(from), top(h)) : ''
-      return `<rect x="${i * CELL + 0.5}" y="${top(h)}" width="${CELL - 1}" height="${h}" rx="1" fill="${svgColor(colors[i])}">${glide}</rect>`
-    })
-    .join('')
-  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${H}" viewBox="0 0 ${w} ${H}">${bars}</svg>`, heights }
 }
 
 /**

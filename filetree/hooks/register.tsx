@@ -1,4 +1,4 @@
-import { type ElementConstructor, type EngineInterface, type SvgProps, type HookStream, type ProcessSpawnResult, type Register, type RenderElement, type RenderSurface, type Timer, update } from 'claude-code'
+import { type EngineInterface, type HookStream, type ProcessSpawnResult, type Register, type RenderElement, type RenderSurface, type Timer, update } from 'claude-code'
 import { herdrError, herdrOpenCommand, herdrPane, isBinaryPath, LINUX_LAUNCH, openCommand, openWithCommand, type Target, terminalTarget, tmuxCommand, tmuxOpenCommand, words } from './open'
 import type { ButtonProps } from './button'
 import { CACHE_KEEP, cacheName, CLEAN, coderFor, EXIT_FAILED, EXIT_LOCKED, EXIT_MISSING, fitCells, PNG_DIRECT_BYTES, PNG_DIRECT_PIXELS, pictureKind, pngSize, POLICY, POSTER } from './peek'
@@ -14,12 +14,10 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
-import { CDS, gIcon, gSpinner, type IconName, pressHit } from './app'
-import { SPACE, footer as kitFooter, header as kitHeader, kit, nerdFont, search as kitSearch, space } from './kit'
-import { type AppRow, appRow } from './appTree'
+import { SPACE, footer as kitFooter, header as kitHeader, isTerminal, kit, nerdFont, search as kitSearch, space } from './kit'
 import { canRamp, cellWidth, GLYPH, motionOn } from './style'
 import { bump, decay, heatOf, heatSegs, heatWidth, merge, rollHeat } from './heat'
-import { blockDiff, changeMarks, compareView, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
+import { blockDiff, changeMarks, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
 import {
   age,
   ancestorsOf,
@@ -59,9 +57,6 @@ const NO_REPO_DEPTH = 4
 const DOUBLE_MS = 450
 const SHORTCUTS_MS = 10_000
 const FIND_LIMIT = 200
-const ROWS_BUDGET = 80_000
-// The desktop's native rows, with the header, search and branch row, under a pane's 100,000 characters.
-const APP_ROWS_BUDGET = 88_000
 const READ_REVEAL_LIMIT = 12
 const SEARCH_REVEAL_LIMIT = 60
 const ACTIVITY_TTL_MS = 45_000
@@ -134,10 +129,9 @@ let activityId = 0
 let pointer = true
 let hovered = ''
 let view = { from: 0, max: 0 }
-let nativeScroll = false
-// The header buttons that are switches: lit while on, on a graphical surface. The rest are actions
-// (clear the selection, cycle the column), never lit, so a lit square always means a switch is on.
-const TOGGLES = new Set(['cwd', 'hidden', 'hot', 'split'])
+// Whether this session draws in a terminal: the tree runs there only (kit's isTerminal); elsewhere
+// filetree opens no pane and does no tree work.
+let onTerminal = true
 let lastSync = 0
 let watcher: { key: string; stop: () => void } | null = null
 let watchMissing = false
@@ -1715,23 +1709,6 @@ async function scrollPreview($: EngineInterface, by: number): Promise<void> {
   if (top !== t.previewTop) await patch($, () => ({ previewTop: top }))
 }
 
-function directPreview(elements: ReturnType<EngineInterface['ui']['resolve']>, win: { text: string; top: number } | { segments: { title: string; source: string }[]; top: number }, path: string, markdown: boolean, accent: string) {
-  const { Box, Text, Markdown, Code } = elements
-  if ('segments' in win) {
-    return (
-      <Box flexDirection="column">
-        {win.segments.map((g, i) => (
-          <Box key={`seg-${i}`} flexDirection="column">
-            {g.title ? <Text weight="bold" color={accent || undefined}>{g.title}</Text> : null}
-            {g.source ? <Code source={g.source} path={g.title || path} format="diff" wrap="truncate-end" /> : null}
-          </Box>
-        ))}
-      </Box>
-    )
-  }
-  return markdown ? <Markdown text={win.text} /> : <Code source={win.text} path={path} startLine={win.top + 1} wrap="truncate-end" />
-}
-
 function previewLines(text: string, top: number, rows: number, markdown: boolean): { text: string; top: number } {
   const lines = text.split('\n')
   const from = Math.max(0, Math.min(top, lines.length - 1))
@@ -1805,7 +1782,6 @@ async function toggle($: EngineInterface, n: FileNode): Promise<void> {
   // Open or shut at once, as the app's own tree does: the folder's known children draw now, and its
   // listing is read after (a folder never listed shows its rows once that lands).
   const isOpening = n.kind === 'dir' && !(await get($)).expanded.includes(n.id)
-  if (n.kind === 'dir') turnedAt.set(n.id, await $.clock.now())
   await patch($, t => {
     const open = new Set(t.expanded)
     if (n.kind === 'dir') open.has(n.id) ? open.delete(n.id) : open.add(n.id)
@@ -1814,13 +1790,6 @@ async function toggle($: EngineInterface, n: FileNode): Promise<void> {
   if (isOpening) void loadDirs($, [n.id]).catch(() => undefined)
   void watchTree($)
 }
-
-// When each folder was last opened or shut by a press, on the desktop: its caret turns for a moment after.
-const turnedAt = new Map<string, number>()
-// How long after a press a redraw still turns the caret (the turn itself takes --cds-dur-fast).
-const TURN_MS = 400
-/** A header button's hint as the name of the action: sentence case. */
-const sentenceHint = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 async function press($: EngineInterface, n: FileNode): Promise<void> {
   const now = await $.clock.now()
@@ -1883,12 +1852,12 @@ async function navigate($: EngineInterface, key: string, shift = false, surface?
   }
   const page = Math.max(1, peekRows - 1)
   const peek: Record<string, number> = { f: page, b: -page, pageup: -page, pagedown: page }
-  if (key === 'p' && surface !== 'desktop' && t.split && mapLock?.cursor === t.cursor && mapLock.pick === t.cursor && peekTarget(t)) {
+  if (key === 'p' && t.split && mapLock?.cursor === t.cursor && mapLock.pick === t.cursor && peekTarget(t)) {
     mapLock = null
     void $.ui.invalidate('ui.render')
-  } else if (key === 'p' && surface !== 'desktop') await toggleSplit($)
-  else if (t.split && splitShown && surface !== 'desktop' && (key === '[' || key === ']') && turnPage($, key === ']' ? 1 : -1)) return
-  else if (t.split && splitShown && surface !== 'desktop' && key in peek) scrollSplit($, peekTop + (peek[key] ?? 0))
+  } else if (key === 'p') await toggleSplit($)
+  else if (t.split && splitShown && (key === '[' || key === ']') && turnPage($, key === ']' ? 1 : -1)) return
+  else if (t.split && splitShown && key in peek) scrollSplit($, peekTop + (peek[key] ?? 0))
   else if (key === 'up' || key === 'k') await move(-1)
   else if (key === 'down' || key === 'j') await move(1)
   else if (key === 'pageup') await move(-10)
@@ -1906,13 +1875,6 @@ async function navigate($: EngineInterface, key: string, shift = false, surface?
     else if (cur.parent !== t.root) await patch($, () => ({ cursor: cur.parent, selected: cur.parent }))
   } else if (cur && (key === 'return' || key === 'o')) await (cur.kind !== 'dir' ? openNode($, cur) : toggle($, cur))
   else if (cur && (key === ' ' || key === 'space')) await (cur.kind !== 'dir' && (await osName($)) === 'darwin' ? quickLook($, cur.id) : toggle($, cur))
-}
-
-/** The pointer came onto a header icon or left it (desktop): its words take the hint's place. */
-function hoverHeader($: EngineInterface, id: string, isOver: boolean): void {
-  if (!isOver && hovered !== id) return
-  hovered = isOver ? id : ''
-  void $.ui.invalidate('ui.render')
 }
 
 async function pressHeader($: EngineInterface, id: string): Promise<void> {
@@ -1973,6 +1935,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     cached ??= { ...emptyTree(''), ...(await $.state.get(TREE)).value }
     await $.command.register({ name: 'filetree', description: 'Show or hide the file tree; args: [path | open] (no path = cwd, open = never hide)' })
+    // The desktop app starts its sessions as the SDK does (no surface), then draws as `desktop`.
+    onTerminal = e.surface ? isTerminal(e.surface) : (await $.session.surfaces().catch(() => [])).some(isTerminal)
+    if (!onTerminal) return next(e)
     isStill = !motionOn(motionSetting, await Promise.resolve().then(() => $.config.list()).catch(() => []))
     if (palette.unknown.length) void $.ui.toast(`filetree palette: ignored ${palette.unknown.join(' ')}; use key=#hex with fg, bg, accent, muted, urgent, selection, hover, added, modified, renamed, add or del`)
     const windows = (await $.env.get('OS')) === 'Windows_NT'
@@ -2025,6 +1990,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'filetree' }, async ($, e) => {
+    if (!onTerminal) return { text: 'filetree runs in the terminal only.' }
     const given = (e.args ?? '').trim()
     const mine = given ? undefined : (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
     if (mine?.isShown) {
@@ -2032,9 +1998,8 @@ export const register: Register = (on, options) => {
       await $.ui.close({ id: PANE }).catch(() => undefined)
       return { text: 'File tree closed.' }
     }
-    const terminal = await $.session.surfaces().then(s => s.includes('terminal'), () => true)
-    if (terminal && !e.presentation.isFullscreen) return { text: 'filetree shows in the sidebar, which needs the fullscreen layout. Run /tui fullscreen, then /filetree.' }
-    if (terminal && e.presentation.columns < 110) return { text: 'filetree shows in the sidebar, which needs a terminal at least 110 columns wide. Widen it, then run /filetree.' }
+    if (!e.presentation.isFullscreen) return { text: 'filetree shows in the sidebar, which needs the fullscreen layout. Run /tui fullscreen, then /filetree.' }
+    if (e.presentation.columns < 110) return { text: 'filetree shows in the sidebar, which needs a terminal at least 110 columns wide. Widen it, then run /filetree.' }
     noDock = false
     const arg = given === 'open' ? '' : given
     const cwd = await cwdOf($)
@@ -2045,6 +2010,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (!onTerminal) return next(e)
     const tool: string = e.tool
     const shell = tool === 'Bash' || tool === 'PowerShell'
     if (e.tool !== 'Edit' && e.tool !== 'Write' && e.tool !== 'NotebookEdit' && !shell) return next(e)
@@ -2098,6 +2064,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    if (!onTerminal) return next(e)
     const result = await next(e)
     if (result.deny || result.isError || e.tool !== 'Read' || !showReads) return result
     void touched($, [posix(e.file_path)], 'purple', true)
@@ -2116,7 +2083,6 @@ export const register: Register = (on, options) => {
     })
 
   on('ui.message', async ($, e, next) => {
-    if (pressHit(e)) return {}
     if (e.requestId === PANE && e.element.startsWith('button-') && e.data && typeof e.data === 'object') {
       const id = e.element.slice('button-'.length)
       const data = headerMessage(e.data)
@@ -2186,6 +2152,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
+    if (!onTerminal) return next(e)
     cached = null
     watcher?.stop()
     watcher = null
@@ -2209,7 +2176,6 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (nativeScroll) return next(e)
     const t = await get($)
     if (t.preview) {
       await scrollPreview($, Math.sign(e.by) * Math.max(3, Math.abs(e.by)))
@@ -2225,6 +2191,7 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    if (!onTerminal) return next(e)
     void settleBackground($, e.text)
     if (!(await followCwd($))) void sync($)
     const t = await get($)
@@ -2253,19 +2220,19 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
-    if (e.surface === 'terminal' && e.props.placement === 'inline') {
+    if (!isTerminal(e.surface)) return next(e)
+    if (e.props.placement === 'inline') {
       noDock = true
       void $.ui.close({ id: PANE }).catch(() => undefined)
       const { Box: Empty } = $.ui.resolve(e)
       return <Empty />
     }
-    const unicode = glyphSetting === 'plain' || glyphSetting === 'text' || (glyphSetting === 'auto' && (noNerd || e.surface === 'desktop'))
+    const unicode = glyphSetting === 'plain' || glyphSetting === 'text' || (glyphSetting === 'auto' && noNerd)
     const elements = $.ui.resolve(e)
     const { Box, Text, Button, Input, Client } = elements
     const Image = 'Image' in elements ? elements.Image : undefined
     const t = await get($)
-    const light = e.surface !== 'desktop' && lightTerminal
+    const light = lightTerminal
     const theme: Theme = { ...DEFAULT_THEME, ...palette.theme }
     const tones = light ? LIGHT_TONES : TONES
     const mutedText = theme.muted ? { color: theme.muted } : { dimColor: true }
@@ -2273,11 +2240,10 @@ export const register: Register = (on, options) => {
     const addColor = palette.add ?? ADD_COLOR
     const delColor = palette.del ?? DEL_COLOR
     const rowColors = { activeBg: theme.selection, hoverBg: palette.hover ?? (theme.selection.startsWith('#') ? faint(theme.selection) : ''), tones: light ? LIGHT_SHIMMER : SHIMMER, still: isStill }
-    nativeScroll = e.surface === 'desktop'
     const button = (b: ButtonProps) => <Client key={`button-${b.id}`} module="./button.tsx" props={{ id: b.id, label: b.label, dim: b.dim } satisfies ButtonProps} />
     // A hovered header button's words: the kit header draws them in the rule's place, cut, never wrapped.
     const hint = (buttons: { id: string; hint: string }[]) => buttons.find(b => b.id === hovered)?.hint
-    const k = kit(elements, e.surface, { ramp: e.surface === 'desktop' || rampOk, ascii: glyphSetting === 'text' })
+    const k = kit(elements, { ramp: rampOk, ascii: glyphSetting === 'text' })
     // A dim rule that fills what is left of a header row, as gloss
     // rules a code block's label: one word of dashes, clipped by its box.
     const fill = (key: string) => (
@@ -2291,11 +2257,11 @@ export const register: Register = (on, options) => {
       const markdown = /\.(md|markdown|mdx|docx|odt|rtf)$/i.test(t.preview)
       const md = p?.md
       const all = md?.length ?? p?.diff?.length ?? (p?.text ?? '').split('\n').length
-      previewRows = nativeScroll ? all : Math.max(4, (e.props.scroll?.bodyRows ?? 40) - (p?.note ? 3 : 2))
-      const start = nativeScroll ? 0 : p?.diff || md ? Math.min(t.previewTop, Math.max(0, all - 1)) : Math.min(t.previewTop, Math.max(0, all - previewRows))
+      previewRows = Math.max(4, (e.props.scroll?.bodyRows ?? 40) - (p?.note ? 3 : 2))
+      const start = p?.diff || md ? Math.min(t.previewTop, Math.max(0, all - 1)) : Math.min(t.previewTop, Math.max(0, all - previewRows))
       // Side by side when the pane is wide enough for two readable columns, stacked below.
       const wide = e.props.bodyColumns >= WIDE_COLUMNS
-      const compare = md ? { blocks: nativeScroll ? md : mdWindow(md, start, previewRows, wide).blocks, wide, labels: ['before · last commit', 'after · now'] satisfies [string, string] } : undefined
+      const compare = md ? { blocks: mdWindow(md, start, previewRows, wide).blocks, wide, labels: ['before · last commit', 'after · now'] satisfies [string, string] } : undefined
       const win = p?.diff ? diffWindow(p.diff, start, previewRows) : previewLines(p?.text ?? '', start, previewRows, markdown)
       previewLine = win.top + 1
       const name = t.preview !== t.root && inside(t.root, t.preview) ? relative(t.root, t.preview) : shortPath(t.preview)
@@ -2325,7 +2291,7 @@ export const register: Register = (on, options) => {
             {editWithSetting || inTmux || inHerdr ? <Button key="edit" plain dimColor autoFocus hotkey="e" label={`${unicode ? 'edit' : '\u{ea73} edit'} :${previewLine}`} onPress={() => void editPreview($, t.preview)} /> : null}
           </Box>
           {p?.note ? <Text {...mutedText}>{p.note}</Text> : null}
-          {nativeScroll && compare ? compareView(elements, compare.blocks, compare.wide, compare.labels) : nativeScroll ? directPreview(elements, win, t.preview, markdown, theme.accent) : (
+          {(
             <Client
               key="rows"
               module="./rows.tsx"
@@ -2348,18 +2314,18 @@ export const register: Register = (on, options) => {
     const footer = t.nodes.find(n => n.id === t.cursor)?.id ?? (t.selected || '')
     const chrome = TOP_GAP + 1 + SPACE.block + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
     const spare = body - chrome - 5
-    const splitRows = t.split && !nativeScroll && spare >= 6 && (treemapSetting !== 'off' || Boolean(peekTarget(t))) ? Math.min(Math.max(6, Math.floor(body * 0.45)), spare) : 0
+    const splitRows = t.split && spare >= 6 && (treemapSetting !== 'off' || Boolean(peekTarget(t))) ? Math.min(Math.max(6, Math.floor(body * 0.45)), spare) : 0
     splitShown = splitRows > 0
     if (!splitShown) overPeek = false
     const fixed = TOP_GAP + splitRows + 1 + SPACE.block + (searchGap ? 2 : 0) + 1 + (t.top ? (t.branch ? 1 : 0) : showHints ? 1 : 0) + (footer || latest || shortcutsShown || shortcutsSetting === 'auto' ? 1 : 0)
-    const room = nativeScroll ? Math.max(1, rows.length) : Math.max(5, (e.props.scroll?.bodyRows ?? 40) - fixed)
+    const room = Math.max(5, (e.props.scroll?.bodyRows ?? 40) - fixed)
     const isLit = (id: string) => bright.has(id) || dimmed.has(id)
     const focus = followClaude && t.flashOn ? ([...t.flash].reverse().find(id => id !== BRANCH_ROW) ?? t.cursor) : t.cursor
     const at = Math.max(0, rows.findIndex(r => r.node.id === focus))
     const lit = followClaude && t.flashOn ? rows.findIndex(r => isLit(r.node.id)) : -1
     const cap = Math.max(1, Math.floor(room / 3))
     let from = Math.max(0, Math.min(lit >= 0 && at - lit < room - 2 ? Math.max(0, lit - 1) : at - Math.floor(room / 2), rows.length - room))
-    let pinned = !nativeScroll && followClaude && t.flashOn ? rows.slice(0, from).filter(r => isLit(r.node.id)).slice(-cap) : []
+    let pinned = followClaude && t.flashOn ? rows.slice(0, from).filter(r => isLit(r.node.id)).slice(-cap) : []
     if (pinned.length) {
       const rest = Math.max(3, room - pinned.length)
       from = Math.max(0, Math.min(at - Math.floor(rest / 2), rows.length - rest))
@@ -2397,9 +2363,8 @@ export const register: Register = (on, options) => {
       { id: 'size', label: unicode ? '◫' : '\u{ea90}', dim: t.column === 'date', hint: t.column === 'date' ? 'show sizes' : t.column === 'size' ? 'show lines of code' : 'show dates' },
       ...(heatSetting === 'off' ? [] : [{ id: 'hot', label: unicode ? '≋' : '\u{f0238}', dim: !t.hot, hint: t.hot ? 'show all files' : 'show hot files' }]),
       { id: 'collapse', label: unicode ? '⊟' : '\u{eac5}', dim: true, hint: 'collapse all' },
-      ...(nativeScroll ? [] : [{ id: 'split', label: unicode ? '⊡' : splitAt === 'top' ? '\u{ebf6}' : '\u{ec01}', dim: !t.split, hint: t.split ? 'hide preview' : 'show preview' }]),
+      { id: 'split', label: unicode ? '⊡' : splitAt === 'top' ? '\u{ebf6}' : '\u{ec01}', dim: !t.split, hint: t.split ? 'hide preview' : 'show preview' },
     ]
-    const ICONS: Record<string, IconName> = { unselect: 'clear', up: 'up', cwd: 'locate', refresh: 'refresh', hidden: t.showHidden ? 'eye' : 'eyeOff', size: 'columns', hot: 'flame', collapse: 'collapse' }
     const wordButtons = plainButtons.map(b => ({ ...b, label: WORDS[b.id] ?? b.label }))
     const wordWidth = wordButtons.reduce((w, b) => w + b.label.length + 1, 1)
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
@@ -2408,7 +2373,7 @@ export const register: Register = (on, options) => {
     // Edit heat: files against the hottest file, folders (their files summed) against the hottest folder.
     const rolled = heatSetting === 'off' ? { files: {}, dirs: {} } : rollHeat(t.heat, t.root)
     const hottest = { file: Math.max(0, ...Object.values(rolled.files)), dir: Math.max(0, ...Object.values(rolled.dirs)) }
-    const ramp = e.surface === 'desktop' || rampOk
+    const ramp = rampOk
     const rowSpec = (r: (typeof rows)[number]): RowSpec => {
       const n = r.node
       const own = t.git[n.id]
@@ -2480,14 +2445,9 @@ export const register: Register = (on, options) => {
       ...(pinned.length > 0 ? [note('  ⋮')] : []),
       ...shown.map(rowSpec),
     ]
-    if (nativeScroll) {
-      let size = 0
-      const cut = specs.findIndex(r => (size += JSON.stringify(r).length + 1) > ROWS_BUDGET)
-      if (cut >= 0) specs.splice(cut, specs.length - cut, note(`  … ${specs.length - cut} more rows, collapse folders or use search`))
-    }
     const barSize = Math.max(1, Math.round((specs.length * shown.length) / Math.max(1, rows.length)))
     const bar =
-      !nativeScroll && rows.length > shown.length + pinned.length
+      rows.length > shown.length + pinned.length
         ? { pos: max ? Math.round((from / max) * (specs.length - barSize)) : 0, size: barSize, thumb: theme.accent, track: theme.muted }
         : undefined
 
@@ -2523,104 +2483,6 @@ export const register: Register = (on, options) => {
             ))}
             {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text color="success"> ✓ clean</Text>}
           </Box>
-        </Box>
-      )
-    }
-
-    const isApp = e.surface === 'desktop'
-    const appTree = () => {
-      let size = 0
-      const out: RenderElement[] = []
-      for (const r of shown) {
-        const n = r.node
-        const own = t.git[n.id]
-        const status = own ?? (underAny(dirname(n.id), untracked, t.root) ? '?' : undefined)
-        const isIgnored = !status && underAny(n.id, ignored, t.root)
-        const gitColor = status === 'D' ? CDS.git.removed : status === 'U' ? CDS.git.conflicting : status === 'A' ? CDS.git.added : status === '?' ? CDS.git.added : status === 'R' ? CDS.git.merged : status ? CDS.git.modified : undefined
-        const loc = t.diff[n.id]
-        const dirCounts = n.kind === 'dir' ? t.counts[n.id] : undefined
-        const badges: AppRow['badges'] = []
-        if (loc && loc[0] > 0) badges.push({ text: `+${loc[0]}`, color: CDS.git.added })
-        if (loc && loc[1] > 0) badges.push({ text: `−${loc[1]}`, color: CDS.git.removed })
-        if (dirCounts && dirCounts[0] + dirCounts[1] + dirCounts[2] > 0) badges.push({ text: String(dirCounts[0] + dirCounts[1] + dirCounts[2]), color: CDS.git.modified })
-        else if (status) badges.push({ text: status, ...(gitColor ? { color: gitColor } : {}) })
-        const heated = (n.kind === 'dir' ? rolled.dirs[n.id] : rolled.files[n.id]) ?? 0
-        if (heated > 0) badges.unshift({ text: `${heated}×`, color: TONES.orange?.solid ?? '#f97316' })
-        const meta =
-          t.column === 'size'
-            ? n.kind === 'dir' ? (n.id in t.dirSizes ? formatSize(t.dirSizes[n.id] ?? -1) : '') : formatSize(n.size)
-            : t.column === 'loc'
-              ? locCache.has(n.id) ? formatLoc(locCache.get(n.id) ?? 0) : ''
-              : n.kind === 'file' ? (showAge ? age(n.mtime, now) : stamp(n.mtime)) : ''
-        const lit = bright.has(n.id) || dimmed.has(n.id)
-        const row: AppRow = {
-          id: n.id,
-          name: n.name,
-          depth: r.depth,
-          kind: n.kind === 'dir' ? 'dir' : n.kind === 'link' ? 'link' : 'file',
-          isOpen: r.open,
-          isTurning: now - (turnedAt.get(n.id) ?? -Infinity) < TURN_MS,
-          isSelected: n.id === t.cursor,
-          ...(gitColor ? { color: gitColor } : {}),
-          ...(status === 'D' && n.kind !== 'dir' ? { isGone: true } : {}),
-          ...(isIgnored || n.hidden ? { isDim: true } : {}),
-          ...(isStill ? { isStill: true } : {}),
-          ...(lit ? { pulse: TONES[t.flashTones[n.id] ?? 'orange']?.solid ?? '#f97316' } : {}),
-          ...(meta ? { meta } : {}),
-          ...((t.column === 'size' && n.kind === 'dir' && !(n.id in t.dirSizes)) || (t.column === 'loc' && !locCache.has(n.id) && (n.kind === 'dir' || counted(n.name))) ? { isLoading: true } : {}),
-          badges,
-        }
-        const el = appRow(k, row, async () => {
-          const cur = await get($)
-          const node = cur.nodes.find(x => x.id === n.id)
-          if (node) await press($, node)
-        })
-        size += JSON.stringify(el).length
-        if (size > APP_ROWS_BUDGET) {
-          out.push(
-            <Box key="app-more" paddingX="sm">
-              <Text dimColor>{`${shown.length - out.length} more rows: collapse folders or search`}</Text>
-            </Box>,
-          )
-          break
-        }
-        out.push(el as RenderElement)
-      }
-      return out
-    }
-    // The branch as the Environment panel draws its own: the branch icon, the name, the upstream grey,
-    // then the changes right (or Clean), and a running git action with the app's spinner.
-    const appBranch = () => {
-      if (!t.top || !t.branch) return null
-      const b = t.branch
-      const { Svg } = elements as unknown as { Svg: ElementConstructor<SvgProps> }
-      const running = latest?.state === 'running' ? latest : undefined
-      return (
-        <Box key="app-branch" flexDirection="row" alignItems="center" gap="sm" paddingX="sm" paddingY="xs" flexShrink={0}>
-          {gIcon(k, 'app-branch-icon', 'branch')}
-          <Box flexShrink={1} overflow="hidden">
-            <Text wrap="truncate-end">
-              {b.head}
-              {b.upstream ? <Text dimColor>{` · ${b.upstream}`}</Text> : null}
-              {b.ahead > 0 ? <Text dimColor>{` · ${b.ahead} to push`}</Text> : null}
-              {b.behind > 0 ? <Text dimColor>{` · ${b.behind} to pull`}</Text> : null}
-            </Text>
-          </Box>
-          <Box flexGrow={1} />
-          {running ? (
-            <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={0}>
-              {gSpinner(k, 'app-branch-spin')}
-              <Text dimColor size="footnote">{`${running.label}…`}</Text>
-            </Box>
-          ) : totals[0] || totals[1] ? (
-            <Text size="footnote" tabular>
-              {totals[0] ? <Text color={CDS.git.added}>{`+${totals[0]}`}</Text> : null}
-              {totals[0] && totals[1] ? ' ' : null}
-              {totals[1] ? <Text color={CDS.git.removed}>{`−${totals[1]}`}</Text> : null}
-            </Text>
-          ) : (
-            <Text dimColor size="footnote">Clean</Text>
-          )}
         </Box>
       )
     }
@@ -2844,7 +2706,7 @@ export const register: Register = (on, options) => {
       { key: 'd', label: 'diff', act: () => void navigate($, 'd') },
       { key: 'm', label: 'before/after', act: () => void navigate($, 'm') },
       { key: 's', label: 'search', act: () => focusPane($, t.root, 'q') },
-      ...(e.surface === 'desktop' ? [] : [{ key: 'p', label: 'preview', act: () => void navigate($, 'p', false, e.surface).then(park) }]),
+      { key: 'p', label: 'preview', act: () => void navigate($, 'p', false, e.surface).then(park) },
       { key: 'y', label: 'copy path', act: () => void navigate($, 'y', false, e.surface).then(park) },
       ...(paging ? [{ key: '[ ]', label: 'page', act: () => void (turnPage($, 1), park()) }] : []),
       ...(shortcutsSetting === 'auto' ? [{ key: '?', label: 'hide', act: () => undefined }] : []),
@@ -2865,7 +2727,7 @@ export const register: Register = (on, options) => {
     const hidden: [string, () => void][] = [
       ...(['j', 'k', 'h', 'l'] as const).map((k): [string, () => void] => [k, () => void navigate($, k).then(park)]),
       ...allKeys.filter(k => k.key.length === 1 && k.key !== '?' && !picked.has(k.key)).map((k): [string, () => void] => [k.key, k.act]),
-      ...(splitShown && e.surface !== 'desktop' ? (['f', 'b'] as const).map((k): [string, () => void] => [k, () => void navigate($, k, false, e.surface).then(park)]) : []),
+      ...(splitShown ? (['f', 'b'] as const).map((k): [string, () => void] => [k, () => void navigate($, k, false, e.surface).then(park)]) : []),
     ]
 
     return (
@@ -2875,38 +2737,27 @@ export const register: Register = (on, options) => {
           role: theme.accent,
           detail: header,
           hint: hint(buttons),
-          actions: buttons.map(b =>
-            isApp && ICONS[b.id]
-              ? { id: b.id, label: sentenceHint(b.hint), icon: ICONS[b.id]!, ...(!b.dim && TOGGLES.has(b.id) ? { isOn: true } : {}), onPress: () => pressHeader($, b.id), onHover: (isOver: boolean) => hoverHeader($, b.id, isOver) }
-              : { id: b.id, label: b.label, node: button(b) },
-          ),
+          actions: buttons.map(b => ({ id: b.id, label: b.label, node: button(b) })),
         })}
         {space(k, 'gap-head')}
         {/* The search bar right under the header, on the same rows as in every pane. */}
         {kitSearch(k, {
           id: 'q',
           value: t.query,
-          placeholder: isApp ? 'Filter files' : 'search',
+          placeholder: 'search',
           isBare: !searchGap,
           onInput: v => void search($, v),
           onSubmit: v => void jump($, v).then(() => $.clock.after(100, park)),
           onClear: () => void search($, ''),
         })}
         {splitAt === 'top' ? split : null}
-        {isApp ? appBranch() : branchRow()}
+        {branchRow()}
         {!t.top && showHints && <Text {...mutedText}>{unicode ? '± ' : '\u{e702} '}no git repo, git status starts after git init</Text>}
-        {isApp ? (
-          <Box key="app-tree" flexDirection="column">
-            {rows.length === 0 ? <Text dimColor>{t.hot ? 'No edits yet' : 'Empty folder'}</Text> : null}
-            {appTree()}
-          </Box>
-        ) : (
-          <Client
-            key="rows"
-            module="./rows.tsx"
-            props={{ rows: specs, active: t.cursor, ...rowColors, pointer, ...(bar ? { bar } : {}) } satisfies RowsProps}
-          />
-        )}
+        <Client
+          key="rows"
+          module="./rows.tsx"
+          props={{ rows: specs, active: t.cursor, ...rowColors, pointer, ...(bar ? { bar } : {}) } satisfies RowsProps}
+        />
         <Box flexGrow={1} />
         {splitAt === 'bottom' ? split : null}
         {(footer || latest || shortcutsShown || shortcutsSetting === 'auto') && (

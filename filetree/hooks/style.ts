@@ -114,7 +114,7 @@ export type GlyphSet = 'plain' | 'text' | 'nerd'
 
 /**
  * The `glyphs` option read for one draw: `text` and `plain` as named; `nerd`, and `auto` where a Nerd
- * Font was found, draw Nerd icons on the terminal alone (a graphical surface has its own type).
+ * Font was found, draw Nerd icons on the terminal alone.
  */
 export const glyphSet = (option: unknown, hasNerd: boolean, surface: string): GlyphSet =>
   option === 'text' ? 'text' : option === 'plain' ? 'plain' : surface === 'terminal' && (option === 'nerd' || hasNerd) ? 'nerd' : 'plain'
@@ -383,10 +383,6 @@ export function meter(pct: number, cells: number): { fill: string; track: string
   const half = halves & 1
   return { fill: GLYPH.fill.repeat(full) + (half ? GLYPH.half : ''), track: GLYPH.track.repeat(cells - full - half) }
 }
-
-/** The share of a graphical meter a reading fills, 0 to 1: proportional, and above zero at least half a cell of `cells`. */
-export const meterShare = (pct: number, cells: number): number =>
-  Math.round(pct * 10) > 0 ? Math.min(1, Math.max(0.5 / cells, pct / 100)) : 0
 
 // ---------------------------------------------------------------- motion
 

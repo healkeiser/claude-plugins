@@ -6,7 +6,7 @@ type El = { key: string | undefined; text: string; props: Record<string, unknown
 type Drawn = { findAll: (q: { type: string }) => Promise<El[]> }
 
 const props = (text: string) => ({ text, origin: { kind: 'composer' }, isExpanded: false }) as never
-const pane = (bodyColumns: number, surface: 'terminal' | 'desktop' = 'terminal') =>
+const pane = (bodyColumns: number, surface: 'terminal' = 'terminal') =>
   ({ plugin: 'postcard', surface, component: 'Pane', requestId: 'prompts', props: { bodyColumns } as never }) as const
 // The stored row the engine appends as a prompt is sent; its uuid is the drawn row's id.
 const sentRow = (uuid: string) =>
@@ -131,11 +131,3 @@ test('the header drops its prev and next before the count', async $ => {
   expect(await texts(ui)).toEqual(expect.arrayContaining(['Prompts', '1']))
 })
 
-test('a graphical surface draws no box-character rule; the meta sits right by layout', async $ => {
-  await prompts($, ['one'])
-  const ui = await $.ui.mount(pane(60, 'desktop'))
-  expect((await texts(ui)).some(t => t.includes('─'))).toBe(false)
-  // prev and next are icon buttons, pressed through their hit zones.
-  expect((await ui.findAll({ type: 'Client' })).map(c => c.key).slice(0, 2)).toEqual(['hit:prev', 'hit:next'])
-  expect((await boxes(ui)).some(b => b.flexGrow === 1 && b.borderStyle === undefined)).toBe(true)
-})

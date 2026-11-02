@@ -59,7 +59,7 @@ Five [mods](https://claude.com/resources/articles/claude-code-mods) for [Claude 
 | [**flightdeck**](#flightdeck) | A dashboard pane: the model's vitals, permissions, subagents, tool timings, trends |
 | [**filetree**](#filetree) | An IDE-style file tree of what Claude reads, writes and changes |
 
-The screenshots are Windows Terminal with MonoLisa Nerd Font. In the desktop app, VS Code and on mobile, the mods leave what those draw well (replies, prompts, tool rows) to them, and draw their panes in the surface's own type.
+The screenshots are Windows Terminal with MonoLisa Nerd Font. The mods are for the terminal (the CLI) only: in the desktop app, VS Code and on mobile they draw nothing and open no pane, and those keep their own interface.
 
 
 
@@ -101,7 +101,7 @@ Claude's replies in the terminal, restyled to read at a glance.
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
-| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere. |
 
 Set them with `/plugin`, the mod's Configure entry.
 
@@ -134,7 +134,7 @@ It also folds runs of tool calls into one line (`◇ 3 reads · ⌕ 2 searches`)
 |---|---|---|---|
 | `motion` | `while-active` `off` | `while-active` | while-active: the band's spinner and the Bash rows' turn while Claude works, and a new action fades in. |
 | `band` | `on` `off` | `on` | on: the band above the prompt shows at all times, folded to one row until you unfold it. |
-| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere. |
 
 Set them with `/plugin`, the mod's Configure entry.
 
@@ -165,7 +165,7 @@ Your prompts as cards: blue for a prompt, purple for a slash command.
 | Option | Values | Default | What it does |
 |---|---|---|---|
 | `queue` | `postcard` `engine` | `postcard` | postcard: a prompt you send with `ctrl+x enter` while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
-| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere. |
 
 Set them with `/plugin`, the mod's Configure entry.
 
@@ -200,7 +200,7 @@ Blocks sit edge to edge; while work flows, packets run along the bottom edge of 
 | `maxCards` | number | `3` | Agent cards drawn side by side; more agents than this switch to swimlanes (1-6). |
 | `paneColumns` | number | `66` | Columns the pane asks for when docked beside a fullscreen transcript, 40 or more. |
 | `layout` | `auto` `compact` `wide` `mini` | `auto` | auto: a summary of at most 8 rows when the pane sits inline above the prompt, two columns from 110 columns when docked, one column otherwise. |
-| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
+| `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere. |
 | `palette` | `theme` `pastel` | `theme` | theme follows your Claude Code theme (light, dark, colour-blind); pastel is fixed colours tuned for dark terminals. |
 | `openOnStart` | boolean | `True` | Open the pane when a session starts. |
 | `statusLine` | boolean | `False` | Show context, agents, consults and denials in the status line. |
@@ -222,7 +222,7 @@ An IDE-style file tree pane (`/filetree`): what Claude reads, writes and changes
 |---|---|---|---|
 | `activity` | `reads and writes` `writes` `reads` `none` | `reads and writes` | Which of Claude's file activity shimmers in the tree: files read with the Read tool or Bash readers (rg, grep, find, cat) in purple, writes in orange and git actions in green. |
 | `motion` | `while-active` `off` | `while-active` | while-active: Claude's activity shimmers across the names it touches and a running git action spins. |
-| `glyphs` | `auto` `nerd` `plain` `text` | `auto` | Icon set: auto uses Nerd Font icons when Nerd Fonts 3.2 or newer is installed here, except in the desktop app, and plain Unicode otherwise; plain uses Unicode only; text is plain with the header buttons as words (up, cwd, sync, dots, size, fold, split, clear), falling back to plain glyphs when the pane is too narrow. |
+| `glyphs` | `auto` `nerd` `plain` `text` | `auto` | Icon set: auto uses Nerd Font icons when Nerd Fonts 3.2 or newer is installed here, and plain Unicode otherwise; plain uses Unicode only; text is plain with the header buttons as words (up, cwd, sync, dots, size, fold, split, clear), falling back to plain glyphs when the pane is too narrow. |
 | `follow` | `on` `off` | `on` | on: the tree scrolls to what Claude reads, writes or commits. |
 | `start` | `on` `off` | `on` | on: the pane opens when a session starts. |
 | `focus` | `on` `off` | `on` | on: /filetree moves the keyboard into the tree when it opens it. |

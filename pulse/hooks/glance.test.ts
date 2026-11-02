@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
+import { CACHE_1H, CACHE_5M, cacheLeft, cacheTtl, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters } from './glance'
 
 test('the cache TTL: Claude Code switches first, then an hour for a subscription, else five minutes', () => {
   expect(cacheTtl({}, true)).toBe(CACHE_1H)
@@ -79,16 +79,6 @@ test('a row drops its least important pieces first and keeps the ones marked 0',
   expect([...fit(pieces, 100)]).toEqual(['lead', 'cost', 'tabs', 'fold'])
   expect([...fit(pieces, 30)]).toEqual(['lead', 'cost', 'fold'])
   expect([...fit(pieces, 5)]).toEqual(['lead', 'fold'])
-})
-
-test('the SVG meter paints the ramp as a gradient and glides from the last width', () => {
-  const first = svgMeter(64, 10, undefined, false, 'ctx 64%')
-  expect(first.source).toContain('linearGradient')
-  expect(first.source).toContain('#00ff00')
-  expect(first.source).toContain('#ff0000')
-  expect(first.source).not.toContain('<animate')
-  expect(svgMeter(80, 10, first.width, false, 'ctx 80%').source).toContain('<animate')
-  expect(svgMeter(80, 10, first.width, true, 'ctx 80%').source).not.toContain('<animate')
 })
 
 test('commits and work trees: hash and subject per line, one work tree per `worktree` line', () => {

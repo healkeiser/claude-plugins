@@ -157,3 +157,20 @@ test('Enter and send-now while Claude works stay with Claude Code: send-now inte
   // Nothing of postcard's held or toasted: its queue was never touched.
   expect(seen.toasts).toEqual([])
 })
+
+test('off the terminal postcard holds no prompt and draws no queue or pane: the app keeps its own', async ($, on) => {
+  const seen = engine(on)
+  // Beneath postcard: a session starts (its command registry answers too).
+  on('session.start', (_, e) => ({ cwd: e.cwd }) as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  await $.session.start({ cwd: '/p', surface: 'desktop', isInteractive: true } as never)
+  await $.turn.start({ text: 'go', turnId: 'T7' })
+  const later = await $.prompt.submit(queued('later', 'T7'))
+  expect('drop' in later).toBe(false)
+  expect(seen.submitted).toEqual(['later'])
+  for (const site of [{ ...BAND, surface: 'desktop' }, { ...PANE, surface: 'desktop' }] as const) {
+    const ui = await $.ui.mount(site as never)
+    expect(await texts(ui)).toEqual([])
+    await ui.unmount()
+  }
+})

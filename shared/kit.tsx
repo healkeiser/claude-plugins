@@ -3,20 +3,24 @@
 // look and sit the same in every mod. DESIGN.md says why. The source is
 // shared/kit.tsx; each mod keeps a copy written by
 // `node scripts/check-style.mjs --write`. Edit shared/, never a mod's copy.
-import type { ElementConstructor, EngineInterface, RenderChildren, RenderElement, SvgProps } from 'claude-code'
+import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { GLYPH, ROLE, cellWidth, heat, heatHex, heatRuns, meter, padCells, sentence, wholePct } from './style'
-import { gDivider, gIconButton, gTabs, type IconName } from './app'
 
 /** The elements a surface draws with, as `$.ui.resolve(e)` returns them. */
 export type Els = ReturnType<EngineInterface['ui']['resolve']>
 
-/** What every part draws with: the surface's elements, whether it is a terminal, and whether it draws the heat ramp. */
-export type Kit = { els: Els; isTerm: boolean; ramp: boolean; ascii: boolean }
+/**
+ * The mods draw in the terminal only. On the desktop app, VS Code and mobile every hook leaves the
+ * drawing to Claude Code (`next(e)`), opens no pane and holds no prompt: those surfaces have their own UI.
+ */
+export const isTerminal = (surface: string): boolean => surface === 'terminal'
 
-export const kit = (els: Els, surface: string, o: { ramp?: boolean; ascii?: boolean } = {}): Kit => ({
+/** What every part draws with: the terminal's elements, and whether it draws the heat ramp or ASCII. */
+export type Kit = { els: Els; ramp: boolean; ascii: boolean }
+
+export const kit = (els: Els, o: { ramp?: boolean; ascii?: boolean } = {}): Kit => ({
   els,
-  isTerm: surface === 'terminal',
   ramp: o.ramp ?? true,
   ascii: o.ascii ?? false,
 })
@@ -39,11 +43,7 @@ export type Action = {
   action?: string
   /** A press; a promise it returns is awaited by the surface. */
   onPress?: () => unknown
-  /** On a graphical surface: the pointer came onto the icon (true) or left it, for the head's hint. */
-  onHover?: (isOver: boolean) => unknown
   node?: RenderChildren
-  /** On a graphical surface: the outline icon it is drawn as, an icon button as the app's panels head theirs. */
-  icon?: IconName
 }
 
 /**
@@ -65,7 +65,6 @@ function actionNode(k: Kit, a: Action): RenderChildren {
   const { Button, Text } = k.els
   const press = a.onPress ?? (() => undefined)
   const bind = { ...(a.hotkey ? { hotkey: a.hotkey } : {}), ...(a.action ? { action: a.action } : {}) }
-  if (!k.isTerm) return <Button key={a.id} label={a.label} {...bind} {...(a.isOn ? { variant: 'primary' as const } : {})} onPress={press} />
   return (
     // A Button drawn with a label draws the label, never its children: children only where they carry a colour.
     a.isOn ? (
@@ -93,10 +92,9 @@ export function title(k: Kit, text: string, role: string = ROLE.accent): RenderC
   )
 }
 
-/** A rule that fills what its row leaves, cut at its box. On a graphical surface, space. */
+/** A rule that fills what its row leaves, cut at its box. */
 export function rule(k: Kit, key: string, role: string = ROLE.chrome): RenderChildren {
   const { Box, Text } = k.els
-  if (!k.isTerm) return <Box key={key} flexGrow={1} />
   return (
     // Shrinks a thousand times faster than anything beside it: the rule gives up its room before a detail loses a cell.
     <Box key={key} flexGrow={1} flexShrink={1000} height={1} overflow="hidden" marginX={SPACE.gap}>
@@ -124,43 +122,9 @@ export function header(
     hint?: string
   },
 ): RenderChildren {
-  const { Box, Text, Button } = k.els
+  const { Box, Text } = k.els
   const role = o.role ?? ROLE.accent
   const actions = o.actions ?? []
-  // A graphical surface: as the Environment panel heads itself. The title plain in the text colour, the
-  // detail grey beside it, a status, then the actions as the app's own buttons, right. No rule; a hovered
-  // action's words stand grey before the actions, cut to the row.
-  if (!k.isTerm) {
-    return (
-      <Box key="kit-header" flexDirection="column" gap="sm" flexShrink={0}>
-      <Box key="kit-header-row" flexDirection="row" alignItems="center" gap="sm" flexShrink={0}>
-        <Box flexShrink={0}>
-          <Text dimColor>{sentence(o.title)}</Text>
-        </Box>
-        {o.detail ? (
-          <Box flexShrink={1} overflow="hidden">
-            <Text wrap="truncate-start">{o.detail}</Text>
-          </Box>
-        ) : null}
-        {o.status ?? null}
-        <Box flexGrow={1} />
-        {o.hint ? (
-          <Box key="kit-hint" flexShrink={1000} overflow="hidden">
-            <Text dimColor wrap="truncate-end">{o.hint}</Text>
-          </Box>
-        ) : null}
-        <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={0}>
-          {actions.map(a =>
-            a.icon
-              ? gIconButton(k, { key: a.id, icon: a.icon, label: a.label, ...(a.isOn ? { isOn: true } : {}), ...(a.onHover ? { onHover: a.onHover } : {}), onPress: a.onPress ?? (() => undefined) })
-              : (a.node ?? <Button key={a.id} label={a.label} {...(a.isOn ? { variant: 'primary' as const } : {})} onPress={a.onPress ?? (() => undefined)} />),
-          )}
-        </Box>
-      </Box>
-      {gDivider(k, 'kit-header-rule')}
-      </Box>
-    )
-  }
   return (
     <Box key="kit-header" flexDirection="row" height={1} overflow="hidden" flexShrink={0}>
       {title(k, o.title, role)}
@@ -208,13 +172,11 @@ export const tabsWidth = (items: readonly { label: string }[]): number =>
 
 /**
  * Tabs read as Claude Code's own pane tabs: the active one inverse and bold,
- * the rest dim, each with a cell of air a side. On a graphical surface,
- * buttons with the active one primary.
+ * the rest dim, each with a cell of air a side.
  */
 export function tabs(k: Kit, o: { items: readonly TabItem[]; active: string | null; onPick: (id: string) => void; role?: string }): RenderChildren {
   const { Box, Text, Button } = k.els
   const role = o.role ?? ROLE.accent
-  if (!k.isTerm) return gTabs(k, o)
   return (
     <Box key="kit-tabs" flexDirection="row" columnGap={SPACE.gap} flexShrink={0}>
       {o.items.map(t => {
@@ -234,7 +196,7 @@ export function tabs(k: Kit, o: { items: readonly TabItem[]; active: string | nu
 /**
  * The search bar: a rounded card, three rows, the border lit in the accent
  * while it holds a query, `⌕` before the field, the match count and a clear
- * button after it. Null where the surface has no field (mobile).
+ * button after it.
  */
 export function search(
   k: Kit,
@@ -257,23 +219,6 @@ export function search(
   const { Box, Text, Button, Input } = k.els
   const id = o.id ?? 'search'
   const isLive = o.value !== ''
-  // A graphical surface: its own Input, alone, the count beside it. The Input keeps a width of its own
-  // and takes no icon; a field drawn round it shows the Input's edge as a second box, so none is.
-  if (!k.isTerm) {
-    return (
-      <Box key={`${id}-bar`} flexDirection="row" alignItems="center" gap="sm" flexShrink={0} marginBottom="sm">
-        <Input
-          key={id}
-          placeholder={sentence(o.placeholder)}
-          value={o.value}
-          {...(o.autoFocus ? { autoFocus: true } : {})}
-          onInput={(v: string) => o.onInput(v)}
-          onSubmit={(v: string) => o.onSubmit?.(v)}
-        />
-        {isLive && o.count ? <Text dimColor size="footnote">{o.count}</Text> : null}
-      </Box>
-    )
-  }
   return (
     <Box
       key={`${id}-bar`}
@@ -310,7 +255,7 @@ export function search(
 // ---------------------------------------------------------------- meters
 
 /** A reading's colour: its heat-ramp step where the surface draws the ramp, else the three role steps. */
-export const pctColor = (k: Kit, pct: number): string => (k.ramp || !k.isTerm ? heatHex(pct) : heat(pct))
+export const pctColor = (k: Kit, pct: number): string => (k.ramp ? heatHex(pct) : heat(pct))
 
 /** A fill meter of `cells` as text: each lit cell its heat step, the track unlit. */
 export function bar(k: Kit, pct: number, cells: number): RenderChildren {
@@ -376,25 +321,6 @@ export function card(
 ): RenderChildren {
   const { Box, Text } = k.els
   const role = o.role ?? ROLE.accent
-  // A graphical surface: no frame. A section as the app's Environment panel draws one: the title in
-  // the text colour, its status right, the rows under it, a hairline closing it off from what follows.
-  if (!k.isTerm) {
-    return (
-      <Box key={o.key} flexDirection="column" gap="xs" paddingX="sm" paddingY="xs">
-        {o.title !== undefined ? (
-          <Box flexDirection="row" alignItems="center" gap="sm">
-            <Box flexShrink={1} overflow="hidden">
-              <Text wrap="truncate-end" {...(o.isDim ? { dimColor: true } : {})}>{sentence(o.title)}</Text>
-            </Box>
-            <Box flexGrow={1} />
-            {o.status ? <Box flexShrink={0}>{o.status}</Box> : null}
-          </Box>
-        ) : null}
-        {children}
-        {gDivider(k, `${o.key}-rule`)}
-      </Box>
-    )
-  }
   return (
     <Box key={o.key} {...cardFrame(role, o)}>
       {o.title !== undefined ? (

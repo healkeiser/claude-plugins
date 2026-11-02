@@ -370,39 +370,12 @@ test('narrow widths drop the tabs, then the cost and tool count, and never wrap 
   expect(narrow.text).not.toContain('ctx')
 })
 
-test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($, on) => {
+test('the desktop draws its own: the band leaves the drawing to the engine', async ($, on) => {
   const { clock, world } = engine(on)
   await runTurn($, clock, world)
   const ui = await mount($, 'desktop')
-  // The app's own controls: its ghost tabs, each pressed by `tab-<id>`, and an icon button to unfold,
-  // pressed through its hit zone (no Button lies over an icon).
-  const buttons = await ui.findAll({ type: 'Button' })
-  expect(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'tab-checks'].filter(key => !buttons.some(b => b.key === key))).toEqual([])
-  expect((await ui.findAll({ type: 'Client' })).map(c => c.key)).toContain('hit:fold')
-  const svg = await ui.find({ type: 'Svg' })
-  expect(String(svg?.props.source)).toContain('linearGradient')
-  expect(svg?.props.isInteractive).toBe(true)
-  expect(await look(ui)).toContain('✓ 1m 05s')
-  await ui.post({ press: true }, { in: 'hit:fold' })
-  await ui.press({ key: 'tab-context' })
-  // The active tab is the app's standard button; the others are plain, with the ghost hover.
-  const tabs = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('tab-'))
-  expect(tabs.filter(b => !b.props.plain).map(b => b.key)).toEqual(['tab-context'])
-  const first = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source))
-  // The open band draws its readings as Settings > Usage draws them: a thin bar per reading.
-  expect(first.some(s => s.includes('<title>Context: 64% used'))).toBe(true)
-  // Every tab draws on desktop: hover reveals sit inside keyed rows.
-  for (const key of ['tab-activity', 'tab-turn', 'tab-git']) {
-    await ui.press({ key })
-    expect(await look(ui)).toContain('Done')
-  }
-  await ui.press({ key: 'tab-context' })
+  expect(await look(ui)).toBe('other band')
   await ui.unmount()
-  world.ctx = 81
-  const again = await mount($, 'desktop')
-  const glided = (await again.findAll({ type: 'Svg' })).map(s => String(s.props.source))
-  expect(glided.some(s => s.includes('<title>Context: 81% used') && s.includes('#dc3c3d'))).toBe(true)
-  await again.unmount()
 })
 
 test('glyphs text: ASCII stand-ins and a classic border', { options: { glyphs: 'text' } }, async ($, on) => {

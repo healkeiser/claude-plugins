@@ -7,7 +7,6 @@ import { LINUX_LAUNCH, TMUX_OPEN, TMUX_WORKSPACE } from '../hooks/open'
 import { CLEAN, POLICY, POSTER } from '../hooks/peek'
 import { age, ancestorsOf, formatSize, replaceChildren, toNodes } from '../hooks/tree'
 import { HEAT_RAMP } from '../hooks/style'
-import { hitKey } from '../hooks/app'
 
 type World = {
   os: 'darwin' | 'linux' | 'win32'
@@ -168,26 +167,10 @@ async function texts(ui: { drawn: (scope?: { in?: string }) => Promise<unknown> 
 
 type Mounted = { post: (data: unknown, scope: { in: string }) => Promise<unknown>; press: (target: { key: string }) => Promise<unknown> }
 
-// The keys the rows Client forwarded, as the desktop's hidden hotkey buttons take them.
-const HOTKEY: Record<string, string> = { down: 'j', up: 'k', left: 'h', right: 'l', return: 'o' }
 
-/**
- * What a test sends the tree: to the rows Client in the terminal; on the desktop, which draws the
- * tree natively, a press on the row's hit zone (`hit:row-<path>`) or of the key's hidden hotkey button.
- */
+/** What a test sends the tree: to the rows Client, as the terminal draws it. */
 async function send(ui: Mounted, data: { press?: string; key?: string; [k: string]: unknown }): Promise<void> {
-  try {
-    await ui.post(data, { in: 'rows' })
-  } catch (err) {
-    if (!/no Client keyed "rows"/.test(String(err))) throw err
-    if (typeof data.press === 'string') await ui.post({ press: true }, { in: hitKey(`row-${data.press}`) })
-    else if (typeof data.key === 'string') {
-      // A key the desktop binds to nothing reaches nothing, as it did in the rows Client.
-      await ui.press({ key: `hk-${HOTKEY[data.key] ?? data.key}` }).catch(e => {
-        if (!/no Button of filetree keyed "hk-/.test(String(e))) throw e
-      })
-    } else throw err
-  }
+  await ui.post(data, { in: 'rows' })
 }
 
 const has = <K extends string>(v: unknown, key: K): v is Record<K, unknown> => typeof v === 'object' && v !== null && key in v
@@ -320,40 +303,6 @@ const hostTool = (input: { tool: 'PowerShell' | 'Grep' | 'Glob'; [field: string]
 
 const STAMP = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/
 const NERD = /[\u{e000}-\u{f8ff}\u{f0000}-\u{fffff}]/u
-
-test('macOS Claude Code app: desktop pane draws, selects, opens with open', { timeoutMs: 20_000 }, async ($, on) => {
-  const ran: Ran = []
-  const root = '/Users/k/proj'
-  const clock = world(on, {
-    os: 'darwin', env: { HOME: '/Users/k', TMPDIR: '/var/folders/x/T/' }, cwd: root, top: root,
-    dirs: { [root]: [['src', 'dir'], ['README.md', 'file'], ['notes.md', 'file']], [`${root}/src`]: [['a.ts', 'file']] },
-    status: '## main...origin/main\0 M src/a.ts\0?? notes.md\0', numstat: '3\t1\tsrc/a.ts\0',
-  }, ran)
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await clock.settle()
-  const shown = await texts(ui)
-  for (const word of ['README.md', 'notes.md', 'src', 'main', 'origin/main']) expect(shown).toContain(word)
-  expect(NERD.test(shown)).toBe(false)
-  await send(ui, { press: `${root}/README.md` })
-  await clock.settle()
-  expect(await texts(ui)).toMatch(/"selected: "\]}\]}.*"truncate-start"},"children":\["README.md"\]/)
-  const sent = await $.prompt.submit({ text: 'what is this?', wait: false, origin: { kind: 'composer' } })
-  expect(JSON.stringify(sent)).toContain(`${root}/README.md`)
-  await send(ui, { press: `${root}/README.md` })
-  await clock.settle()
-  expect(ran).toContainEqual(['open', '--', `${root}/README.md`])
-  expect(ran.some(a => a[0] === 'setsid' || a[0] === 'gio')).toBe(false)
-  await $.tool.call({ tool: 'Bash', command: 'echo hi >> src/a.ts' })
-  await clock.settle()
-  const finds = ran.filter(a => a[0] === 'find')
-  expect(finds.length).toBeGreaterThan(0)
-  expect(finds.every(f => f.includes('-newer') && !f.includes('-newermt'))).toBe(true)
-  expect(ran.some(a => a[0] === 'touch' && a[1]?.startsWith('/var/folders/x/T/filetree-'))).toBe(true)
-  expect(ran.some(a => a[0] === 'rm')).toBe(true)
-  await ui.unmount()
-})
 
 test('moving the cursor writes at most one tree snapshot and an idle tree spawns nothing', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
@@ -490,51 +439,12 @@ test('Linux unchanged: GNU find -newermt outside a repo, xdg-open detached', { t
   await ui.unmount()
 })
 
-test('macOS app: every header button and the search box work on the desktop surface', { timeoutMs: 20_000 }, async ($, on) => {
-  const ran: Ran = []
-  const root = '/Users/k/proj'
-  const clock = world(on, {
-    os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: root,
-    dirs: { [root]: [['src', 'dir'], ['.env', 'file'], ['README.md', 'file']], [`${root}/src`]: [['a.ts', 'file']], '/Users/k': [['proj', 'dir']] },
-    status: '## main\0', numstat: '',
-  }, ran)
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await clock.settle()
-  expect(await texts(ui)).toContain('.env')
-  await ui.post({ press: true }, { in: 'hit:hidden' })
-  await clock.settle()
-  expect(await texts(ui)).not.toContain('.env')
-  await ui.post({ press: true }, { in: 'hit:hidden' })
-  await ui.input({ key: 'q', text: 'a.ts' })
-  await clock.settle()
-  const jumped = await texts(ui)
-  expect(jumped).toContain('a.ts')
-  expect(jumped).toContain('"value":""')
-  await ui.post({ press: true }, { in: 'hit:collapse' })
-  await clock.settle()
-  expect(await texts(ui)).not.toContain(`"id":"${root}/src/a.ts"`)
-  await ui.post({ press: true }, { in: 'hit:up' })
-  await clock.settle()
-  expect(await texts(ui)).toContain('"proj"')
-  await ui.post({ press: true }, { in: 'hit:cwd' })
-  await clock.settle()
-  expect(await texts(ui)).toContain('README.md')
-  await ui.unmount()
-})
-
 test('hovering a header button says what it does in the rule, cut to one row, and each glyph button is three cells, its glyph centred', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/Users/k/proj'
   const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: root, dirs: { [root]: [['.env', 'file'], ['a.ts', 'file']] }, status: '## main\0', numstat: '' }, ran)
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
   await clock.settle()
-  const app = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await clock.settle()
-  // The desktop draws the header's actions as the app's icon buttons, each icon named by its action.
-  for (const name of ['Parent folder', 'Reload tree and git', 'Hide hidden files']) expect(await texts(app)).toContain(`"alt":"${name}"`)
-  await app.unmount()
   for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ plugin: 'filetree', surface, component: 'Pane', requestId: 'filetree', props: paneProps(60) })
     await clock.settle()
@@ -634,84 +544,16 @@ test('long trees scroll: wheel, scrollbar drag, and a click does not jump the vi
   await ui.unmount()
 })
 
-test('desktop: each row carries the surface ghost hover, and a press anywhere on it opens it', async ($, on) => {
-  const root = '/Users/k/proj'
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', dirs: { [root]: [['src', 'dir'], ['a.md', 'file']], [`${root}/src`]: [['b.ts', 'file']] }, status: '', numstat: '' }, [])
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
+test('a folder opens at once from the listing read one level ahead', { timeoutMs: 20_000 }, async ($, on) => {
+  const root = '/home/k/proj'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', dirs: { [root]: [['src', 'dir']], [`${root}/src`]: [['b.ts', 'file']] }, status: '', numstat: '' }, [])
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
   await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await clock.settle()
-  // The hover is the surface's own: a hidden layer in each row's keyed Box, shown while the pointer is on it.
-  const drawn = JSON.stringify(await ui.drawn())
-  expect(drawn.split('"display":"none"').length - 1).toBeGreaterThanOrEqual(2)
-  expect(drawn).toContain('"hover":{"display":"flex"}')
-  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === 'Hover')).toBe(true)
-  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
-  await clock.settle()
-  expect(JSON.stringify(await ui.drawn())).toContain(`row-${root}/src/b.ts`)
-  await ui.unmount()
-})
-
-test('desktop: a folder opens at once from its prefetched listing, and its caret turns both ways', async ($, on) => {
-  const root = '/Users/k/proj'
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', dirs: { [root]: [['src', 'dir']], [`${root}/src`]: [['b.ts', 'file']] }, status: '', numstat: '' }, [])
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await clock.settle()
-  // src was listed one level ahead: a press shows b.ts in the very next drawing, with no listing between.
-  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
-  const opened = JSON.stringify(await ui.drawn())
-  expect(opened).toContain(`row-${root}/src/b.ts`)
-  expect(opened).toContain('from=\\"0 12 12\\" to=\\"90 12 12\\"')
-  // Past the double-press window (DOUBLE_MS, 450 ms), so this press shuts the folder.
-  await clock.advance(500)
-  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
-  expect(JSON.stringify(await ui.drawn())).toContain('from=\\"90 12 12\\" to=\\"0 12 12\\"')
-  await ui.unmount()
-})
-
-test('desktop: a long tree draws every row and leaves the wheel to the app', { timeoutMs: 20_000 }, async ($, on) => {
-  // 50 short rows fit the pane's 100,000 characters: each carries its hover layer and hit zone.
-  const root = '/Users/k/big'
-  const names = Array.from({ length: 50 }, (_, i): [string, 'file'] => [`f${String(i).padStart(2, '0')}.txt`, 'file'])
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k', TMPDIR: '/var/folders/x/T/' }, cwd: root, top: '', dirs: { [root]: names }, status: '', numstat: '' }, [])
-  const appScrolls: number[] = []
-  on('ui.scroll', (_$, e) => (appScrolls.push(e.by), {}))
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const props = { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } }
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props })
-  await clock.settle()
-  const rowsOf = async () => treeRows(await ui.drawn())
-  let p = await rowsOf()
-  expect(p.bar).toBeUndefined()
-  expect(p.rows.length).toBe(50)
-  expect(p.rows.at(-1)?.id).toBe(`${root}/f49.txt`)
-  const wheel = { component: 'Pane', requestId: 'filetree', by: 1, offset: 1, bodyRows: 20, contentRows: 64, origin: { kind: 'person' } } satisfies UiScrollInput
-  expect(await $.ui.scroll(wheel)).toEqual({})
-  expect(appScrolls).toEqual([1])
-  await clock.settle()
-  p = await rowsOf()
-  expect(p.rows.length).toBe(50)
-  expect(p.rows[0]?.id).toBe(`${root}/f00.txt`)
-  await ui.unmount()
-})
-
-test('desktop: a very large open tree is cut with a note so the drawn tree stays within the engine bounds', { timeoutMs: 30_000 }, async ($, on) => {
-  const root = '/Users/k/huge'
-  const names = Array.from({ length: 5000 }, (_, i): [string, 'file'] => [`file-number-${String(i).padStart(5, '0')}.txt`, 'file'])
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k', TMPDIR: '/var/folders/x/T/' }, cwd: root, top: '', dirs: { [root]: names }, status: '', numstat: '' }, [])
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } } })
-  await clock.settle()
-  const props = treeRows(await ui.drawn())
-  const rows = props.rows
-  expect(JSON.stringify(props).length).toBeLessThan(100_000)
-  expect(rows.length).toBeLessThan(5000)
-  expect(rows.at(-1)?.id).toBe('')
-  expect(rows.at(-1)?.left[0]?.t).toContain('more rows')
+  // src was listed with the root: its rows draw on the press itself, before any new listing.
+  await send(ui, { press: `${root}/src` })
+  expect(treeRows(await ui.drawn()).rows.map(r => r.id)).toContain(`${root}/src/b.ts`)
   await ui.unmount()
 })
 
@@ -980,34 +822,40 @@ test('sidebar only: no pane in the default layout, and an inline pane closes its
   await ui.unmount()
 })
 
-test('in the desktop app /filetree opens the pane without the terminal layout checks', { timeoutMs: 20_000 }, async ($, on) => {
+test('in the desktop app filetree steps aside: no pane at start or on /filetree, and the engine draws its own Pane', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/proj'
   const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', dirs: { [root]: [['a.txt', 'file']] }, status: '', numstat: '' }, ran)
   on('session.surfaces', () => ({ value: ['desktop'] }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine pane</Text>
+  })
+  const before = opens.length
   await $.session.start({ cwd: root, surface: null, isInteractive: false })
   await clock.settle()
-  const before = opens.length
   const r = await $.command.run({ command: 'filetree', args: '', origin: { kind: 'sdk' }, presentation: { isFullscreen: false, columns: 80 } })
   await clock.settle()
-  expect(JSON.stringify(r)).toContain('File tree on')
-  expect(opens.length).toBeGreaterThan(before)
-  expect(opens.at(-1)).toMatchObject({ id: 'filetree', focus: true })
+  expect(JSON.stringify(r)).toContain('terminal only')
+  expect(opens.length).toBe(before)
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  expect(await texts(ui)).toContain('"engine pane"')
+  await ui.unmount()
 })
 
 test('focus on open off: a bare /filetree opens the tree without taking the keyboard, /filetree open still takes it', { timeoutMs: 20_000, options: { focus: 'off' } }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/proj'
   const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', dirs: { [root]: [['a.txt', 'file']] }, status: '', numstat: '' }, ran)
-  on('session.surfaces', () => ({ value: ['desktop'] }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   await $.session.start({ cwd: root, surface: null, isInteractive: false })
   await clock.settle()
   const before = opens.length
-  await $.command.run({ command: 'filetree', args: '', origin: { kind: 'sdk' }, presentation: { isFullscreen: false, columns: 80 } })
+  await $.command.run({ command: 'filetree', args: '', origin: { kind: 'sdk' }, presentation: { isFullscreen: true, columns: 200 } })
   await clock.settle()
   expect(opens.length).toBeGreaterThan(before)
   expect(opens.at(-1)).not.toHaveProperty('focus')
-  await $.command.run({ command: 'filetree', args: 'open', origin: { kind: 'sdk' }, presentation: { isFullscreen: false, columns: 80 } })
+  await $.command.run({ command: 'filetree', args: 'open', origin: { kind: 'sdk' }, presentation: { isFullscreen: true, columns: 200 } })
   await clock.settle()
   expect(opens.at(-1)).toMatchObject({ id: 'filetree', focus: true })
 })
@@ -1019,7 +867,7 @@ test('focus on open off: a bare /filetree toggles the tree and reopens it after 
   const start = opens.length
   let closedAt = -1
   const shown = () => opens.length > start && closedAt !== opens.length
-  on('session.surfaces', () => ({ value: ['desktop'] }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('ui.close', () => {
     closedAt = opens.length
     return { value: undefined }
@@ -1027,7 +875,7 @@ test('focus on open off: a bare /filetree toggles the tree and reopens it after 
   on('ui.panes', () => ({ value: opens.length > start ? [{ id: 'filetree', title: 'Files', isFocused: false, isShown: shown(), isPlaced: shown() }] : [] }))
   await $.session.start({ cwd: root, surface: null, isInteractive: false })
   await clock.settle()
-  const bare = { command: 'filetree', args: '', origin: { kind: 'sdk' }, presentation: { isFullscreen: false, columns: 80 } } satisfies CommandRunInput
+  const bare = { command: 'filetree', args: '', origin: { kind: 'sdk' }, presentation: { isFullscreen: true, columns: 200 } } satisfies CommandRunInput
   expect(shown()).toBe(true)
   for (let round = 0; round < 2; round++) {
     expect(JSON.stringify(await $.command.run(bare))).toContain('closed')
@@ -1074,9 +922,9 @@ test('opener failures show a toast instead of failing silently', { timeoutMs: 20
   const ran: Ran = []
   const root = '/Users/k/proj'
   const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', dirs: { [root]: [['a.xyz', 'file']] }, status: '', numstat: '', exits: { open: [1, 'No application knows how to open a.xyz\n'] } }, ran)
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
   await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await send(ui, { press: `${root}/a.xyz` })
   await send(ui, { press: `${root}/a.xyz` })
   await clock.settle()
@@ -1120,7 +968,7 @@ for (const [visual, editor, chosen] of [['vim', 'nano', 'vim'], ['', 'nano', 'na
   })
 }
 
-for (const [surface, os] of [['terminal', 'darwin'], ['desktop', 'darwin'], ['terminal', 'win32']] as const) {
+for (const [surface, os] of [['terminal', 'darwin'], ['terminal', 'win32']] as const) {
   test(`open with editor in an unsupported environment: ${surface} on ${os} requests a toast without opening a file`, { timeoutMs: 20_000, options: { open: 'editor' } }, async ($, on) => {
     const ran: Ran = []
     const root = os === 'win32' ? 'C:/Users/k/proj' : '/Users/k/proj'
@@ -1426,48 +1274,6 @@ test('open with preview: End shows the last screen, an edit reloads the file, a 
   await again.unmount()
 })
 
-test('open with preview on desktop: the whole file is drawn and the wheel goes to the app', { timeoutMs: 20_000, options: { open: 'preview' } }, async ($, on) => {
-  const root = '/Users/k/proj'
-  const body = Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n')
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', status: '', numstat: '', dirs: { [root]: [['a.ts', 'file']] }, files: { [`${root}/a.ts`]: body } }, [])
-  const appScrolls: number[] = []
-  on('ui.scroll', (_$, e) => (appScrolls.push(e.by), {}))
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const props = { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } }
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props })
-  await send(ui, { press: `${root}/a.ts` })
-  await send(ui, { press: `${root}/a.ts` })
-  await clock.settle()
-  const shown = JSON.stringify(await ui.drawn())
-  expect(shown).toContain('line 0')
-  expect(shown).toContain('line 199')
-  const wheel = { component: 'Pane', requestId: 'filetree', by: 5, offset: 5, bodyRows: 20, contentRows: 202, origin: { kind: 'person' } } satisfies UiScrollInput
-  expect(await $.ui.scroll(wheel)).toEqual({})
-  expect(appScrolls).toEqual([5])
-  await ui.unmount()
-})
-
-test('open with preview on desktop: the file is drawn by the pane itself, with no Client between', { timeoutMs: 20_000, options: { open: 'preview' } }, async ($, on) => {
-  const root = '/Users/k/proj'
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', status: '', numstat: '', dirs: { [root]: [['a.md', 'file'], ['a.ts', 'file']] }, files: { [`${root}/a.md`]: '# Title\n\nSome prose.', [`${root}/a.ts`]: 'const a = 1' } }, [])
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const props = { ...paneProps(60), scroll: { offset: 0, bodyRows: 20 } }
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props })
-  for (const file of ['a.md', 'a.ts']) {
-    await send(ui, { press: `${root}/${file}` })
-    await send(ui, { press: `${root}/${file}` })
-    await clock.settle()
-    const shown = JSON.stringify(await ui.drawn())
-    expect(shown).toContain(file === 'a.md' ? '"type":"Markdown"' : '"type":"Code"')
-    expect(shown).not.toContain('"key":"rows"')
-    await ui.press({ key: 'back' })
-    await clock.settle()
-  }
-  await ui.unmount()
-})
-
 test('an older directory listing never overwrites a newer one', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/scratch'
@@ -1766,7 +1572,7 @@ test('the palette setting overrides the terminal colours key by key and names an
   await ui.unmount()
 })
 
-test('a light theme setting only changes the activity colours; the tree keeps the theme keys on both surfaces', { timeoutMs: 20_000 }, async ($, on) => {
+test('a light theme setting only changes the activity colours; the tree keeps the theme keys', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/Users/k/proj'
   const clock = world(on, {
@@ -1786,13 +1592,6 @@ test('a light theme setting only changes the activity colours; the tree keeps th
   expect(light).not.toContain('ansi256(8)')
   expect(light).toContain('#431407')
   await ui.unmount()
-  const desktop = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await clock.settle()
-  // The desktop draws its own rows in the app's colours, whatever the terminal theme: native rows, no theme keys.
-  const app = await texts(desktop)
-  expect(app).toContain('"key":"row-')
-  expect(app).not.toContain('userMessageBackground')
-  await desktop.unmount()
 })
 
 test('formatSize: at most three digits, unit glued on, ? for unknown', async () => {
@@ -2161,9 +1960,9 @@ test('Windows: a commit run through the PowerShell tool shows as git activity', 
   const root = 'C:/Users/k/proj'
   const w: World = { os: 'win32', env: { OS: 'Windows_NT', USERPROFILE: 'C:\Users\k' }, cwd: 'C:\Users\k\proj', top: root, dirs: { [root]: [['a.txt', 'file']] }, status: '## main\0', numstat: '', heads: ['abc1234def0', 'fed4321cba9'] }
   const clock = world(on, w, ran)
-  await $.session.start({ cwd: 'C:\Users\k\proj', surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: 'C:\Users\k\proj', surface: 'terminal', isInteractive: true })
   await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'terminal', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await $.tool.call(hostTool({ tool: 'PowerShell', command: 'git commit -m real' }))
   await clock.settle()
   const shown = await texts(ui)
@@ -2258,7 +2057,7 @@ test('a second /filetree closes the tree', async ($, on) => {
     closed.push(e.id)
     return { value: undefined }
   })
-  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   const out = await $.command.run({ command: 'filetree', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } })
   expect(closed).toEqual(['filetree'])
   expect(JSON.stringify(out)).toContain('closed')
@@ -2272,7 +2071,7 @@ test('/filetree open keeps an open tree open', async ($, on) => {
     closed.push(e.id)
     return { value: undefined }
   })
-  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'filetree', args: 'open', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } }).catch(() => undefined)
   expect(closed).toEqual([])
 })
@@ -2498,23 +2297,6 @@ test('split preview: a scrollbar click lands mid-file, the wheel goes back to th
   await clock.settle()
   expect(JSON.stringify(await short.drawn())).not.toContain('╰')
   await short.unmount()
-})
-
-test('split preview on desktop: p does nothing and j still moves the tree', { timeoutMs: 20_000 }, async ($, on) => {
-  const root = '/Users/k/proj'
-  const names = Array.from({ length: 30 }, (_, i): [string, 'file'] => [`f${String(i).padStart(2, '0')}.txt`, 'file'])
-  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', status: '', numstat: '', dirs: { [root]: names } }, [])
-  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
-  await send(ui, { key: 'p' })
-  await send(ui, { key: 'j' })
-  await send(ui, { key: 'j' })
-  await clock.settle()
-  const shown = JSON.stringify(await ui.drawn())
-  expect(shown).not.toContain('╰')
-  expect(shown).toMatch(/"key":"sel-\/Users\/k\/proj\/f0\d\.txt"/)
-  await ui.unmount()
 })
 
 test('split preview: a cached picture another session pruned is decoded again, and the session folder goes when the session ends', { timeoutMs: 20_000 }, async ($, on) => {
@@ -3057,7 +2839,7 @@ test('m on a changed Markdown file shows it rendered before (last commit) and af
   await ui.unmount()
 })
 
-test('Markdown before and after sit side by side in a wide pane, labelled, on the terminal and in the desktop app, and the split preview offers it for a changed file', { timeoutMs: 20_000 }, async ($, on) => {
+test('Markdown before and after sit side by side in a wide pane, labelled, and the split preview offers it for a changed file', { timeoutMs: 20_000 }, async ($, on) => {
   const ran: Ran = []
   const root = '/home/k/proj'
   const clock = world(on, {
@@ -3081,12 +2863,6 @@ test('Markdown before and after sit side by side in a wide pane, labelled, on th
   expect(shown).toContain('after · now')
   expect(shown).toContain('"width":"50%"')
   await ui.unmount()
-  const desk = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(100) })
-  await clock.settle()
-  const drawn = JSON.stringify(await desk.drawn())
-  expect(drawn).toContain('before · last commit')
-  expect(drawn).toContain('"text":"added"')
-  await desk.unmount()
 })
 
 test('before/after needs a repo: outside git it says why and stays on the tree', { timeoutMs: 20_000 }, async ($, on) => {

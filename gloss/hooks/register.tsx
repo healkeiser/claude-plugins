@@ -3,13 +3,13 @@ import type { Register } from 'claude-code'
 
 import type { FoldId } from '../types'
 import { fenced, oneLine, tsv } from './copy'
-import { layout, parseMermaid, splitMermaid, toSvg } from './mermaid'
+import { layout, parseMermaid } from './mermaid'
 import { asHunk, parse, spanRefs, spanWidth, wrapSpans } from './parse'
 import type { QuoteLine } from './parse'
 import type { CalloutType, Line, Part, Span } from './parse'
 import { editorScheme, refUrl, resolvePath } from './paths'
 import type { FileRef } from './paths'
-import { cardFrame, nerdFont } from './kit'
+import { cardFrame, isTerminal, nerdFont } from './kit'
 import { GLYPH, ROLE, SEP, ascii, glyphSet, glyphTree, cellWidth, isAsciiGlyphs, plural, remember } from './style'
 
 // Theme keys, not hex (see style.ts): they follow the person's theme, `auto`
@@ -73,6 +73,7 @@ export const register: Register = (on, options) => {
   // Whether a Nerd Font draws here (kit's nerdFont), read once a session: `glyphs: auto` draws its icons.
   let hasNerd = false
   on('session.start', async ($, e, next) => {
+    if (!isTerminal(e.surface)) return next(e)
     hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     const result = await next(e)
     await $.command.register({ name: 'gloss', description: 'Copy the nth code block of the last reply (the last by default)', argumentHint: 'copy [n]' })
@@ -102,43 +103,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    // Desktop, VS Code and mobile draw replies well already (proportional type,
-    // their own code blocks and tables): gloss leaves them native. DESIGN.md.
-    if (e.surface !== 'terminal') {
-      // Native drawing, except a mermaid fence, which becomes a picture.
-      const drawn = splitMermaid(e.props.text).map(p => {
-        if (p.kind === 'text') return p
-        const d = parseMermaid(p.source)
-        const grid = 'error' in d ? null : layout(d, 240)
-        if ('error' in d || !grid) return { kind: 'text' as const, text: p.fence }
-        return { ...p, svg: toSvg(grid), what: d.kind === 'flow' ? 'flowchart' : 'sequence diagram' }
-      })
-      if (!drawn.some(p => 'svg' in p)) return next(e)
-      const { Box, Markdown, Button, Svg } = $.ui.resolve(e)
-      return (
-        <Box flexDirection="column" gap={1}>
-          {drawn.map((p, k) =>
-            'svg' in p ? (
-              <Box key={`g${k}`} flexDirection="column">
-                <Svg source={p.svg} alt={`Mermaid ${p.what}`} />
-                <Button
-                  key={`copy${k}`}
-                  label="Copy mermaid source"
-                  plain
-                  dimColor
-                  onPress={async press => {
-                    const result = await $.ui.copy({ text: p.source, surface: press.surface })
-                    $.ui.toast(result.isCopied ? 'Copied the mermaid source' : `Copy failed (${result.reason})`)
-                  }}
-                />
-              </Box>
-            ) : (
-              <Markdown key={`g${k}`} text={p.text} />
-            ),
-          )}
-        </Box>
-      )
-    }
+    // The mods draw in the terminal only: elsewhere the reply is Claude Code's own (DESIGN.md).
+    if (!isTerminal(e.surface)) return next(e)
     const cached = parsed.get(e.requestId)
     const parts = cached?.text === e.props.text ? cached.parts : parse(e.props.text)
     // Bounded: a long or resumed session must not keep every reply's parse.

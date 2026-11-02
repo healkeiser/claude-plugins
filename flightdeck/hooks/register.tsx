@@ -55,7 +55,6 @@ import {
   fmtResetIn,
   listOf,
   logRows,
-  marksIn,
   momentOf,
   normalize,
   normalizeCard,
@@ -63,9 +62,6 @@ import {
   normalizeLog,
   noteTool,
   PALETTES,
-  SVG_COLORS,
-  svgMeter,
-  HEAT_FILL,
   parseConfig,
   prettyModel,
   promptLine,
@@ -92,14 +88,11 @@ import {
   sparkLevels,
   splitLabel,
   splitOf,
-  svgSpark,
-  svgColor,
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, gWorkingDot, pressHit, usageColor } from './app'
-import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
-import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence, clockAt } from './style'
+import { SPACE, cardFrame, header, isTerminal, kit, nerdFont, space } from './kit'
+import { GLYPH, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, motionOn, pace, paceLabel, percent, sentence } from './style'
 
 const PANE = 'flightdeck'
 // Calls that may change the session folder's files: its git state is read again a second after the last.
@@ -336,7 +329,7 @@ async function readMotion($: EngineInterface) {
   isStill = !motionOn('while-active', rows)
 }
 
-// Whether this terminal draws the heat ramp (style.ts canRamp), read once; graphical surfaces always do.
+// Whether this terminal draws the heat ramp (style.ts canRamp), read once.
 let termRamp: boolean | undefined
 async function readRamp($: EngineInterface): Promise<boolean> {
   if (termRamp === undefined) {
@@ -364,15 +357,8 @@ function readRepoSoon($: EngineInterface) {
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
   const C = PALETTES[cfg.palette]
-  // Each graphical meter's lit widths as last drawn, so a change glides from there.
-  const meterWidths = new Map<string, number[]>()
-  // Each graphical sparkline's bar heights as last drawn, so a new turn glides from there.
-  const sparkHeights = new Map<string, number[]>()
   // tool.check carries no loop id; the tool.call around it does, keyed by the call's id.
   const callLoop = new Map<string, string | null>()
-
-  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: rows, icon buttons) on the desktop.
-  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
 
   on('session.start', async ($, e, next) => {
     hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
@@ -400,7 +386,7 @@ export const register: Register = (on, options) => {
         limits: u.rateLimits.map(limitOf),
       }))
     }
-    if (cfg.openOnStart) void openPane($, cfg).catch(() => undefined)
+    if (cfg.openOnStart && isTerminal(e.surface ?? '')) void openPane($, cfg).catch(() => undefined)
     await refreshStatus($, cfg)
     const done = await next(e)
     await readRepo($)
@@ -426,6 +412,8 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'flightdeck' }, async ($, e) => {
+    // Asked now, not at start: the desktop app starts its session with no surface and attaches later.
+    if (!(await $.session.surfaces().catch(() => [])).some(isTerminal)) return { text: 'Flightdeck runs in the terminal only.' }
     const [verb = 'open', arg = ''] = e.args.trim().split(/\s+/)
     if (verb === 'close') {
       await $.ui.close({ id: PANE })
@@ -823,7 +811,9 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    // The desktop app, VS Code and mobile draw their own UI: flightdeck leaves them the pane.
+    if (!isTerminal(e.surface)) return next(e)
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const hasClient = 'Client' in els
@@ -847,8 +837,8 @@ export const register: Register = (on, options) => {
       $.clock.now(),
     ])
     const ts = await getTools($)
-    const isRamp = e.surface !== 'terminal' || (await readRamp($))
-    const k = kit(els, e.surface, { ramp: isRamp, ascii: cfg.ascii })
+    const isRamp = await readRamp($)
+    const k = kit(els, { ramp: isRamp, ascii: cfg.ascii })
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
     const W = Math.max(24, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
@@ -903,17 +893,13 @@ export const register: Register = (on, options) => {
         <Text color={color}>{fmtTimer((endAt ?? now) - since)}</Text>
       )
 
-    const isTerminal = e.surface === 'terminal'
-    // A row of marks (gate checks, loop dots), sized by `marksIn`. Should a surface draw them wider
-    // still, the row is cut at its box rather than running past it.
+    // A row of marks (gate checks, loop dots), one cell each. Should a font draw them wider, the row is
+    // cut at its box rather than running past it.
     const markRow = (marks: RenderChildren, lead = 0) => (
       <Box overflow="hidden" {...(lead ? { marginLeft: lead } : {})}>
         <Text wrap="truncate-start">{marks}</Text>
       </Box>
     )
-    // A terminal's border row stands apart from the text above it; a graphical surface draws the
-    // border flush against it, so the legend keeps one row of air there.
-    const legendGap = isTerminal ? 0 : 1
 
     // A line of coloured pieces, drawn as a row of boxes the way the log draws its lines. A Text nesting
     // coloured Texts truncates as one line in a terminal, but the desktop app wraps each nested piece on its
@@ -998,7 +984,7 @@ export const register: Register = (on, options) => {
             <Text dimColor>{x.label}</Text>
           </Box>
           <Box width={barWOf(iw)} marginLeft={gap} flexShrink={0}>
-            {e.surface !== 'terminal' ? svgBar(x.key, x.bar, barWOf(iw), `${x.label} ${x.value.text}`, x.pct) : spanText(x.bar.filter(b => b.text))}
+            {spanText(x.bar.filter(b => b.text))}
           </Box>
           <Box width={4} marginLeft={gap} flexShrink={0} justifyContent="flex-end">
             <Text {...styleOf(x.value)} wrap="truncate">
@@ -1013,23 +999,6 @@ export const register: Register = (on, options) => {
           {x.d2 && d2Room >= 4 ? <Box marginLeft={hasD1 ? 2 : isFull ? 3 : 2}>{line(x.d2, d2Room)}</Box> : null}
         </Box>
       ))
-    }
-    // On a graphical surface a meter is SVG, not box-drawing: a rounded track and fill in the role colours
-    // that glides to a new reading (DESIGN.md, Graphical surfaces). The number beside it still says it.
-    const svgBar = (key: string, bar: Span[], cells: number, alt: string, pct?: number) => {
-      if (e.surface === 'terminal') return null
-      const { Svg } = $.ui.resolve(e)
-      const isTrack = (b: Span) => b.color === C.faint || b.color === HEAT_UNLIT
-      // A heat fill (its lit runs ramp steps) as one gradient run across the meter, as the status line's
-      // cells step along it; the gate's verdict runs keep their roles.
-      const isHeat = bar.some(b => !isTrack(b)) && bar.every(b => isTrack(b) || (HEAT_RAMP as readonly string[]).includes(b.color ?? ''))
-      // Its width is the reading's own share, not the cells': above zero, at least half a cell.
-      const runs = isHeat
-        ? [{ cells: pct !== undefined ? meterShare(pct, cells) * cells : bar.filter(b => !isTrack(b)).reduce((n, b) => n + cellWidth(b.text), 0), color: HEAT_FILL }]
-        : bar.map(b => ({ cells: cellWidth(b.text), color: b.color, isTrack: isTrack(b) }))
-      const drawn = svgMeter(runs, cells, meterWidths.get(key) ?? [], !motion)
-      meterWidths.set(key, drawn.widths)
-      return <Svg source={drawn.source} alt={alt} />
     }
     // A fill drawn as the statusline draws it: ━ in its heat, ─ for the rest.
     const fillBar = (pct: number, cells: number): Span[] => {
@@ -1422,7 +1391,7 @@ export const register: Register = (on, options) => {
       if (lp.length === 0) return null
       const iw = w - 4
       const active = lp.filter(l => isLoopActive(l, now)).length
-      const dots = lp.slice(-Math.max(4, marksIn(iw, isTerminal)))
+      const dots = lp.slice(-Math.max(4, iw))
       const isNarrow = w < 40
       return (
         <Box {...block(w, C.agent)}>
@@ -1590,12 +1559,6 @@ export const register: Register = (on, options) => {
           const val = x.vals[i]
           return val === null || val === undefined ? C.faint : x.isHeat ? heat(val) : C.main
         }
-        if (!isTerminal) {
-          const { Svg } = $.ui.resolve(e)
-          const drawn = svgSpark(levels, levels.map((_, i) => colorAt(i)), n, sparkHeights.get(x.key) ?? [], !motion)
-          sparkHeights.set(x.key, drawn.heights)
-          return <Svg source={drawn.source} alt={`${x.label} over the last ${plural(pts.length, 'turn')}`} />
-        }
         // Runs of one colour drawn as one span.
         const spans: Span[] = []
         levels.forEach((lv, i) => {
@@ -1636,7 +1599,6 @@ export const register: Register = (on, options) => {
     // Rows each block takes, its border included, and one row of gap between blocks.
     const used =
       3 +
-      legendGap +
       (4 + (ctxFill.pct !== null ? 1 : 0) + Math.min(2, u.limits.length)) +
       (showArchitect ? 6 : 0) +
       5 +
@@ -1730,37 +1692,6 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // Desktop draws the agents' time axis as SVG under the panels.
-    const svgLanes =
-      e.surface !== 'terminal' && cards.length > 0
-        ? (() => {
-            const { Svg } = $.ui.resolve(e)
-            const rowH = 18
-            const pxW = 520
-            const geo = lanes(cards.slice(-10), now, 100)
-            const rects = cards
-              .slice(-10)
-              .map((c, i) => {
-                const gm = geo[i]
-                const x = 150 + ((gm?.before ?? 0) / 100) * (pxW - 160)
-                const wpx = Math.max(3, ((gm?.bar ?? 1) / 100) * (pxW - 160))
-                const fill = c.status === 'running' ? SVG_COLORS.running : c.status === 'done' ? SVG_COLORS.done : c.status === 'failed' ? SVG_COLORS.failed : SVG_COLORS.other
-                const label = shorten(cardTitle(c), 22).replace(/[<&>]/g, '')
-                return `<text x="4" y="${i * rowH + 13}" font-size="11" fill="${SVG_COLORS.label}">${label}</text><rect x="${x}" y="${i * rowH + 4}" width="${wpx}" height="10" rx="3" fill="${fill}"/>`
-              })
-              .join('')
-            const svgH = Math.min(10, cards.length) * rowH + 4
-            // No width or height on the element: it takes the markup's own width up to the pane's and
-            // scales down to fit a narrow one, rather than running past it at 520 pixels.
-            return (
-              <Svg
-                source={`<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${svgH}" viewBox="0 0 ${pxW} ${svgH}">${rects}</svg>`}
-                alt={`${cards.length} agents on a time axis`}
-              />
-            )
-          })()
-        : null
-
     // The inbox's count, beside the model in the header: what needs a look.
     const inboxBadge: Piece | null = ib.length > 0 ? { spans: [sep, { text: `✕ ${ib.length}`, color: C.warn }] } : null
 
@@ -1769,170 +1700,6 @@ export const register: Register = (on, options) => {
     // The pane in the glyph set `glyphs` and the font call for (glyphTree, DESIGN.md Options).
     const drawn = <T,>(tree: T): T => glyphTree(tree, glyphSet(options?.glyphs, hasNerd, e.surface))
 
-    // ---- graphical surfaces (desktop, VS Code, mobile): drawn as the app draws its own panels, part for
-    // part (kit's g* parts): limits as Settings > Usage draws them, the model as the Environment panel's
-    // rows, the gate as the Context panel's legend. Context and its mix are the app's own Context panel's.
-    if (!isTerminal && !isMini) {
-      const gs = gateSummary(g)
-      const muted = (text: string) => <Text dimColor wrap="truncate-end">{text}</Text>
-      const changes = rp?.isRepo ? [rp.added ? `+${rp.added}` : '', rp.modified ? `~${rp.modified}` : '', rp.deleted ? `-${rp.deleted}` : ''].filter(Boolean).join(' ') : ''
-      const limitName = (kind: string) => (kind === 'five_hour' ? 'Current session' : kind === 'seven_day' ? 'Weekly · all models' : limitLabel(kind))
-      const limits =
-        u.limits.length || ctxFill.pct !== null
-        ? gSection(
-            k,
-            { key: 'g-limits', title: 'Usage' },
-            ...(ctxFill.pct !== null
-              ? [gUsage(k, { key: 'g-ctx', label: 'Context', ...(u.tokens !== null ? { sub: `${kTokens(u.tokens)} of ${kTokens(ctxFill.window)} tokens` } : {}), pct: ctxFill.pct })]
-              : []),
-            ...u.limits.slice(0, 2).map(l => {
-              const full = forecast(l.pct, l.resetsAt, LIMIT_WINDOW_MS[l.kind], now)
-              const at = fmtResetAt(l.resetsAt, now)
-              const sub = at ? `Resets ${/^\d/.test(at) ? `at ${at}` : at}` : ''
-              return gUsage(k, {
-                key: `g-limit-${l.kind}`,
-                label: limitName(l.kind),
-                ...(sub ? { sub } : {}),
-                ...(full !== null ? { note: `Full by ${clockAt(full, now) || 'now'} at this pace`, noteColor: APP.red } : {}),
-                pct: l.pct,
-              })
-            }),
-          )
-        : null
-      // What fills the context, as the app's Context panel splits it: one bar, a legend of its categories.
-      const MIX = [APP.blue, '#8b5cf6', '#d97757', '#3fb950', '#e3b341', '#14b8a6']
-      const mix =
-        sp && sp.rows.length > 0
-          ? gSection(
-              k,
-              { key: 'g-mix', title: 'Context by category', meta: muted('Estimated') },
-              gBar(k, {
-                key: 'g-mix-bar',
-                alt: `What fills the context: ${sp.rows.map(x => `${splitLabel(x.name)} ${kTokens(x.tokens)}`).join(', ')}`,
-                segments: sp.rows.map((x, i) => ({ share: x.tokens / sp.window, color: MIX[i % MIX.length]! })),
-              }),
-              ...sp.rows.slice(0, MIX.length).map((x, i) => gLegend(k, { key: `g-mix-${i}`, color: MIX[i]!, label: x.name, value: kTokens(x.tokens) })),
-            )
-          : null
-      const model = gSection(
-        k,
-        { key: 'g-model', title: modelName, meta: m.isRunning ? <Box flexDirection="row" alignItems="center" gap="xs">{gWorkingDot(k, 'g-model-dot')}<Text dimColor>Working</Text></Box> : muted('Idle') },
-        ...(m.effort ? [gRow(k, { key: 'g-effort', icon: 'effort', label: 'Effort', value: sentence(m.effort) })] : []),
-        ...(m.mode ? [gRow(k, { key: 'g-mode', icon: 'mode', label: 'Mode', value: sentence(m.mode) })] : []),
-        ...(rp?.isRepo ? [gRow(k, { key: 'g-branch', icon: 'branch', label: rp.branch, ...(changes ? { sub: changes } : {}) })] : []),
-        ...(u.costUsd !== null ? [gRow(k, { key: 'g-cost', icon: 'cost', label: 'Session cost', value: fmtUsd(u.costUsd) })] : []),
-        ...(m.speed ? [gRow(k, { key: 'g-ttft', icon: 'timer', label: 'Time to first token', value: fmtDuration(m.speed.ttftMs) })] : []),
-      )
-      const gate =
-        gs.total > 0
-          ? gSection(
-              k,
-              { key: 'g-gate', title: 'Permissions', meta: muted(plural(gs.total, 'check')) },
-              gBar(k, {
-                key: 'g-gate-bar',
-                alt: `${gs.rule} allowed by a rule, ${gs.cleared} cleared by ${decider}, ${gs.ask} waiting, ${gs.deny} denied`,
-                segments: [
-                  { share: gs.rule / gs.total, color: svgColor(C.ok) },
-                  { share: gs.cleared / gs.total, color: APP.blue },
-                  { share: gs.ask / gs.total, color: svgColor(C.amber) },
-                  { share: gs.deny / gs.total, color: APP.red },
-                ],
-              }),
-              gLegend(k, { key: 'g-gate-rule', color: svgColor(C.ok), label: 'Allowed by a rule', value: String(gs.rule) }),
-              gLegend(k, { key: 'g-gate-cleared', color: APP.blue, label: `Approved by ${decider}`, value: String(gs.cleared) }),
-              ...(gs.ask ? [gLegend(k, { key: 'g-gate-ask', color: svgColor(C.amber), label: 'Waiting for you', value: String(gs.ask) })] : []),
-              gLegend(k, { key: 'g-gate-deny', color: APP.red, label: 'Denied', value: String(gs.deny) }),
-            )
-          : null
-      const agents = cards.length
-        ? gSection(
-            k,
-            { key: 'g-agents', title: 'Agents', meta: muted(running.length ? `${running.length} running` : plural(cards.length, 'agent')) },
-            ...cards.slice(-8).reverse().map(c =>
-              gRow(k, {
-                key: `g-agent-${c.id}`,
-                lead: c.status === 'running' ? gWorkingDot(k, `g-agent-dot-${c.id}`, APP.blue) : <Text color={statusColor(c)}>{glyph(c)}</Text>,
-                label: cardTitle(c),
-                sub: `${c.type}${c.model && prettyModel(c.model) !== modelName ? ` · ${prettyModel(c.model)}` : ''}`,
-                value: c.spawnedAt > 0 ? fmtTimer((c.endedAt ?? now) - c.spawnedAt) : '',
-              }),
-            ),
-          )
-        : null
-      const architect = showArchitect
-        ? gSection(k, { key: 'g-arch', title: cfg.architectLabel, meta: advising ? <Text color={C.arch}>Advising</Text> : muted('On call') }, ...(a.lastAdvice ? [<Text key="g-advice" dimColor wrap="wrap">{a.lastAdvice}</Text>] : []))
-        : null
-      const turn =
-        m.isRunning || r
-          ? gSection(
-              k,
-              { key: 'g-turn', title: m.isRunning ? 'This turn' : 'Last turn', ...(r && !m.isRunning ? { meta: muted(`${r.reason === 'answer' ? 'Done' : 'Stopped'} in ${fmtDuration(r.durationMs)}`) } : {}) },
-              gRow(k, { key: 'g-turn-edits', icon: 'edit', label: 'Files edited', value: String(m.isRunning ? t.edits : (r?.edits ?? 0)) }),
-              gRow(k, { key: 'g-turn-errors', icon: 'error', label: 'Errors', value: String(m.isRunning ? t.errors : (r?.errors ?? 0)), ...((m.isRunning ? t.errors : r?.errors) ? { valueColor: APP.red } : {}) }),
-              ...(!m.isRunning && r && r.agents ? [gRow(k, { key: 'g-turn-agents', icon: 'agent', label: 'Agents', value: String(r.agents) })] : []),
-              ...(!m.isRunning && r && r.costDelta !== null ? [gRow(k, { key: 'g-turn-cost', icon: 'cost', label: 'Cost', value: fmtUsd(r.costDelta) })] : []),
-            )
-          : null
-      // The last turns as sparklines, each figure's latest value right.
-      const pts = tr.slice(-20)
-      const trends = pts.length
-        ? gSection(
-            k,
-            { key: 'g-trends', title: 'Trends', meta: muted(`Last ${plural(pts.length, 'turn')}`) },
-            ...(
-              [
-                { key: 'ctx', label: 'Context', vals: pts.map(x => x.ctx), max: 100, fmt: percent, isHeat: true },
-                { key: 'cost', label: 'Cost', vals: pts.map(x => x.cost), fmt: fmtUsd },
-                { key: 'time', label: 'Time', vals: pts.map(x => x.ms), fmt: fmtDuration },
-                { key: 'out', label: 'Output tokens', vals: pts.map(x => x.out), fmt: kTokens },
-              ] as TrendRow[]
-            )
-              .filter(x => x.vals.some(y => y !== null))
-              .map(x => {
-                const { Svg } = $.ui.resolve(e)
-                const colorOf = (v: number | null | undefined) => (v === null || v === undefined ? APP.track : x.isHeat ? usageColor(v) : APP.blue)
-                const drawn = svgSpark(sparkLevels(x.vals, x.max), x.vals.map(colorOf), pts.length, sparkHeights.get(x.key) ?? [], !motion)
-                sparkHeights.set(x.key, drawn.heights)
-                const latest = [...x.vals].reverse().find((y): y is number => y !== null)
-                return gChartRow(k, {
-                  key: `g-trend-${x.key}`,
-                  label: x.label,
-                  chart: <Svg source={drawn.source} alt={`${x.label.toLowerCase()} over the last ${plural(pts.length, 'turn')}`} />,
-                  value: latest !== undefined ? x.fmt(latest) : '—',
-                  ...(x.isHeat && latest !== undefined && latest >= 80 ? { valueColor: APP.red } : {}),
-                })
-              }),
-          )
-        : null
-      const tools = ts.length
-        ? gSection(
-            k,
-            { key: 'g-tools', title: 'Tools', meta: muted(plural(ts.reduce((n, x) => n + x.calls, 0), 'call')) },
-            ...ts.slice(0, 8).map(x =>
-              gRow(k, {
-                key: `g-tool-${x.name}`,
-                label: toolLabel(x.name),
-                sub: `${plural(x.calls, 'call')}${x.calls > 1 ? ` · ${fmtDuration(x.totalMs / x.calls)} on average` : ''}${x.fails ? ` · ${x.fails} failed` : ''}`,
-                value: fmtDuration(x.maxMs),
-                ...(x.maxMs >= 10_000 ? { valueColor: svgColor(C.amber) } : {}),
-              }),
-            ),
-          )
-        : null
-      const inbox = ib.length
-        ? gSection(k, { key: 'g-inbox', title: 'Needs attention', meta: <Text color={APP.red}>{String(ib.length)}</Text> }, ...ib.slice(0, 6).map(x => gRow(k, { key: `g-inbox-${x.id}`, label: x.text, sub: x.source })))
-        : null
-      const log = gSection(
-        k,
-        { key: 'g-log', title: 'Session log' },
-        ...(lines.length
-          ? lines.slice(-8).reverse().map((x, i) =>
-              gRow(k, { key: `g-log-${i}`, label: x.text, sub: `${new Date(x.at).toTimeString().slice(0, 5)} · ${x.who}`, ...(x.kind === 'error' ? { value: 'Error', valueColor: APP.red } : {}) }),
-            )
-          : [muted('Nothing yet')]),
-      )
-      return drawn(gPane(k, inbox, limits, mix, model, gate, agents, architect, turn, trends, tools, log))
-    }
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = `${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
@@ -2037,7 +1804,7 @@ export const register: Register = (on, options) => {
         })}
         {space(k, 'gap-head')}
         {badges.length ? line(badges, W, 2) : null}
-        <Box key="legend" columnGap={2} marginBottom={legendGap}>
+        <Box key="legend" columnGap={2}>
           {legend.map(l => (
             <Box flexShrink={0}>
               <Text>
@@ -2048,7 +1815,6 @@ export const register: Register = (on, options) => {
           ))}
         </Box>
         {body}
-        {svgLanes}
       </Box>
     )
   }).catch(($, e, next) => {

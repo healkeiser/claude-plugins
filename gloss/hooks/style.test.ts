@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   ASCII, GLYPH, HEAT_RAMP, NERD, glyphSet, glyphTree, nerd, HEAT_UNLIT, ROLE, SPINNER, ascii, asciiTree, bareEmoji, canRamp, cellWidth, clip, count, cutCells, duration, glide, heat, meter, motionOn,
-  LIMIT_WINDOW_MS, clockAt, forecast, forecastLabel, paceLabel, heatHex, heatRuns, meterShare, pace, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
+  LIMIT_WINDOW_MS, clockAt, forecast, forecastLabel, paceLabel, heatHex, heatRuns, pace, packets, padCells, percent, remember, sentence, span, spin, sweep, usd,
 } from './style'
 
 test('every glyph is text presentation', () => {
@@ -144,10 +144,6 @@ test('meters and percentages follow the status line: half cells, nothing above z
   }
   expect(heatRuns(36, 10).map(r => r.text).join('')).toBe('━━━╸──────')
   expect(heatRuns(3, 10)[0]).toEqual({ text: '╸', color: HEAT_RAMP[0] })
-  expect(meterShare(0, 10)).toBe(0)
-  expect(meterShare(0.4, 10)).toBe(0.05)
-  expect(meterShare(37.5, 10)).toBe(0.375)
-  expect(meterShare(120, 10)).toBe(1)
   expect(heatHex(59.6)).toBe(HEAT_RAMP[6])
 })
 

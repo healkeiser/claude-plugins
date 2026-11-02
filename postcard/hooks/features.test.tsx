@@ -176,14 +176,6 @@ test('digit hotkeys live only on the pane rows; cards and command output carry n
   expect(withKeys.map(b => [b.key, b.props.hotkey])).toEqual([['p1', '1']])
 })
 
-test('mobile, which draws no Input, still lists prompts', async ($, on) => {
-  engine(on)
-  await three($)
-  const pane = await $.ui.mount({ ...PANE, surface: 'mobile' })
-  expect(await pane.find({ type: 'Input' })).toBeUndefined()
-  expect(await rows(pane)).toHaveLength(3)
-})
-
 test('a prompt queued while a turn runs is listed once: the queued card is not a prompt of its own', async ($, on) => {
   engine(on)
   // Stand in for the engine beneath the plugins: a turn starts, a row is stored, the clock reads.
