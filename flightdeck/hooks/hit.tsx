@@ -20,7 +20,10 @@ const Hit: ClientModule<Record<string, never>, Local> = (_props, surface) => {
   const s = state
   // Listened once for the region's life: a redraw runs this again.
   s.off ??= surface.onPointer(e => {
-    if (e.type === 'up' && (e.button ?? 'left') === 'left') surface.post({ press: true })
+    // Pressed as the button goes down, as a file tree's rows are: the redraw it asks for can wait up to
+    // 100 ms behind another (the desktop redraws ten times a second at most), so no time is spent on the
+    // click itself.
+    if (e.type === 'down' && (e.button ?? 'left') === 'left') surface.post({ press: true })
     // Over on any event but `leave`: the desktop reports a pointer's moves without an `enter` first
     // (as upstream filetree's button.tsx reads it). Posted only when it changes.
     else if (e.type !== 'down' && e.type !== 'up' && (e.type !== 'leave') !== s.isOver) {

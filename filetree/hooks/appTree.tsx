@@ -22,8 +22,8 @@ export type AppRow = {
   depth: number
   kind: 'dir' | 'file' | 'link'
   isOpen: boolean
-  /** The chevron turns from shut to open as this drawing loads: the folder opened a moment ago. */
-  isOpening: boolean
+  /** The caret turns as this drawing loads: the folder was opened or shut a moment ago. */
+  isTurning: boolean
   isSelected: boolean
   /** The name's colour: a git status's, or none for the text colour. */
   color?: string
@@ -61,11 +61,13 @@ function lead(r: AppRow): string {
   const draw = (body: string) => `<g transform="translate(${x} ${y}) scale(0.6667)" fill="none" stroke="${ROW.icon}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${body}</g>`
   let body: string
   if (r.kind === 'dir') {
-    // The caret points right, and down when open: turned about its centre, on the app's snap easing.
-    const turn = r.isOpen && r.isOpening
-      ? `<animateTransform attributeName="transform" type="rotate" from="0 12 12" to="90 12 12" dur="${CDS.dur.base}s" calcMode="spline" keyTimes="0;1" keySplines="${CDS.ease.snap}" fill="freeze"/>`
+    // The caret points right, and down when open. A press turns it, either way, as the app's own does
+    // (transition-transform, --cds-dur-fast, the default ease); otherwise it rests where it points.
+    const [from, to] = r.isOpen ? [0, 90] : [90, 0]
+    const turn = r.isTurning
+      ? `<animateTransform attributeName="transform" type="rotate" from="${from} 12 12" to="${to} 12 12" dur="${CDS.dur.fast}s" calcMode="spline" keyTimes="0;1" keySplines="${CDS.ease.inOut}" fill="freeze"/>`
       : ''
-    const rest = r.isOpen && !r.isOpening ? ' transform="rotate(90 12 12)"' : ''
+    const rest = r.isOpen && !r.isTurning ? ' transform="rotate(90 12 12)"' : ''
     body = draw(`<g${rest}><path d="m9 18 6-6-6-6"/>${turn}</g>`)
   } else body = draw(iconPaths(fileKind(r.name)))
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${ROW.tall}" viewBox="0 0 ${w} ${ROW.tall}">${guides}${body}</svg>`
@@ -86,7 +88,7 @@ export function appRow(k: Kit, r: AppRow, onPress: () => unknown): RenderChildre
   const layer = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const
   return (
     <Box key={key} position="relative" flexDirection="row" alignItems="center" gap="xs" paddingRight="sm" flexShrink={0}>
-      <Svg source={lead(r)} alt={r.kind === 'dir' ? 'Folder' : 'File'} width={ROW.pad + r.depth * ROW.indent + 16} height={ROW.tall} {...(r.isOpening ? { isInteractive: true } : {})} />
+      <Svg source={lead(r)} alt={r.kind === 'dir' ? 'Folder' : 'File'} width={ROW.pad + r.depth * ROW.indent + 16} height={ROW.tall} {...(r.isTurning && r.kind === 'dir' ? { isInteractive: true } : {})} />
       <Box flexShrink={1} overflow="hidden">
         <Text
           wrap="truncate-end"

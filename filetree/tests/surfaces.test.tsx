@@ -652,6 +652,25 @@ test('desktop: each row carries the surface ghost hover, and a press anywhere on
   await ui.unmount()
 })
 
+test('desktop: a folder opens at once from its prefetched listing, and its caret turns both ways', async ($, on) => {
+  const root = '/Users/k/proj'
+  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', dirs: { [root]: [['src', 'dir']], [`${root}/src`]: [['b.ts', 'file']] }, status: '', numstat: '' }, [])
+  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  // src was listed one level ahead: a press shows b.ts in the very next drawing, with no listing between.
+  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
+  const opened = JSON.stringify(await ui.drawn())
+  expect(opened).toContain(`row-${root}/src/b.ts`)
+  expect(opened).toContain('from=\\"0 12 12\\" to=\\"90 12 12\\"')
+  // Past the double-press window (DOUBLE_MS, 450 ms), so this press shuts the folder.
+  await clock.advance(500)
+  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
+  expect(JSON.stringify(await ui.drawn())).toContain('from=\\"90 12 12\\" to=\\"0 12 12\\"')
+  await ui.unmount()
+})
+
 test('desktop: a long tree draws every row and leaves the wheel to the app', { timeoutMs: 20_000 }, async ($, on) => {
   // 50 short rows fit the pane's 100,000 characters: each carries its hover layer and hit zone.
   const root = '/Users/k/big'

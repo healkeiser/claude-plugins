@@ -180,6 +180,10 @@ let locQueue: [string, boolean][] = []
 let locActive = 0
 const sizing = new Set<string>()
 const listLatest = new Map<string, number>()
+// Folders listed at least once: a folder in here opens from what is known, with no wait.
+const listedDirs = new Set<string>()
+// How many folders one prefetch lists at most: the subfolders of what was just listed, one level.
+const PREFETCH_MAX = 40
 const unreadable = new Set<string>()
 const background = new Map<string, Background>()
 
@@ -286,7 +290,7 @@ async function list($: EngineInterface, dir: string): Promise<FileNode[] | null>
   }
 }
 
-async function loadDirs($: EngineInterface, dirs: string[]): Promise<Map<string, FileNode[]>> {
+async function loadDirs($: EngineInterface, dirs: string[], isPrefetch = false): Promise<Map<string, FileNode[]>> {
   const root = (await get($)).root
   const seq = ++listSeq
   for (const dir of dirs) listLatest.set(dir, seq)
@@ -295,7 +299,10 @@ async function loadDirs($: EngineInterface, dirs: string[]): Promise<Map<string,
   for (const [dir, kids] of results) {
     if (listLatest.get(dir) !== seq) continue
     listLatest.delete(dir)
-    if (kids) listed.set(dir, kids)
+    if (kids) {
+      listed.set(dir, kids)
+      listedDirs.add(dir)
+    }
   }
   await patch($, t => {
     if (t.root !== root) return {}
@@ -305,6 +312,12 @@ async function loadDirs($: EngineInterface, dirs: string[]): Promise<Map<string,
     return lost ? { nodes, cursor: up === root ? '' : up } : { nodes }
   })
   void watchTree($)
+  // One level ahead, in one batch: the subfolders of what was just listed, so opening one needs no wait,
+  // as the app's own Files tree opens a folder at once.
+  if (!isPrefetch) {
+    const ahead = [...listed.values()].flat().filter(n => n.kind === 'dir' && !listedDirs.has(n.id)).slice(0, PREFETCH_MAX).map(n => n.id)
+    if (ahead.length) void loadDirs($, ahead, true).catch(() => undefined)
+  }
   return listed
 }
 
@@ -428,6 +441,7 @@ async function reset($: EngineInterface, root: string, focus = false, ready?: Pr
   blink = null
   lastRoot = root
   searchIndex = null
+  listedDirs.clear()
   sizeEpoch += 1
   sizeQueue = []
   await put($, () => ({ ...emptyTree(root), showHidden: prev.showHidden, column: prev.root ? prev.column : columnDefault, split: prev.split, heat: prev.heat, hot: prev.hot }))
@@ -1788,17 +1802,23 @@ async function quickLook($: EngineInterface, path: string): Promise<void> {
 }
 
 async function toggle($: EngineInterface, n: FileNode): Promise<void> {
-  if (n.kind === 'dir' && !(await get($)).expanded.includes(n.id)) await loadDirs($, [n.id])
+  // Open or shut at once, as the app's own tree does: the folder's known children draw now, and its
+  // listing is read after (a folder never listed shows its rows once that lands).
+  const isOpening = n.kind === 'dir' && !(await get($)).expanded.includes(n.id)
+  if (n.kind === 'dir') turnedAt.set(n.id, await $.clock.now())
   await patch($, t => {
     const open = new Set(t.expanded)
     if (n.kind === 'dir') open.has(n.id) ? open.delete(n.id) : open.add(n.id)
     return { expanded: [...open], cursor: n.id, selected: n.id }
   })
+  if (isOpening) void loadDirs($, [n.id]).catch(() => undefined)
   void watchTree($)
 }
 
-// When each folder was first drawn open on the desktop: its chevron turns there, once.
-const openedAt = new Map<string, number>()
+// When each folder was last opened or shut by a press, on the desktop: its caret turns for a moment after.
+const turnedAt = new Map<string, number>()
+// How long after a press a redraw still turns the caret (the turn itself takes --cds-dur-fast).
+const TURN_MS = 400
 /** A header button's hint as the name of the action: sentence case. */
 const sentenceHint = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -2532,8 +2552,6 @@ export const register: Register = (on, options) => {
             : t.column === 'loc'
               ? locCache.has(n.id) ? formatLoc(locCache.get(n.id) ?? 0) : ''
               : n.kind === 'file' ? (showAge ? age(n.mtime, now) : stamp(n.mtime)) : ''
-        if (r.open && !openedAt.has(n.id)) openedAt.set(n.id, now)
-        if (!r.open) openedAt.delete(n.id)
         const lit = bright.has(n.id) || dimmed.has(n.id)
         const row: AppRow = {
           id: n.id,
@@ -2541,7 +2559,7 @@ export const register: Register = (on, options) => {
           depth: r.depth,
           kind: n.kind === 'dir' ? 'dir' : n.kind === 'link' ? 'link' : 'file',
           isOpen: r.open,
-          isOpening: r.open && now - (openedAt.get(n.id) ?? 0) < 400,
+          isTurning: now - (turnedAt.get(n.id) ?? -Infinity) < TURN_MS,
           isSelected: n.id === t.cursor,
           ...(gitColor ? { color: gitColor } : {}),
           ...(status === 'D' && n.kind !== 'dir' ? { isGone: true } : {}),
