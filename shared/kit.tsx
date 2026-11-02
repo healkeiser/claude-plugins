@@ -6,7 +6,7 @@
 import type { ElementConstructor, EngineInterface, RenderChildren, RenderElement, SvgProps } from 'claude-code'
 
 import { GLYPH, ROLE, cellWidth, heat, heatHex, heatRuns, meter, padCells, sentence, wholePct } from './style'
-import { gField, gFieldSpacer, gIcon, gIconButton, gRule, gTabs, type IconName } from './app'
+import { gIconButton, gRule, gTabs, type IconName } from './app'
 
 /** The elements a surface draws with, as `$.ui.resolve(e)` returns them. */
 export type Els = ReturnType<EngineInterface['ui']['resolve']>
@@ -255,30 +255,20 @@ export function search(
   const { Box, Text, Button, Input } = k.els
   const id = o.id ?? 'search'
   const isLive = o.value !== ''
-  // A graphical surface: the app's filter field (Files: "Filter, or ? to search in files"), as wide as
-  // the pane, its search icon inside. The surface's Input has a width of its own and no icon, so the
-  // field is drawn under it (gField) and the Input sits in it on the same fill.
+  // A graphical surface: its own Input, alone, the count beside it. The Input keeps a width of its own
+  // and takes no icon; a field drawn round it shows the Input's edge as a second box, so none is.
   if (!k.isTerm) {
     return (
-      <Box key={`${id}-bar`} position="relative" flexDirection="row" flexShrink={0} marginBottom="sm">
-        {gFieldSpacer(k, `${id}-room`)}
-        <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row">
-          {gField(k, `${id}-field`)}
-        </Box>
-        <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="center" gap="xs" paddingLeft="sm">
-          {gIcon(k, `${id}-icon`, 'search')}
-          <Box flexGrow={1} flexDirection="column">
-            <Input
-              key={id}
-              placeholder={sentence(o.placeholder)}
-              value={o.value}
-              {...(o.autoFocus ? { autoFocus: true } : {})}
-              onInput={(v: string) => o.onInput(v)}
-              onSubmit={(v: string) => o.onSubmit?.(v)}
-            />
-          </Box>
-          {isLive && o.count ? <Box flexShrink={0} paddingRight="sm"><Text dimColor size="footnote">{o.count}</Text></Box> : null}
-        </Box>
+      <Box key={`${id}-bar`} flexDirection="row" alignItems="center" gap="sm" flexShrink={0} marginBottom="sm">
+        <Input
+          key={id}
+          placeholder={sentence(o.placeholder)}
+          value={o.value}
+          {...(o.autoFocus ? { autoFocus: true } : {})}
+          onInput={(v: string) => o.onInput(v)}
+          onSubmit={(v: string) => o.onSubmit?.(v)}
+        />
+        {isLive && o.count ? <Text dimColor size="footnote">{o.count}</Text> : null}
       </Box>
     )
   }

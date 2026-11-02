@@ -383,8 +383,9 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   expect(await look(ui)).toContain('✓ 1m 05s')
   await ui.press({ key: 'fold' })
   await ui.press({ key: 'tab-context' })
-  // The active tab sits on the app's ghost-selected ground.
-  expect(await ui.find({ key: 'tabg-context' })).toBeDefined()
+  // The active tab is the app's standard button; the others are plain, with the ghost hover.
+  const tabs = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('tab-'))
+  expect(tabs.filter(b => !b.props.plain).map(b => b.key)).toEqual(['tab-context'])
   const first = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source))
   // The open band draws its readings as Settings > Usage draws them: a thin bar per reading.
   expect(first.some(s => s.includes('<title>Context: 64% used'))).toBe(true)

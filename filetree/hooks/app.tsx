@@ -28,9 +28,6 @@ export const CDS = {
   hairline: '#252525',
   /** The rule under a panel's head (Files, Environment), sampled. */
   rule: '#353535',
-  /** A text field's fill and edge: the surface's own Input's, so a field drawn round it reads as one. */
-  field: '#303030',
-  fieldEdge: '#343434',
   text: '#efefef',
   icon: '#9c9c9c',
   clay: '#d97757',
@@ -226,27 +223,22 @@ export function gStrut(k: Kit, key: string, tall: number): RenderChildren {
 }
 
 /**
- * Tabs as the app draws its own pane tabs (Files, Flightdeck, Prompts): 28px, the label in the text
- * colour, the active one on a rounded ghost-selected ground, every one with the ghost hover under the
- * pointer. Each tab is layers: its label in the flow (transparent, for its width), the ground, the
- * label, the press, whose Button keeps the key `tab-<id>`.
+ * Tabs as the app draws its own pane tabs (Files, Flightdeck, Prompts): each a Button with its label on
+ * its face, so its hover, press and focus ring are the app's own and wrap the whole tab. The active one
+ * is the app's standard button (grey, rounded, as the active pane tab); the others plain, the label in
+ * the text colour with the ghost hover. Each keeps the key `tab-<id>`.
  */
 export function gTabs(k: Kit, o: { items: readonly { id: string; label: string }[]; active: string | null; onPick: (id: string) => void }): RenderChildren {
-  const { Box, Text } = k.els
-  const layer = { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0 }
+  const { Box, Button } = k.els
   return (
-    <Box key="kit-tabs" flexDirection="row" gap="xs" flexShrink={0} marginBottom="sm">
-      {o.items.map(t => (
-        <Box key={`tabbox-${t.id}`} position="relative" flexDirection="row" alignItems="center" paddingX="sm" flexShrink={0}>
-          {gStrut(k, `tabh-${t.id}`, 28)}
-          <Text color="#00000000">{sentence(t.label)}</Text>
-          {t.id === o.active ? <Box {...layer}>{gGround(k, `tabg-${t.id}`, CDS.ghostSelected, 28)}</Box> : null}
-          <Box {...layer} flexDirection="row" alignItems="center" justifyContent="center">
-            <Text>{sentence(t.label)}</Text>
-          </Box>
-          <Box {...layer}>{gPress(k, `tabp-${t.id}`, () => o.onPick(t.id), `tab-${t.id}`)}</Box>
-        </Box>
-      ))}
+    <Box key="kit-tabs" flexDirection="row" gap="xs" alignItems="center" flexShrink={0} marginBottom="sm">
+      {o.items.map(t =>
+        t.id === o.active ? (
+          <Button key={`tab-${t.id}`} label={sentence(t.label)} onPress={() => o.onPick(t.id)} />
+        ) : (
+          <Button key={`tab-${t.id}`} plain label={sentence(t.label)} onPress={() => o.onPick(t.id)} />
+        ),
+      )}
     </Box>
   )
 }
@@ -256,46 +248,6 @@ export function gRule(k: Kit, key: string): RenderChildren {
   if (!('Svg' in k.els)) return null
   const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
   return <Svg key={key} source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="1"><rect width="100%" height="1" fill="${CDS.rule}"/></svg>`} alt="Separator" height={1} />
-}
-
-const FIELD_H = 28
-
-/** The height a field takes in the flow: its layers are absolute, so this gives the row its 28px. */
-export function gFieldSpacer(k: Kit, key: string): RenderChildren {
-  if (!('Svg' in k.els)) return null
-  const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
-  return <Svg key={key} source={`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="${FIELD_H}"/>`} alt="Field" width={1} height={FIELD_H} />
-}
-
-/**
- * A text field's body as the app draws one (--cds-fill-field, --cds-radius--xs): rounded caps and a
- * stretching middle, filled, as wide as its row.
- */
-export function gField(k: Kit, key: string): RenderChildren {
-  if (!('Svg' in k.els)) return null
-  const { Box } = k.els
-  const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
-  const r = CDS.radius.xs
-  const tall = FIELD_H
-  const cap = (side: 'l' | 'r') => (
-    <Svg
-      key={`${key}-${side}`}
-      source={
-        `<svg xmlns="http://www.w3.org/2000/svg" width="${r + 1}" height="${tall}" viewBox="0 0 ${r + 1} ${tall}">` +
-        `<rect x="${side === 'l' ? 0 : -r - 1}" width="${2 * r + 2}" height="${tall}" rx="${r}" fill="${CDS.field}"/></svg>`
-      }
-      alt="Field"
-      width={r + 1}
-      height={tall}
-    />
-  )
-  return (
-    <Box key={key} flexDirection="row" flexGrow={1}>
-      {cap('l')}
-      <Box flexGrow={1} backgroundColor={CDS.field} />
-      {cap('r')}
-    </Box>
-  )
 }
 
 /**
