@@ -12,7 +12,7 @@ const root = join(import.meta.dirname, '..')
 const MODS = ['gloss', 'pulse', 'postcard', 'flightdeck', 'filetree']
 const problems = []
 
-const SHARED = ['style.ts', 'style.test.ts', 'kit.tsx', 'app.tsx']
+const SHARED = ['style.ts', 'style.test.ts', 'kit.tsx', 'app.tsx', 'hit.tsx']
 const isWrite = process.argv.includes('--write')
 for (const file of SHARED) {
   const source = readFileSync(join(root, 'shared', file), 'utf8')

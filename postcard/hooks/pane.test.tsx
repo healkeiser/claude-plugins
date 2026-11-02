@@ -135,6 +135,7 @@ test('a graphical surface draws no box-character rule; the meta sits right by la
   await prompts($, ['one'])
   const ui = await $.ui.mount(pane(60, 'desktop'))
   expect((await texts(ui)).some(t => t.includes('─'))).toBe(false)
-  expect((await keys(ui)).slice(0, 2)).toEqual(['prev', 'next'])
+  // prev and next are icon buttons, pressed through their hit zones.
+  expect((await ui.findAll({ type: 'Client' })).map(c => c.key).slice(0, 2)).toEqual(['hit:prev', 'hit:next'])
   expect((await boxes(ui)).some(b => b.flexGrow === 1 && b.borderStyle === undefined)).toBe(true)
 })

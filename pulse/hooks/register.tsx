@@ -6,6 +6,7 @@ import { afterTool, afterTurn, checksSoon, endCheck, font, notePlan, registerBan
 import { checkKinds, touchesCi } from './checks'
 import { clip, commandLine, preview, took } from './bash'
 import { cacheLeft, cacheTtl } from './glance'
+import { pressHit } from './app'
 import { describe, elapsed, summarize } from './label'
 import { FRAME_MS, GLYPH, ROLE, motionOn, plural, remember, spin, glyphSet, nerd } from './style'
 
@@ -41,6 +42,9 @@ export const register: Register = (on, options) => {
   let costAtStart: number | null = null
 
   registerBand(on, options, () => isMoving)
+
+  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: the band's icon buttons) on the desktop.
+  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)

@@ -452,12 +452,11 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // A tree of our own replaces the engine's row, bullet and indent included.
-    const tree = (
-      <Box flexDirection="row">
-      <Box width={2} flexShrink={0}>
-        <Text>{e.props.isFirstOfReply ? GLYPH.live : ' '}</Text>
-      </Box>
+    // A tree of our own replaces the engine's row, bullet and indent included. The bullet stays the
+    // engine's `●` outside the glyph swap: a Nerd circle is larger, and rows gloss leaves to the engine
+    // keep the small one, so the bullets would change size down the transcript.
+    const set = glyphSet(options?.glyphs, hasNerd, e.surface)
+    const body = glyphTree(
       <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
         {sections(parts).map(([head, body]) =>
           head === undefined ? draw(body!) : (
@@ -467,9 +466,19 @@ export const register: Register = (on, options) => {
             </Box>
           ),
         )}
-      </Box>
+      </Box>,
+      set,
+    )
+    return (
+      <Box flexDirection="row">
+        {glyphTree(
+          <Box width={2} flexShrink={0}>
+            <Text>{e.props.isFirstOfReply ? GLYPH.live : ' '}</Text>
+          </Box>,
+          set === 'nerd' ? 'plain' : set,
+        )}
+        {body}
       </Box>
     )
-    return glyphTree(tree, glyphSet(options?.glyphs, hasNerd, e.surface))
   })
 }

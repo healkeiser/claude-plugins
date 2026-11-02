@@ -39,8 +39,12 @@ function engine(on: On, draft = '') {
   return seen
 }
 
+// Enter, or chat:sendNow (ctrl+x ctrl+s), which submits and then interrupts the turn: never postcard's.
 const typed = (text: string, turnId?: string) =>
   ({ text, origin: { kind: 'composer' }, wait: false, ...(turnId ? { turnId } : {}) }) as never
+// chat:queueSubmit (ctrl+x enter): the person asks the prompt to wait its turn.
+const queued = (text: string, turnId?: string) =>
+  ({ text, origin: { kind: 'composer' }, wait: true, ...(turnId ? { turnId } : {}) }) as never
 const texts = async (d: { findAll: (q: { type: string }) => Promise<{ text: string }[]> }) => (await d.findAll({ type: 'Text' })).map(t => t.text)
 
 test('what postcard queues: words, not slash commands, @file mentions or pasted images, which the engine keeps', () => {
@@ -56,14 +60,14 @@ test('what postcard queues: words, not slash commands, @file mentions or pasted 
   expect(moveQueued(q, 'b', 1).map(x => x.id)).toEqual(['a', 'c', 'b'])
 })
 
-test('a prompt typed while Claude works waits in the queue above the prompt, then goes when the turn ends, in order', async ($, on) => {
+test('a prompt queued with ctrl+x enter while Claude works waits in the queue above the prompt, then goes when the turn ends, in order', async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'fix it', turnId: 'T1' })
-  const one = await $.prompt.submit(typed('and the lexer', 'T1'))
+  const one = await $.prompt.submit(queued('and the lexer', 'T1'))
   expect('drop' in one).toBe(true)
-  await $.prompt.submit(typed('then the tests', 'T1'))
+  await $.prompt.submit(queued('then the tests', 'T1'))
   // A slash command still goes to the engine.
-  await $.prompt.submit(typed('/compact', 'T1'))
+  await $.prompt.submit(queued('/compact', 'T1'))
   expect(seen.submitted).toEqual(['/compact'])
 
   const band = await $.ui.mount(BAND)
@@ -83,8 +87,8 @@ test('a prompt typed while Claude works waits in the queue above the prompt, the
 test('after an interrupt the queue holds; resume sends the next at once when Claude is idle; edit takes one back to the box', async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'go', turnId: 'T2' })
-  await $.prompt.submit(typed('first', 'T2'))
-  await $.prompt.submit(typed('second', 'T2'))
+  await $.prompt.submit(queued('first', 'T2'))
+  await $.prompt.submit(queued('second', 'T2'))
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'T2', reason: 'interrupted' } as never)
   expect(seen.submitted).toEqual([])
   expect(seen.toasts.some(t => t.includes('held'))).toBe(true)
@@ -102,7 +106,7 @@ test('after an interrupt the queue holds; resume sends the next at once when Cla
 test('queue: engine leaves every prompt to Claude Code', { options: { queue: 'engine' } }, async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'go', turnId: 'T3' })
-  await $.prompt.submit(typed('later', 'T3'))
+  await $.prompt.submit(queued('later', 'T3'))
   expect(seen.submitted).toEqual(['later'])
 })
 
@@ -111,11 +115,11 @@ test('a queued prompt leaves the prompt box empty, but never wipes something els
   const seen = engine(on, 'and the lexer')
   const { clock } = seen
   await $.turn.start({ text: 'go', turnId: 'T5' })
-  await $.prompt.submit(typed('and the lexer', 'T5'))
+  await $.prompt.submit(queued('and the lexer', 'T5'))
   await clock.advance(50)
   expect(seen.filled).toEqual([''])
   // The box holds other words by then: left as it is.
-  await $.prompt.submit(typed('something else', 'T5'))
+  await $.prompt.submit(queued('something else', 'T5'))
   await clock.advance(50)
   expect(seen.filled).toEqual([''])
 })
@@ -133,12 +137,23 @@ test('a prompt typed before the one just sent has started its turn waits too; on
   const seen = engine(on)
   const { clock } = seen
   // Sent while idle: through to the engine. Its turn has not started yet (its hooks run).
-  await $.prompt.submit(typed('first'))
-  const second = await $.prompt.submit(typed('second'))
+  await $.prompt.submit(queued('first'))
+  const second = await $.prompt.submit(queued('second'))
   expect(seen.submitted).toEqual(['first'])
   expect('drop' in second).toBe(true)
   // Its turn never started (a failed submit): past 10 s, the next goes through.
   await clock.advance(11_000)
-  await $.prompt.submit(typed('third'))
+  await $.prompt.submit(queued('third'))
   expect(seen.submitted).toEqual(['first', 'third'])
+})
+
+test('Enter and send-now while Claude works stay with Claude Code: send-now interrupts, and its prompt must run next', async ($, on) => {
+  const seen = engine(on)
+  await $.turn.start({ text: 'go', turnId: 'T6' })
+  const now = await $.prompt.submit(typed('stop, do this instead', 'T6'))
+  expect('drop' in now).toBe(false)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'T6', reason: 'interrupted' } as never)
+  expect(seen.submitted).toEqual(['stop, do this instead'])
+  // Nothing of postcard's held or toasted: its queue was never touched.
+  expect(seen.toasts).toEqual([])
 })

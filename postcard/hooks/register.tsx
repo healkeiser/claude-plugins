@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { PromptsCursor, PromptsQuery, PromptsQueue, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion, QueuedPrompt } from '../types'
 import { isQueueable, moveQueued } from './queue'
-import { gIconButton } from './app'
+import { gIconButton, pressHit } from './app'
 import { SPACE, actionsWidth, card, cardFrame, header, kit, nerdFont, search as kitSearch, space, tabs } from './kit'
 import type { Kit } from './kit'
 import { GLYPH, ROLE, glyphSet, glyphTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
@@ -269,15 +269,20 @@ export const register: Register = (on, options) => {
 
   const isOurQueue = options?.queue !== 'engine'
 
-  // A prompt typed while Claude works waits in postcard's queue, not the engine's: it can be seen,
-  // reordered, edited, held or dropped, and the next is sent when the turn ends. If this hook fails,
-  // the prompt goes on to the engine's queue: it is never lost.
+  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: rows, icon buttons) on the desktop.
+  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
+
+  // A prompt the person asks to wait its turn (`chat:queueSubmit`, ctrl+x enter: `e.wait`) waits in
+  // postcard's queue, not the engine's: it can be seen, reordered, edited, held or dropped, and the next
+  // is sent when the turn ends. Enter and `chat:sendNow` (ctrl+x ctrl+s, ctrl+enter) stay the engine's:
+  // sendNow submits, then interrupts the turn, so a prompt queued here would be held, never sent.
+  // If this hook fails, the prompt goes on to the engine's queue: it is never lost.
   // When a prompt the person sent was let through, until its turn starts: in that gap (its
   // UserPromptSubmit hooks run) no turn is running yet, but the next prompt must wait all the same.
   // 10 s at most, so a prompt that never starts a turn cannot hold the queue.
   let sentAtMs: number | null = null
   on('prompt.submit', async ($, e, next) => {
-    if (!isOurQueue || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
+    if (!isOurQueue || !e.wait || e.origin.kind !== 'composer' || !isQueueable(e.text)) return next(e)
     const at = await $.clock.now()
     const isBusy = e.turnId !== undefined || (sentAtMs !== null && at - sentAtMs < 10_000)
     if (!isBusy) {

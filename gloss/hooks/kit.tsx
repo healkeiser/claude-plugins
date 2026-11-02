@@ -6,7 +6,7 @@
 import type { ElementConstructor, EngineInterface, RenderChildren, RenderElement, SvgProps } from 'claude-code'
 
 import { GLYPH, ROLE, cellWidth, heat, heatHex, heatRuns, meter, padCells, sentence, wholePct } from './style'
-import { gIconButton, gRule, gTabs, type IconName } from './app'
+import { gDivider, gIconButton, gTabs, type IconName } from './app'
 
 /** The elements a surface draws with, as `$.ui.resolve(e)` returns them. */
 export type Els = ReturnType<EngineInterface['ui']['resolve']>
@@ -39,6 +39,8 @@ export type Action = {
   action?: string
   /** A press; a promise it returns is awaited by the surface. */
   onPress?: () => unknown
+  /** On a graphical surface: the pointer came onto the icon (true) or left it, for the head's hint. */
+  onHover?: (isOver: boolean) => unknown
   node?: RenderChildren
   /** On a graphical surface: the outline icon it is drawn as, an icon button as the app's panels head theirs. */
   icon?: IconName
@@ -147,15 +149,15 @@ export function header(
             <Text dimColor wrap="truncate-end">{o.hint}</Text>
           </Box>
         ) : null}
-        <Box flexDirection="row" alignItems="center" flexShrink={0}>
+        <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={0}>
           {actions.map(a =>
             a.icon
-              ? gIconButton(k, { key: a.id, icon: a.icon, label: a.label, ...(a.isOn ? { isOn: true } : {}), ...(a.action ? { action: a.action } : {}), onPress: a.onPress ?? (() => undefined) })
+              ? gIconButton(k, { key: a.id, icon: a.icon, label: a.label, ...(a.isOn ? { isOn: true } : {}), ...(a.onHover ? { onHover: a.onHover } : {}), onPress: a.onPress ?? (() => undefined) })
               : (a.node ?? <Button key={a.id} label={a.label} {...(a.isOn ? { variant: 'primary' as const } : {})} onPress={a.onPress ?? (() => undefined)} />),
           )}
         </Box>
       </Box>
-      {gRule(k, 'kit-header-rule')}
+      {gDivider(k, 'kit-header-rule')}
       </Box>
     )
   }
@@ -389,7 +391,7 @@ export function card(
           </Box>
         ) : null}
         {children}
-        {gRule(k, `${o.key}-rule`)}
+        {gDivider(k, `${o.key}-rule`)}
       </Box>
     )
   }

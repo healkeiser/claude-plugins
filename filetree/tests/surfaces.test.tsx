@@ -7,6 +7,7 @@ import { LINUX_LAUNCH, TMUX_OPEN, TMUX_WORKSPACE } from '../hooks/open'
 import { CLEAN, POLICY, POSTER } from '../hooks/peek'
 import { age, ancestorsOf, formatSize, replaceChildren, toNodes } from '../hooks/tree'
 import { HEAT_RAMP } from '../hooks/style'
+import { hitKey } from '../hooks/app'
 
 type World = {
   os: 'darwin' | 'linux' | 'win32'
@@ -172,14 +173,14 @@ const HOTKEY: Record<string, string> = { down: 'j', up: 'k', left: 'h', right: '
 
 /**
  * What a test sends the tree: to the rows Client in the terminal; on the desktop, which draws the
- * tree natively, a press of the row's own button (`open-<path>`) or of the key's hidden hotkey button.
+ * tree natively, a press on the row's hit zone (`hit:row-<path>`) or of the key's hidden hotkey button.
  */
 async function send(ui: Mounted, data: { press?: string; key?: string; [k: string]: unknown }): Promise<void> {
   try {
     await ui.post(data, { in: 'rows' })
   } catch (err) {
     if (!/no Client keyed "rows"/.test(String(err))) throw err
-    if (typeof data.press === 'string') await ui.press({ key: `open-${data.press}` })
+    if (typeof data.press === 'string') await ui.post({ press: true }, { in: hitKey(`row-${data.press}`) })
     else if (typeof data.key === 'string') {
       // A key the desktop binds to nothing reaches nothing, as it did in the rows Client.
       await ui.press({ key: `hk-${HOTKEY[data.key] ?? data.key}` }).catch(e => {
@@ -502,22 +503,22 @@ test('macOS app: every header button and the search box work on the desktop surf
   const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
   await clock.settle()
   expect(await texts(ui)).toContain('.env')
-  await ui.press({ key: 'hidden' })
+  await ui.post({ press: true }, { in: 'hit:hidden' })
   await clock.settle()
   expect(await texts(ui)).not.toContain('.env')
-  await ui.press({ key: 'hidden' })
+  await ui.post({ press: true }, { in: 'hit:hidden' })
   await ui.input({ key: 'q', text: 'a.ts' })
   await clock.settle()
   const jumped = await texts(ui)
   expect(jumped).toContain('a.ts')
   expect(jumped).toContain('"value":""')
-  await ui.press({ key: 'collapse' })
+  await ui.post({ press: true }, { in: 'hit:collapse' })
   await clock.settle()
   expect(await texts(ui)).not.toContain(`"id":"${root}/src/a.ts"`)
-  await ui.press({ key: 'up' })
+  await ui.post({ press: true }, { in: 'hit:up' })
   await clock.settle()
   expect(await texts(ui)).toContain('"proj"')
-  await ui.press({ key: 'cwd' })
+  await ui.post({ press: true }, { in: 'hit:cwd' })
   await clock.settle()
   expect(await texts(ui)).toContain('README.md')
   await ui.unmount()
@@ -633,9 +634,28 @@ test('long trees scroll: wheel, scrollbar drag, and a click does not jump the vi
   await ui.unmount()
 })
 
+test('desktop: each row carries the surface ghost hover, and a press anywhere on it opens it', async ($, on) => {
+  const root = '/Users/k/proj'
+  const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k' }, cwd: root, top: '', dirs: { [root]: [['src', 'dir'], ['a.md', 'file']], [`${root}/src`]: [['b.ts', 'file']] }, status: '', numstat: '' }, [])
+  await $.session.start({ cwd: root, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'filetree', surface: 'desktop', component: 'Pane', requestId: 'filetree', props: paneProps(60) })
+  await clock.settle()
+  // The hover is the surface's own: a hidden layer in each row's keyed Box, shown while the pointer is on it.
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn.split('"display":"none"').length - 1).toBeGreaterThanOrEqual(2)
+  expect(drawn).toContain('"hover":{"display":"flex"}')
+  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === 'Hover')).toBe(true)
+  await ui.post({ press: true }, { in: hitKey(`row-${root}/src`) })
+  await clock.settle()
+  expect(JSON.stringify(await ui.drawn())).toContain(`row-${root}/src/b.ts`)
+  await ui.unmount()
+})
+
 test('desktop: a long tree draws every row and leaves the wheel to the app', { timeoutMs: 20_000 }, async ($, on) => {
+  // 50 short rows fit the pane's 100,000 characters: each carries its hover layer and hit zone.
   const root = '/Users/k/big'
-  const names = Array.from({ length: 60 }, (_, i): [string, 'file'] => [`f${String(i).padStart(2, '0')}.txt`, 'file'])
+  const names = Array.from({ length: 50 }, (_, i): [string, 'file'] => [`f${String(i).padStart(2, '0')}.txt`, 'file'])
   const clock = world(on, { os: 'darwin', env: { HOME: '/Users/k', TMPDIR: '/var/folders/x/T/' }, cwd: root, top: '', dirs: { [root]: names }, status: '', numstat: '' }, [])
   const appScrolls: number[] = []
   on('ui.scroll', (_$, e) => (appScrolls.push(e.by), {}))
@@ -647,14 +667,14 @@ test('desktop: a long tree draws every row and leaves the wheel to the app', { t
   const rowsOf = async () => treeRows(await ui.drawn())
   let p = await rowsOf()
   expect(p.bar).toBeUndefined()
-  expect(p.rows.length).toBe(60)
-  expect(p.rows.at(-1)?.id).toBe(`${root}/f59.txt`)
+  expect(p.rows.length).toBe(50)
+  expect(p.rows.at(-1)?.id).toBe(`${root}/f49.txt`)
   const wheel = { component: 'Pane', requestId: 'filetree', by: 1, offset: 1, bodyRows: 20, contentRows: 64, origin: { kind: 'person' } } satisfies UiScrollInput
   expect(await $.ui.scroll(wheel)).toEqual({})
   expect(appScrolls).toEqual([1])
   await clock.settle()
   p = await rowsOf()
-  expect(p.rows.length).toBe(60)
+  expect(p.rows.length).toBe(50)
   expect(p.rows[0]?.id).toBe(`${root}/f00.txt`)
   await ui.unmount()
 })

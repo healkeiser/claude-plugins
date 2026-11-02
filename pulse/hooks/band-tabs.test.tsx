@@ -374,14 +374,16 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   const { clock, world } = engine(on)
   await runTurn($, clock, world)
   const ui = await mount($, 'desktop')
-  // The app's own controls: its ghost tabs, each pressed by `tab-<id>`, and an icon button to unfold.
+  // The app's own controls: its ghost tabs, each pressed by `tab-<id>`, and an icon button to unfold,
+  // pressed through its hit zone (no Button lies over an icon).
   const buttons = await ui.findAll({ type: 'Button' })
-  expect(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'tab-checks', 'fold'].filter(key => !buttons.some(b => b.key === key))).toEqual([])
+  expect(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'tab-checks'].filter(key => !buttons.some(b => b.key === key))).toEqual([])
+  expect((await ui.findAll({ type: 'Client' })).map(c => c.key)).toContain('hit:fold')
   const svg = await ui.find({ type: 'Svg' })
   expect(String(svg?.props.source)).toContain('linearGradient')
   expect(svg?.props.isInteractive).toBe(true)
   expect(await look(ui)).toContain('✓ 1m 05s')
-  await ui.press({ key: 'fold' })
+  await ui.post({ press: true }, { in: 'hit:fold' })
   await ui.press({ key: 'tab-context' })
   // The active tab is the app's standard button; the others are plain, with the ghost hover.
   const tabs = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('tab-'))

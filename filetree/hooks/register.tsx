@@ -14,7 +14,7 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
-import { CDS, gIcon, gSpinner, type IconName } from './app'
+import { CDS, gIcon, gSpinner, type IconName, pressHit } from './app'
 import { SPACE, footer as kitFooter, header as kitHeader, kit, nerdFont, search as kitSearch, space } from './kit'
 import { type AppRow, appRow } from './appTree'
 import { canRamp, cellWidth, GLYPH, motionOn } from './style'
@@ -135,6 +135,9 @@ let pointer = true
 let hovered = ''
 let view = { from: 0, max: 0 }
 let nativeScroll = false
+// The header buttons that are switches: lit while on, on a graphical surface. The rest are actions
+// (clear the selection, cycle the column), never lit, so a lit square always means a switch is on.
+const TOGGLES = new Set(['cwd', 'hidden', 'hot', 'split'])
 let lastSync = 0
 let watcher: { key: string; stop: () => void } | null = null
 let watchMissing = false
@@ -1885,6 +1888,13 @@ async function navigate($: EngineInterface, key: string, shift = false, surface?
   else if (cur && (key === ' ' || key === 'space')) await (cur.kind !== 'dir' && (await osName($)) === 'darwin' ? quickLook($, cur.id) : toggle($, cur))
 }
 
+/** The pointer came onto a header icon or left it (desktop): its words take the hint's place. */
+function hoverHeader($: EngineInterface, id: string, isOver: boolean): void {
+  if (!isOver && hovered !== id) return
+  hovered = isOver ? id : ''
+  void $.ui.invalidate('ui.render')
+}
+
 async function pressHeader($: EngineInterface, id: string): Promise<void> {
   const t = await get($)
   if (id === 'up') {
@@ -2086,6 +2096,7 @@ export const register: Register = (on, options) => {
     })
 
   on('ui.message', async ($, e, next) => {
+    if (pressHit(e)) return {}
     if (e.requestId === PANE && e.element.startsWith('button-') && e.data && typeof e.data === 'object') {
       const id = e.element.slice('button-'.length)
       const data = headerMessage(e.data)
@@ -2848,7 +2859,7 @@ export const register: Register = (on, options) => {
           hint: hint(buttons),
           actions: buttons.map(b =>
             isApp && ICONS[b.id]
-              ? { id: b.id, label: sentenceHint(b.hint), icon: ICONS[b.id]!, ...(b.dim ? {} : { isOn: true }), onPress: () => pressHeader($, b.id) }
+              ? { id: b.id, label: sentenceHint(b.hint), icon: ICONS[b.id]!, ...(!b.dim && TOGGLES.has(b.id) ? { isOn: true } : {}), onPress: () => pressHeader($, b.id), onHover: (isOver: boolean) => hoverHeader($, b.id, isOver) }
               : { id: b.id, label: b.label, node: button(b) },
           ),
         })}

@@ -7,7 +7,7 @@
 // these parts sits beside the app's own Environment, Files and Usage panels without a seam.
 //
 // The same source as kit.tsx: edit shared/app.tsx, then run `node scripts/check-style.mjs --write`.
-import type { ElementConstructor, RenderChildren, RenderElement, SvgProps } from 'claude-code'
+import type { ClientProps, ElementConstructor, RenderChildren, RenderElement, SvgProps } from 'claude-code'
 
 import type { Kit } from './kit'
 import { sentence, wholePct } from './style'
@@ -24,10 +24,10 @@ export const CDS = {
   ghostSelected: '#3b3b3b',
   /** The same selection laid over content: white at 15%, as CDS composes it. */
   ghostSelectedOver: '#ffffff26',
-  /** --cds-border: white at 10%; a hairline between sections. */
+  /** --cds-fill-ghost-hover laid over content: white at 7.5%. */
+  ghostHoverOver: '#ffffff13',
+  /** The app's own separators (Environment's, between sections and under a head), sampled: #252525. */
   hairline: '#252525',
-  /** The rule under a panel's head (Files, Environment), sampled. */
-  rule: '#353535',
   text: '#efefef',
   icon: '#9c9c9c',
   clay: '#d97757',
@@ -57,14 +57,14 @@ export const isGraphical = (k: Kit): boolean => !k.isTerm
 const svgEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 const svgOf = (k: Kit) => ('Svg' in k.els ? (k.els as unknown as { Svg: ElementConstructor<SvgProps> }).Svg : null)
 
-/** A hairline as the Environment panel draws between its sections: 1px, faint, the pane's width. */
+/** A hairline as the app draws its separators (the Environment panel's, a head's): 1px, CDS.hairline, the pane's width. */
 export function gDivider(k: Kit, key: string): RenderChildren {
   const Svg = svgOf(k)
   if (!Svg) return null
   return (
     <Svg
       key={key}
-      source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="1"><rect width="100%" height="1" fill="${APP.track}" fill-opacity="0.25"/></svg>`}
+      source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="1"><rect width="100%" height="1" fill="${CDS.hairline}"/></svg>`}
       alt="Separator"
       height={1}
     />
@@ -156,63 +156,138 @@ export function gIcon(k: Kit, key: string, name: IconName, color: string = APP.i
   )
 }
 
+// ---------------------------------------------------------------- presses and hovers
+//
+// As the upstream filetree draws its desktop pane: a hit zone (hit.tsx, a Client) lies over a part for
+// its press, and the part's hover is the surface's own (a hidden layer its keyed Box shows on hover: no
+// hook, no redraw, so it is immediate). Never a Button laid over a part: its hover, focus ring and size
+// are its own, and it does not stretch to the part.
+
+/** Each hit zone's press and hover, by its Client key, from the last drawing: pressHit runs them. */
+const HITS = new Map<string, { onPress: () => unknown; onHover?: (isOver: boolean) => unknown }>()
+
+/** A short, stable hash of a key (a row's path). */
+function hashOf(key: string): string {
+  let h = 5381
+  for (const c of key) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0
+  return `h${h.toString(36)}`
+}
+
+/**
+ * The hit zone's Client key for a part: `hit:` and the part's key, or a short hash of a long one (a
+ * row's path): a pane's drawing is held to 100,000 characters and a tree draws many rows.
+ */
+export const hitKey = (key: string): string => `hit:${key.length > 24 ? hashOf(key) : key}`
+
+/**
+ * A press over the whole part it lies in, as the part's last layer: a hit zone (hit.tsx) where the
+ * surface runs a Client (desktop). VS Code and mobile have none: there a plain Button, its face blank.
+ * The part is `position: relative`; its mod's `ui.message` hook hands each post to `pressHit`.
+ */
+export function gHit(k: Kit, key: string, onPress: () => unknown, onHover?: (isOver: boolean) => unknown): RenderChildren {
+  const { Box } = k.els
+  const layer = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const
+  if ('Client' in k.els) {
+    const { Client } = k.els as unknown as { Client: ElementConstructor<ClientProps> }
+    HITS.set(hitKey(key), { onPress, ...(onHover ? { onHover } : {}) })
+    return (
+      <Box {...layer}>
+        <Client key={hitKey(key)} module="./hit.tsx" props={{}} width="100%" height="100%" />
+      </Box>
+    )
+  }
+  const { Button, Text } = k.els
+  return (
+    <Box {...layer} flexDirection="column" overflow="hidden">
+      <Button key={key} plain onPress={onPress}>
+        <Text color="#00000000">{'  '}</Text>
+      </Button>
+    </Box>
+  )
+}
+
+/**
+ * Runs what a hit zone posted: a press, or the pointer coming onto the part or leaving it (for a part
+ * that asked, as a head's hint; the hover itself is the surface's). True when the message was one.
+ */
+export function pressHit(e: { element: string; data?: unknown }): boolean {
+  if (!e.element.startsWith('hit:')) return false
+  const hit = HITS.get(e.element)
+  const data = (e.data ?? {}) as { press?: unknown; over?: unknown }
+  if (data.press === true) void hit?.onPress()
+  else if (typeof data.over === 'boolean') void hit?.onHover?.(data.over)
+  return true
+}
+
+/**
+ * The app's ghost hover on a part (--cds-fill-ghost-hover, rounded), as a layer of it: drawn hidden, and
+ * shown by the surface while the pointer is anywhere over the part's keyed Box (the hit zone included).
+ * No hook runs, nothing redraws. `ground` is what it shows: gHoverGround for a row, a square for an icon.
+ */
+export function gHover(k: Kit, ground: RenderChildren): RenderChildren {
+  const { Box } = k.els
+  return (
+    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="column" display="none" hover={{ display: 'flex' }}>
+      {ground}
+    </Box>
+  )
+}
+
 /**
  * An icon button as the app's panel heads draw theirs (Files: search, list, more): the outline icon
- * alone, 16px in a 28px square, no chrome; on, it sits on a rounded light square. Only a Button takes a
- * press, so a plain one, its face blank, lies over the icon; its label names the action.
+ * alone, 16px in a 28px square; on, it sits on the ghost-selected square; under the pointer, the ghost
+ * hover square lies over it. The press is a hit zone over the square, so the hover and the press are
+ * exactly the square. `onHover` hears the pointer come and go (a head's hint).
  */
-export function gIconButton(k: Kit, o: { key: string; icon: IconName; label: string; isOn?: boolean; action?: string; onPress: () => unknown }): RenderChildren {
+export function gIconButton(
+  k: Kit,
+  o: { key: string; icon: IconName; label: string; isOn?: boolean; onPress: () => unknown; onHover?: (isOver: boolean) => unknown },
+): RenderChildren {
   const Svg = svgOf(k)
-  const { Box, Button, Text } = k.els
+  const { Box } = k.els
   if (!Svg) return null
-  const ink = o.isOn ? '#efefef' : APP.icon
+  const ink = o.isOn ? CDS.text : APP.icon
+  const square = (fill: string) => `<rect width="28" height="28" rx="${CDS.radius.xs}" fill="${fill}"/>`
   return (
     <Box key={`${o.key}-box`} position="relative" flexShrink={0}>
       <Svg
         source={
           `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">` +
-          (o.isOn ? `<rect width="28" height="28" rx="6" fill="#3b3b3b"/>` : '') +
+          (o.isOn ? square(CDS.ghostSelected) : '') +
           `<g transform="translate(6 6) scale(0.6667)" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[o.icon]}</g></svg>`
         }
         alt={o.label}
         width={28}
         height={28}
       />
-      <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="column" overflow="hidden">
-        <Button key={o.key} plain {...(o.action ? { action: o.action } : {})} onPress={o.onPress}>
-          <Text color="#00000000">{'\u00a0\u00a0'}</Text>
-        </Button>
-      </Box>
+      {gHover(k, <Svg key={`${o.key}-ghost`} source={`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">${square(CDS.ghostHoverOver)}</svg>`} alt="Hover" width={28} height={28} />)}
+      {gHit(k, o.key, o.onPress, o.onHover)}
     </Box>
   )
 }
 
 /**
- * A row's ground as the app's lists round theirs (--cds-radius--xs): two rounded caps and a filled
- * middle that stretches, so it spans any width (an SVG has no width of its own to stretch to). Drawn as
- * a layer of its row: `position: absolute` Boxes paint over the flow, so the row's content is a later layer.
+ * A row's ground as the app's lists round theirs (--cds-radius--xs): one SVG as wide as its column box
+ * (a `100%` width stretches there, as gDivider's and gBar's do), a rounded rect filling it. Drawn as a
+ * layer of its row: `position: absolute` Boxes paint over the flow, so its colour is laid over (white at
+ * a share), never a solid grey that would hide the row's content.
  */
-export function gGround(k: Kit, key: string, color: string, height = 32): RenderChildren {
-  if (!('Svg' in k.els)) return null
+export function gGround(k: Kit, key: string | undefined, color: string, height = 32): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
   const { Box } = k.els
-  const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
-  const r = CDS.radius.xs
-  const cap = (side: 'l' | 'r') => (
-    <Svg
-      key={`${key}-${side}`}
-      source={`<svg xmlns="http://www.w3.org/2000/svg" width="${r}" height="${height}" viewBox="0 0 ${r} ${height}"><rect x="${side === 'l' ? 0 : -r}" width="${2 * r}" height="${height}" rx="${r}" fill="${color}"/></svg>`}
-      alt="Row"
-      width={r}
-      height={height}
-    />
-  )
   return (
-    <Box key={key} flexDirection="row" flexGrow={1}>
-      {cap('l')}
-      <Box flexGrow={1} backgroundColor={color} />
-      {cap('r')}
+    <Box {...(key ? { key } : {})} flexDirection="column" flexGrow={1}>
+      <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${height}"><rect width="100%" height="${height}" rx="${CDS.radius.xs}" fill="${color}"/></svg>`} alt="Row" height={height} />
     </Box>
   )
+}
+
+/** The rounded ghost-hover ground alone, for gHover's column layer: one SVG, no box round it (rows are many). */
+export function gHoverGround(k: Kit, height = 32): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
+  return <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${height}"><rect width="100%" height="${height}" rx="${CDS.radius.xs}" fill="${CDS.ghostHoverOver}"/></svg>`} alt="Hover" height={height} />
 }
 
 /** A box `tall` pixels high and 1 wide, in the flow: it gives a row of absolute layers its height. */
@@ -239,30 +314,6 @@ export function gTabs(k: Kit, o: { items: readonly { id: string; label: string }
           <Button key={`tab-${t.id}`} plain label={sentence(t.label)} onPress={() => o.onPick(t.id)} />
         ),
       )}
-    </Box>
-  )
-}
-
-/** The rule under a panel's head, edge to edge: 1px, the head's border grey. */
-export function gRule(k: Kit, key: string): RenderChildren {
-  if (!('Svg' in k.els)) return null
-  const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
-  return <Svg key={key} source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="1"><rect width="100%" height="1" fill="${CDS.rule}"/></svg>`} alt="Separator" height={1} />
-}
-
-/**
- * A press over a whole region, as a layer of it: one plain Button, its face blank, as wide as the
- * region. Its own hover is the app's ghost hover (white at 7.5%, rounded), so the row needs no other.
- * Its face is one blank cell: the Button stretches to the region on its own, and a longer face would
- * overflow into the app's ellipsis.
- */
-export function gPress(k: Kit, key: string, onPress: () => unknown, buttonKey = `${key}-b`): RenderChildren {
-  const { Box, Button, Text } = k.els
-  return (
-    <Box key={key} flexDirection="column" flexGrow={1} overflow="hidden">
-      <Button key={buttonKey} plain onPress={onPress}>
-        <Text color="#00000000">{'\u00a0\u00a0'}</Text>
-      </Button>
     </Box>
   )
 }
@@ -496,3 +547,4 @@ export function gSwatch(k: Kit, key: string, color: string, alt = 'swatch'): Ren
 /** A legend row as the Context panel draws one: its swatch, the label, the value right in grey. */
 export const gLegend = (k: Kit, o: { key: string; color: string; label: string; value: string }): RenderChildren =>
   gRow(k, { key: o.key, lead: gSwatch(k, `${o.key}-sw`, o.color, o.label), label: o.label, value: o.value })
+

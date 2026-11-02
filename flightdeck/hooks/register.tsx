@@ -97,7 +97,7 @@ import {
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, gWorkingDot, usageColor } from './app'
+import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, gWorkingDot, pressHit, usageColor } from './app'
 import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
 import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence, clockAt } from './style'
 
@@ -370,6 +370,9 @@ export const register: Register = (on, options) => {
   const sparkHeights = new Map<string, number[]>()
   // tool.check carries no loop id; the tool.call around it does, keyed by the call's id.
   const callLoop = new Map<string, string | null>()
+
+  // Presses and hovers from the app kit's hit zones (app.tsx's gHit: rows, icon buttons) on the desktop.
+  on('ui.message', async ($, e, next) => (pressHit(e) ? {} : next(e)))
 
   on('session.start', async ($, e, next) => {
     hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'

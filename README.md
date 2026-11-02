@@ -146,7 +146,7 @@ Set them with `/plugin`, the mod's Configure entry.
 
 Your prompts as cards: blue for a prompt, purple for a slash command.
 
-**A queue for what you type while Claude works.** Instead of Claude Code's own queue, a prompt typed mid-turn waits above the prompt, where you can reorder it (`↑ ↓`), take it back to edit, drop it (`✕`), or `hold` the whole queue. The next one goes when the turn ends; after you interrupt Claude, the queue holds until you resume it. It survives a restart, held.
+**A queue for what you type while Claude works.** Send a prompt with `ctrl+x enter` (Claude Code's *queue* key) and it waits above the prompt instead of in Claude Code's own queue, where you can reorder it (`↑ ↓`), take it back to edit, drop it (`✕`), or `hold` the whole queue. The next one goes when the turn ends; after you interrupt Claude, the queue holds until you resume it. It survives a restart, held.
 
 <p align="center"><img src="docs/images/queue.png" alt="postcard: the queue above the prompt, one prompt waiting"></p>
 
@@ -157,14 +157,14 @@ Your prompts as cards: blue for a prompt, purple for a slash command.
 <p align="center"><img src="docs/images/shell.png" alt="postcard: the Shell tab, the commands Claude ran"></p>
 
 > [!NOTE]
-> Slash commands, prompts with `@file` mentions or pasted images, and prompts typed within a second of the one before still go to Claude Code's own queue: a plugin's prompt cannot expand mentions or images, and the very first keystrokes after Enter reach Claude Code before any mod. A prompt the queue sends shows in the transcript as *Prompt from the postcard plugin*: Claude Code always names who sent a prompt. Set `queue` to `engine` to leave every prompt to Claude Code.
+> Enter and send-now (`ctrl+x ctrl+s`, `ctrl+enter`) stay Claude Code's own, untouched. Slash commands, prompts with `@file` mentions or pasted images, and prompts typed within a second of the one before still go to Claude Code's own queue: a plugin's prompt cannot expand mentions or images, and the very first keystrokes after Enter reach Claude Code before any mod. A prompt the queue sends shows in the transcript as *Prompt from the postcard plugin*: Claude Code always names who sent a prompt. Set `queue` to `engine` to leave every prompt to Claude Code.
 
 <details>
 <summary>Options</summary>
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
-| `queue` | `postcard` `engine` | `postcard` | postcard: a prompt you type while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
+| `queue` | `postcard` `engine` | `postcard` | postcard: a prompt you send with `ctrl+x enter` while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
 | `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere and in the desktop app. |
 
 Set them with `/plugin`, the mod's Configure entry.
