@@ -374,6 +374,25 @@ export function card(
 ): RenderChildren {
   const { Box, Text } = k.els
   const role = o.role ?? ROLE.accent
+  // A graphical surface: no frame. A section as the app's Environment panel draws one: the title in
+  // the text colour, its status right, the rows under it, a hairline closing it off from what follows.
+  if (!k.isTerm) {
+    return (
+      <Box key={o.key} flexDirection="column" gap="xs" paddingX="sm" paddingY="xs">
+        {o.title !== undefined ? (
+          <Box flexDirection="row" alignItems="center" gap="sm">
+            <Box flexShrink={1} overflow="hidden">
+              <Text wrap="truncate-end" {...(o.isDim ? { dimColor: true } : {})}>{sentence(o.title)}</Text>
+            </Box>
+            <Box flexGrow={1} />
+            {o.status ? <Box flexShrink={0}>{o.status}</Box> : null}
+          </Box>
+        ) : null}
+        {children}
+        {gRule(k, `${o.key}-rule`)}
+      </Box>
+    )
+  }
   return (
     <Box key={o.key} {...cardFrame(role, o)}>
       {o.title !== undefined ? (

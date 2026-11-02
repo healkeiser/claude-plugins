@@ -49,46 +49,42 @@ const fileKind = (name: string): IconName =>
         ? 'fileCode'
         : 'file'
 
-/** The row's lead: its indent, then the chevron (a folder) or the file icon, in one drawing. */
+/** The row's lead: its indent, then a file's outline icon; a folder's lead is its indent alone. */
 function lead(r: AppRow): string {
   const x = r.depth * ROW.indent
-  const w = x + 16
-  const draw = (body: string) => `<g transform="translate(${x} 0) scale(0.6667)" fill="none" stroke="${ROW.icon}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${body}</g>`
-  let body: string
-  if (r.kind === 'dir') {
-    // The chevron points right, and down when open: turned about its centre, on an ease-out.
-    const turn = r.isOpen
-      ? r.isOpening
-        ? `<animateTransform attributeName="transform" type="rotate" from="0 12 12" to="90 12 12" dur="${CDS.dur.base}s" calcMode="spline" keyTimes="0;1" keySplines="${CDS.ease.snap}" fill="freeze"/>`
-        : ''
-      : ''
-    const rest = r.isOpen && !r.isOpening ? ' transform="rotate(90 12 12)"' : ''
-    body = draw(`<g${rest}><path d="m9 18 6-6-6-6"/>${turn}</g>`)
-  } else body = draw(iconPaths(fileKind(r.name)))
+  const w = x + (r.kind === 'dir' ? 0 : 16) || 1
+  const body =
+    r.kind === 'dir'
+      ? ''
+      : `<g transform="translate(${x} 0) scale(0.6667)" fill="none" stroke="${ROW.icon}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${iconPaths(fileKind(r.name))}</g>`
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="16" viewBox="0 0 ${w} 16">${body}</svg>`
 }
 
 /**
- * One row of the tree, the whole row its press. A surface paints a `position: absolute` Box over the
- * flow, so the content is in the flow and two layers lie over it: the selection, drawn as CDS draws it
- * (white at 15% over the row, rounded), and the press, a plain Button whose own hover is the app's ghost
- * hover. Lean on purpose: a pane's whole drawing is held to 100,000 characters.
+ * One row of the tree. Its press is a real Button whose face is the folder's disclosure (▸ ▾, as the
+ * app's Environment panel discloses) and the name, so the app's own rounded hover and focus ring sit on
+ * exactly what is clicked; nothing is laid over the row. The indent and a file's icon lead it, the
+ * column and git's marks follow it, and the selection lies over the whole row (white at 15%, rounded).
+ * Lean on purpose: a pane's whole drawing is held to 100,000 characters.
  */
 export function appRow(k: Kit, r: AppRow, onPress: () => unknown): RenderChildren {
   const { Box, Text, Button } = k.els
   if (!('Svg' in k.els)) return null
   const { Svg } = k.els as unknown as { Svg: ElementConstructor<SvgProps> }
+  const disclose = r.kind === 'dir' ? (r.isOpen ? '▾' : '▸') : ''
   return (
-    <Box key={`row-${r.id}`} position="relative" flexDirection="row" alignItems="center" gap="sm" paddingX="sm" paddingY="xs" flexShrink={0}>
-      <Svg source={lead(r)} alt={r.kind === 'dir' ? 'Folder' : 'File'} width={r.depth * ROW.indent + 16} height={16} {...(r.isOpening ? { isInteractive: true } : {})} />
+    <Box key={`row-${r.id}`} position="relative" flexDirection="row" alignItems="center" gap="xs" paddingX="xs" flexShrink={0}>
+      <Svg source={lead(r)} alt={r.kind === 'dir' ? 'Folder' : 'File'} width={r.depth * ROW.indent + (r.kind === 'dir' ? 0 : 16) || 1} height={16} />
       <Box flexShrink={1} overflow="hidden">
-        <Text
-          wrap="truncate-end"
-          {...(r.color ? { color: r.color } : r.isDim ? { dimColor: true } : {})}
-          {...(r.isGone ? { strikethrough: true } : {})}
-        >
-          {r.name}
-        </Text>
+        <Button key={`open-${r.id}`} plain onPress={onPress}>
+          {disclose ? <Text dimColor>{`${disclose} `}</Text> : null}
+          <Text
+            {...(r.color ? { color: r.color } : r.isDim ? { dimColor: true } : {})}
+            {...(r.isGone ? { strikethrough: true } : {})}
+          >
+            {r.name}
+          </Text>
+        </Button>
       </Box>
       {r.pulse ? gWorkingDot(k, `dot-${r.id}`, r.pulse, 12, r.isStill) : null}
       <Box flexGrow={1} />
@@ -108,11 +104,6 @@ export function appRow(k: Kit, r: AppRow, onPress: () => unknown): RenderChildre
           {gSheen(k, `sheen-${r.id}`, r.pulse)}
         </Box>
       ) : null}
-      <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="column" overflow="hidden">
-        <Button key={`open-${r.id}`} plain onPress={onPress}>
-          <Text color="#00000000">{'\u00a0\u00a0'}</Text>
-        </Button>
-      </Box>
     </Box>
   )
 }
