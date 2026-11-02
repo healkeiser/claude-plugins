@@ -97,7 +97,7 @@ import {
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, usageColor } from './app'
+import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, gWorkingDot, usageColor } from './app'
 import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
 import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence, clockAt } from './style'
 
@@ -1813,7 +1813,7 @@ export const register: Register = (on, options) => {
           : null
       const model = gSection(
         k,
-        { key: 'g-model', title: modelName, meta: m.isRunning ? <Text color={C.main}>Working</Text> : muted('Idle') },
+        { key: 'g-model', title: modelName, meta: m.isRunning ? <Box flexDirection="row" alignItems="center" gap="xs">{gWorkingDot(k, 'g-model-dot')}<Text dimColor>Working</Text></Box> : muted('Idle') },
         ...(m.effort ? [gRow(k, { key: 'g-effort', icon: 'effort', label: 'Effort', value: sentence(m.effort) })] : []),
         ...(m.mode ? [gRow(k, { key: 'g-mode', icon: 'mode', label: 'Mode', value: sentence(m.mode) })] : []),
         ...(rp?.isRepo ? [gRow(k, { key: 'g-branch', icon: 'branch', label: rp.branch, ...(changes ? { sub: changes } : {}) })] : []),
@@ -1848,7 +1848,7 @@ export const register: Register = (on, options) => {
             ...cards.slice(-8).reverse().map(c =>
               gRow(k, {
                 key: `g-agent-${c.id}`,
-                lead: <Text color={statusColor(c)}>{glyph(c)}</Text>,
+                lead: c.status === 'running' ? gWorkingDot(k, `g-agent-dot-${c.id}`, APP.blue) : <Text color={statusColor(c)}>{glyph(c)}</Text>,
                 label: cardTitle(c),
                 sub: `${c.type}${c.model && prettyModel(c.model) !== modelName ? ` · ${prettyModel(c.model)}` : ''}`,
                 value: c.spawnedAt > 0 ? fmtTimer((c.endedAt ?? now) - c.spawnedAt) : '',

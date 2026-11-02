@@ -11,7 +11,7 @@ import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
-import { APP, gBar, gIconButton, gRow, gUsage } from './app'
+import { APP, gBar, gIconButton, gRow, gUsage, gWorkingDot } from './app'
 import { SPACE, bar as kitBar, cardFrame, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
   GLYPH, LIMIT_WINDOW_MS, ROLE, glyphSet, glyphTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
@@ -936,6 +936,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
       return (
         <Box flexDirection="column" gap="md" paddingX="sm" paddingY="xs">
           <Box flexDirection="row" alignItems="center" gap="sm">
+            {isWorking ? gWorkingDot(k, 'band-dot') : null}
             <Text weight="semibold">{head}</Text>
             {meta ? <Text dimColor size="footnote">{meta}</Text> : null}
             <Box flexGrow={1} />

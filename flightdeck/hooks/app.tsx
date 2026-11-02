@@ -320,20 +320,140 @@ export function gBar(k: Kit, o: { key: string; alt: string; segments: readonly {
   const Svg = svgOf(k)
   if (!Svg) return null
   let x = 0
+  const before = barWidths.get(o.key) ?? []
+  const widths: number[] = []
   const rects = o.segments
     .filter(sg => sg.share > 0)
-    .map(sg => {
+    .map((sg, i) => {
       const w = Math.max(1.2, Math.min(100 - x, sg.share * 100))
-      const r = `<rect x="${x.toFixed(2)}%" width="${w.toFixed(2)}%" height="6" fill="${sg.color}"/>`
+      widths.push(w)
+      // A reading that changed glides from where it was, as the app's bars do (--cds-dur-slow, ease-out).
+      const from = before[i]
+      const glide = from !== undefined && Math.abs(from - w) > 0.05 ? `<animate attributeName="width" from="${from.toFixed(2)}%" to="${w.toFixed(2)}%" dur="${CDS.dur.slow}s" calcMode="spline" keyTimes="0;1" keySplines="${CDS.ease.out}" fill="freeze"/>` : ''
+      const r = `<rect x="${x.toFixed(2)}%" width="${w.toFixed(2)}%" height="6" fill="${sg.color}">${glide}</rect>`
       x += w
       return r
     })
     .join('')
+  barWidths.set(o.key, widths)
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="6"><title>${svgEsc(o.alt)}</title>` +
     `<defs><clipPath id="c"><rect width="100%" height="6" rx="3"/></clipPath></defs>` +
     `<g clip-path="url(#c)"><rect width="100%" height="6" fill="${APP.track}" fill-opacity="0.2"/>${rects}</g></svg>`
-  return <Svg key={o.key} source={source} alt={o.alt} height={6} />
+  return <Svg key={o.key} source={source} alt={o.alt} height={6} isInteractive />
+}
+
+/** Each bar's last widths, by key: a new reading glides from them. */
+const barWidths = new Map<string, number[]>()
+
+// ---------------------------------------------------------------- motion, as the app moves
+//
+// The app's own keyframes, redrawn as SVG animation (a mod has no CSS): the same shapes, durations and
+// easings as its stylesheet's `cds-*` animations. Each is drawn `isInteractive`, where animation runs.
+
+/**
+ * The app's working dot (cds-working-dot-halo): a dot with a halo that breathes out to 1.5× and back
+ * every 2.5s, ease-in-out. For anything running: a turn, an agent, a file Claude is on.
+ */
+export function gWorkingDot(k: Kit, key: string, color: string = CDS.clay, size = 12, isStill = false): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
+  const c = size / 2
+  const r = size / 4
+  const ease = `calcMode="spline" keyTimes="0;0.5;1" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"`
+  return (
+    <Svg
+      key={key}
+      source={
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+        (isStill
+          ? ''
+          : `<circle cx="${c}" cy="${c}" r="${r}" fill="${color}" opacity="0">` +
+            `<animate attributeName="r" values="${r};${r * 1.5 * 1.33};${r}" dur="2.5s" repeatCount="indefinite" ${ease}/>` +
+            `<animate attributeName="opacity" values="0;0.3;0" dur="2.5s" repeatCount="indefinite" ${ease}/></circle>`) +
+        `<circle cx="${c}" cy="${c}" r="${r}" fill="${color}"/></svg>`
+      }
+      alt="Working"
+      width={size}
+      height={size}
+      isInteractive
+    />
+  )
+}
+
+/**
+ * The app's shimmer (cds-shimmer-text-band): a soft band of light crossing its region every 3s, held at
+ * each end, on cubic-bezier(.714,.121,.211,.888). Drawn as a layer over a row, in a tone, faint.
+ */
+export function gSheen(k: Kit, key: string, color: string, tall = 32): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
+  const id = `s${key.replace(/[^a-zA-Z0-9]/g, '').slice(-12)}`
+  return (
+    <Svg
+      key={key}
+      source={
+        `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${tall}">` +
+        `<defs><linearGradient id="${id}" x1="0" x2="1" y1="0" y2="0.2"><stop offset="0" stop-color="${color}" stop-opacity="0"/>` +
+        `<stop offset="0.5" stop-color="${color}" stop-opacity="0.16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient>` +
+        `<clipPath id="${id}c"><rect width="100%" height="${tall}" rx="${CDS.radius.xs}"/></clipPath></defs>` +
+        `<g clip-path="url(#${id}c)"><rect y="0" width="50%" height="${tall}" fill="url(#${id})">` +
+        `<animate attributeName="x" values="-50%;-50%;100%;100%" keyTimes="0;0.15;0.85;1" dur="3s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;0.714 0.121 0.211 0.888;0 0 1 1"/>` +
+        `</rect></g></svg>`
+      }
+      alt="Claude is on this"
+      height={tall}
+      isInteractive
+    />
+  )
+}
+
+/**
+ * The app's skeleton (cds-skeleton-breathe and cds-skeleton-sweep): a rounded placeholder that breathes
+ * to 60% and back while a sheen sweeps it every 2s; for a figure still being read (a size, a line count).
+ */
+export function gSkeleton(k: Kit, key: string, width = 36, tall = 8): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
+  return (
+    <Svg
+      key={key}
+      source={
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${tall}" viewBox="0 0 ${width} ${tall}">` +
+        `<defs><linearGradient id="k" x1="0" x2="1"><stop offset="0.35" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.12"/><stop offset="0.65" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+        `<clipPath id="kc"><rect width="${width}" height="${tall}" rx="${tall / 2}"/></clipPath></defs>` +
+        `<g clip-path="url(#kc)"><rect width="${width}" height="${tall}" fill="#ffffff" fill-opacity="0.08">` +
+        `<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/></rect>` +
+        `<rect width="${width}" height="${tall}" fill="url(#k)"><animate attributeName="x" from="${-width}" to="${width}" dur="2s" repeatCount="indefinite"/></rect></g></svg>`
+      }
+      alt="Loading"
+      width={width}
+      height={tall}
+      isInteractive
+    />
+  )
+}
+
+/** The app's spinner (spin): a quarter arc turning on a faint ring, 0.8s a turn. */
+export function gSpinner(k: Kit, key: string, color: string = APP.icon, size = 14): RenderChildren {
+  const Svg = svgOf(k)
+  if (!Svg) return null
+  const c = size / 2
+  const r = c - 1.5
+  return (
+    <Svg
+      key={key}
+      source={
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-opacity="0.25" stroke-width="1.5"/>` +
+        `<path d="M${c} ${c - r}a${r} ${r} 0 0 1 ${r} ${r}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round">` +
+        `<animateTransform attributeName="transform" type="rotate" from="0 ${c} ${c}" to="360 ${c} ${c}" dur="0.8s" repeatCount="indefinite"/></path></svg>`
+      }
+      alt="Running"
+      width={size}
+      height={size}
+      isInteractive
+    />
+  )
 }
 
 /** A usage reading's colour, as the app's: blue, red from 80%. */

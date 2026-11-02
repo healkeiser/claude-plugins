@@ -211,7 +211,7 @@ How the app kit draws what the element set cannot say directly:
 - **Tabs** (`gTabs`): the app's pane tabs, 28px, the active one on the ghost-selected ground, every one with the ghost hover.
 - **Search** (`search` in the kit): the field drawn the pane's width with the search icon inside (`gField`), the surface's Input inside it on the same fill. The Input keeps a width of its own; its edge shows faintly inside the field.
 - **The head**: the title grey, the detail in the text colour, icon buttons right, then a 1px rule (`gRule`, `#353535`).
-- **Motion** is SVG animation on CDS's durations and easings: a folder's chevron turns as it opens, a file Claude is on pulses a dot in its tone, a running git action spins.
+- **Motion** is the app's own keyframes redrawn as SVG animation (a mod has no CSS), on CDS's durations and easings: `gWorkingDot` (cds-working-dot-halo: a halo breathing to 1.5x every 2.5s) on anything running (a turn in Pulse, the model and each running agent in Flightdeck, a file Claude is on), `gSheen` (cds-shimmer-text-band: a soft band crossing the row every 3s) over a file Claude is on, `gSkeleton` (cds-skeleton-breathe and -sweep, 2s) where a size or line count is still being read, `gSpinner` (spin, 0.8s) for a running git action, `gBar` readings gliding from their last value (--cds-dur-slow, ease-out), and a folder's chevron turning as it opens (--cds-dur-base, ease-snap). Motion off or Reduce motion on: the dot holds still and no sheen crosses.
 - **Size.** A pane's whole drawing is held to 100,000 characters: keep rows lean (the Files tree fits 60 rows and cuts the rest with a note).
 
 The parts, each copied from a native panel:

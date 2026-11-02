@@ -14,9 +14,9 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
-import { CDS, gIcon, type IconName } from './app'
+import { CDS, gIcon, gSpinner, type IconName } from './app'
 import { SPACE, footer as kitFooter, header as kitHeader, kit, nerdFont, search as kitSearch, space } from './kit'
-import { type AppRow, appRow, spinner } from './appTree'
+import { type AppRow, appRow } from './appTree'
 import { canRamp, cellWidth, GLYPH, motionOn } from './style'
 import { bump, decay, heatOf, heatSegs, heatWidth, merge, rollHeat } from './heat'
 import { blockDiff, changeMarks, compareView, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
@@ -2535,8 +2535,10 @@ export const register: Register = (on, options) => {
           ...(gitColor ? { color: gitColor } : {}),
           ...(status === 'D' && n.kind !== 'dir' ? { isGone: true } : {}),
           ...(isIgnored || n.hidden ? { isDim: true } : {}),
+          ...(isStill ? { isStill: true } : {}),
           ...(lit ? { pulse: TONES[t.flashTones[n.id] ?? 'orange']?.solid ?? '#f97316' } : {}),
           ...(meta ? { meta } : {}),
+          ...((t.column === 'size' && n.kind === 'dir' && !(n.id in t.dirSizes)) || (t.column === 'loc' && !locCache.has(n.id) && (n.kind === 'dir' || counted(n.name))) ? { isLoading: true } : {}),
           badges,
         }
         const el = appRow(k, row, async () => {
@@ -2578,7 +2580,7 @@ export const register: Register = (on, options) => {
           <Box flexGrow={1} />
           {running ? (
             <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={0}>
-              <Svg source={spinner()} alt={`${running.label} running`} width={14} height={14} isInteractive />
+              {gSpinner(k, 'app-branch-spin')}
               <Text dimColor size="footnote">{`${running.label}…`}</Text>
             </Box>
           ) : totals[0] || totals[1] ? (
