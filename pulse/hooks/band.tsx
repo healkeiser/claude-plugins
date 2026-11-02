@@ -11,7 +11,8 @@ import { took } from './bash'
 import { cacheLeft, cacheUsed, countdown, countWorktrees, fit, parseCommits, parseGitStatus, parseLastCommit, parseNumstat, statusLetters, svgMeter } from './glance'
 import type { Piece } from './glance'
 import { elapsed, summarize } from './label'
-import { APP, SPACE, bar as kitBar, cardFrame, gBar, gRow, gUsage, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
+import { APP, gBar, gIconButton, gRow, gUsage } from './app'
+import { SPACE, bar as kitBar, cardFrame, nerdFont, progress, header as kitHeader, kit, pctColor as kitPct, tabs as kitTabs, tabsWidth } from './kit'
 import {
   GLYPH, LIMIT_WINDOW_MS, ROLE, glyphSet, glyphTree, canRamp, cellWidth, clip, count, forecast, forecastLabel, isAsciiGlyphs, isFading, padCells,
   plural, span, spin, usd, wholePct,
@@ -341,7 +342,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
     const fold = isTerm ? (
       <Button key="fold" plain label={v.isOpen ? '▾' : '▴'} dimColor onPress={() => pressFold($)} />
     ) : (
-      <Button key="fold" label={v.isOpen ? 'Collapse' : 'Expand'} onPress={() => pressFold($)} />
+      gIconButton(k, { key: 'fold', icon: v.isOpen ? 'chevronDown' : 'chevronUp', label: v.isOpen ? 'Collapse' : 'Expand', onPress: () => pressFold($) })
     )
 
     // ---- folded: one row, never wrapped; the least important pieces leave first
@@ -939,7 +940,7 @@ export function registerBand(on: On, options: PluginOptions, isMoving: () => boo
             {meta ? <Text dimColor size="footnote">{meta}</Text> : null}
             <Box flexGrow={1} />
             {tabRow(t => t.title)}
-            <Button key="fold" label="Collapse" onPress={() => pressFold($)} />
+            {fold}
           </Box>
           <Box flexDirection="column" gap="sm">
             {appRows(tab.id)}

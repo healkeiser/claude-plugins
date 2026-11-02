@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { PromptsCursor, PromptsQuery, PromptsQueue, PromptsSent, PromptsSentAt, PromptsShell, PromptsShellRun, PromptsTab, PromptsVersion, QueuedPrompt } from '../types'
 import { isQueueable, moveQueued } from './queue'
+import { gIconButton } from './app'
 import { SPACE, actionsWidth, card, cardFrame, header, kit, nerdFont, search as kitSearch, space, tabs } from './kit'
 import type { Kit } from './kit'
 import { GLYPH, ROLE, glyphSet, glyphTree, cellWidth, clip, isAsciiGlyphs, padCells, remember, span } from './style'
@@ -165,6 +166,23 @@ function queueRows($: EngineInterface, k: Kit, q: PromptsQueue, w: number, keyOf
   const textW = Math.max(1, w - 3 - (hasActions ? ACT : 0))
   return q.items.map((item, i) => {
     const line = untagged(item.text).split(/\r?\n/).find(l => l.trim()) ?? item.text
+    // A graphical surface: a row as the app's lists draw one, its controls as icon buttons.
+    if (!k.isTerm) {
+      return (
+        <Box key={`${keyOf}-${item.id}`} flexDirection="row" alignItems="center" gap="sm">
+          <Text dimColor tabular>{`${i + 1}`}</Text>
+          <Box flexGrow={1} flexShrink={1} overflow="hidden">
+            <Text wrap="truncate-end" {...(q.isHeld ? { dimColor: true } : {})}>{line}</Text>
+          </Box>
+          <Box flexDirection="row" flexShrink={0}>
+            {gIconButton(k, { key: `${keyOf}-up-${i}`, icon: 'chevronUp', label: 'Move up', onPress: () => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, -1) })) })}
+            {gIconButton(k, { key: `${keyOf}-down-${i}`, icon: 'chevronDown', label: 'Move down', onPress: () => void setQueue($, x => ({ ...x, items: moveQueued(x.items, item.id, 1) })) })}
+            {gIconButton(k, { key: `${keyOf}-edit-${i}`, icon: 'edit', label: 'Edit', onPress: () => void editQueued($, item) })}
+            {gIconButton(k, { key: `${keyOf}-drop-${i}`, icon: 'clear', label: 'Remove', onPress: () => void setQueue($, x => ({ ...x, items: x.items.filter(y => y.id !== item.id) })) })}
+          </Box>
+        </Box>
+      )
+    }
     return (
       <Box key={`${keyOf}-${item.id}`} flexDirection="row">
         <Text color={ROLE.chrome} tabular>{`${i + 1}`.padStart(2)}</Text>
@@ -184,13 +202,16 @@ function queueRows($: EngineInterface, k: Kit, q: PromptsQueue, w: number, keyOf
   })
 }
 
+/** A control's word: lower case in the terminal, sentence case where the app draws its own buttons. */
+const sentenceIf = (k: Kit, s: string) => (k.isTerm ? s : s.charAt(0).toUpperCase() + s.slice(1))
+
 /** The queue's own controls: hold or resume, and clear. */
 function queueActions($: EngineInterface, k: Kit, q: PromptsQueue, keyOf: string) {
   const { Box, Button } = k.els
   return (
     <Box flexDirection="row" columnGap={2} flexShrink={0}>
-      <Button key={`${keyOf}-hold`} plain dimColor label={q.isHeld ? 'resume' : 'hold'} onPress={() => void toggleHold($)} />
-      <Button key={`${keyOf}-clear`} plain dimColor label="clear" onPress={() => void setQueue($, x => ({ ...x, items: [] }))} />
+      <Button key={`${keyOf}-hold`} plain dimColor label={sentenceIf(k, q.isHeld ? 'resume' : 'hold')} onPress={() => void toggleHold($)} />
+      <Button key={`${keyOf}-clear`} plain dimColor label={sentenceIf(k, 'clear')} onPress={() => void setQueue($, x => ({ ...x, items: [] }))} />
     </Box>
   )
 }
@@ -481,8 +502,8 @@ export const register: Register = (on, options) => {
         ? q ? `${shown.length} of ${runs.length}` : `${runs.length}`
         : q ? `${list.length} of ${all.length}` : `${all.length}`
     const actions = [
-      { id: 'prev', label: 'prev', action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
-      { id: 'next', label: 'next', action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
+      { id: 'prev', label: 'prev', icon: 'chevronUp' as const, action: 'app:diffFileListUp', onPress: () => walk($, ids(), -1) },
+      { id: 'next', label: 'next', icon: 'chevronDown' as const, action: 'app:diffFileListDown', onPress: () => walk($, ids(), 1) },
     ]
     const hasMeta = inner >= cellWidth(` ${TITLE} `) + 1 + cellWidth(detail) + 3 + actionsWidth(actions)
     // Row columns: cursor mark, number, words, age, actions. Narrow, the age goes, then the actions, then words.
@@ -529,9 +550,9 @@ export const register: Register = (on, options) => {
                 )}
                 {hasRun && (
                   <Box flexDirection="row" marginLeft={1} flexShrink={0}>
-                    <Button key={`y${row}`} plain dimColor onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>copy</Button>
+                    <Button key={`y${row}`} plain dimColor onPress={press => void $.ui.copy({ text: r.command, surface: press.surface }).then(x => $.ui.toast(x.isCopied ? 'Copied.' : "Couldn't copy."))}>{sentenceIf(k, 'copy')}</Button>
                     <Text> </Text>
-                    <Button key={`x${row}`} plain dimColor onPress={() => void rerun($, r.command)}>run</Button>
+                    <Button key={`x${row}`} plain dimColor onPress={() => void rerun($, r.command)}>{sentenceIf(k, 'run')}</Button>
                   </Box>
                 )}
               </Box>
@@ -613,9 +634,9 @@ export const register: Register = (on, options) => {
                 )}
                 {hasActions && (
                   <Box flexDirection="row" marginLeft={1} flexShrink={0}>
-                    <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>edit</Button>
+                    <Button key={`e${p.n}`} plain dimColor onPress={() => void edit($, p.text)}>{sentenceIf(k, 'edit')}</Button>
                     <Text> </Text>
-                    <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>re-send</Button>
+                    <Button key={`s${p.n}`} plain dimColor onPress={() => void resend($, p.text)}>{sentenceIf(k, 're-send')}</Button>
                   </Box>
                 )}
               </Box>

@@ -374,23 +374,24 @@ test('desktop: SVG meters that glide, wider buttons, the same glyphs', async ($,
   const { clock, world } = engine(on)
   await runTurn($, clock, world)
   const ui = await mount($, 'desktop')
+  // The app's own controls: its ghost tabs, each pressed by `tab-<id>`, and an icon button to unfold.
   const buttons = await ui.findAll({ type: 'Button' })
-  expect(buttons.map(b => b.props.label)).toEqual(['Activity', 'Context & cache', 'Turn', 'Git', 'Checks', 'Expand'])
-  expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
+  expect(['tab-activity', 'tab-context', 'tab-turn', 'tab-git', 'tab-checks', 'fold'].filter(key => !buttons.some(b => b.key === key))).toEqual([])
   const svg = await ui.find({ type: 'Svg' })
   expect(String(svg?.props.source)).toContain('linearGradient')
   expect(svg?.props.isInteractive).toBe(true)
   expect(await look(ui)).toContain('✓ 1m 05s')
   await ui.press({ key: 'fold' })
   await ui.press({ key: 'tab-context' })
-  expect((await ui.findAll({ type: 'Button' })).find(b => b.key === 'tab-context')?.props.variant).toBe('primary')
+  // The active tab sits on the app's ghost-selected ground.
+  expect(await ui.find({ key: 'tabg-context' })).toBeDefined()
   const first = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source))
   // The open band draws its readings as Settings > Usage draws them: a thin bar per reading.
   expect(first.some(s => s.includes('<title>Context: 64% used'))).toBe(true)
   // Every tab draws on desktop: hover reveals sit inside keyed rows.
   for (const key of ['tab-activity', 'tab-turn', 'tab-git']) {
     await ui.press({ key })
-    expect(await look(ui)).toContain('Collapse')
+    expect(await look(ui)).toContain('Done')
   }
   await ui.press({ key: 'tab-context' })
   await ui.unmount()

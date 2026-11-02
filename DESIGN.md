@@ -199,7 +199,22 @@ Desktop, VS Code and mobile already draw the transcript well: proportional type,
 | flightdeck pane | text meters, sparklines, rails | SVG meters and sparklines that glide, SVG swimlanes | same | same | no surface has a dashboard |
 | filetree pane | yes | yes, native scroll | - | - | it draws through `Client` regions, which VS Code and mobile do not have |
 
-A graphical pane or band is drawn as the desktop app draws its own panels, never as the terminal drawing translated. The kit's `g*` parts in `shared/kit.tsx` are the only way to draw one, each copied from a native panel (sampled from the app, dark theme):
+A graphical pane or band is drawn as the desktop app draws its own panels, never as the terminal drawing translated. There are two kits: `shared/kit.tsx` for the terminal, `shared/app.tsx` for graphical surfaces. The app kit's values are the Claude Design System's (`CDS`), read from the desktop app's own stylesheet (`docs/cds/tokens.txt` keeps the extract: `--cds-fill-ghost-hover`, `--cds-fill-ghost-selected`, `--cds-text-git-*`, `--cds-radius--*`, `--cds-dur-*`, `--cds-ease-*`) and checked pixel for pixel against the app's Environment, Files and Usage panels.
+
+How the app kit draws what the element set cannot say directly:
+
+- **Never a `Client` on a graphical surface.** The desktop lays a `Client` out as a terminal grid, which is what made Files look like a terminal. Trees and lists are native Boxes.
+- **Layers.** A `position: absolute` Box paints over the flow, so a row's content is in the flow and its selection (white at 15%, `ghostSelectedOver`, rounded by `gGround`) and its press lie over it.
+- **Presses.** Only a Button takes one. A plain Button with a blank face (two no-break spaces, transparent) lies over the region and stretches to it; its own hover is the app's ghost hover, rounded, so a row needs no hover of its own. Never braille blanks (the app's font draws them as dots), never a long face (the button draws its own ellipsis), never `label` with children (the label wins).
+- **Rounded grounds** are two SVG caps and a stretching Box between them: an SVG with no pixel width is 300px wide.
+- **Icon buttons** (`gIconButton`): the outline icon (Lucide shapes) in a 28px square, the active one on the ghost-selected square, the press over it carrying the action's key.
+- **Tabs** (`gTabs`): the app's pane tabs, 28px, the active one on the ghost-selected ground, every one with the ghost hover.
+- **Search** (`search` in the kit): the field drawn the pane's width with the search icon inside (`gField`), the surface's Input inside it on the same fill. The Input keeps a width of its own; its edge shows faintly inside the field.
+- **The head**: the title grey, the detail in the text colour, icon buttons right, then a 1px rule (`gRule`, `#353535`).
+- **Motion** is SVG animation on CDS's durations and easings: a folder's chevron turns as it opens, a file Claude is on pulses a dot in its tone, a running git action spins.
+- **Size.** A pane's whole drawing is held to 100,000 characters: keep rows lean (the Files tree fits 60 rows and cuts the rest with a note).
+
+The parts, each copied from a native panel:
 
 | Part | Copied from | What it is |
 | --- | --- | --- |

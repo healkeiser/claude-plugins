@@ -97,7 +97,8 @@ import {
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { APP, SPACE, cardFrame, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, header, kit, nerdFont, space, usageColor } from './kit'
+import { APP, gBar, gChartRow, gLegend, gPane, gRow, gSection, gUsage, usageColor } from './app'
+import { SPACE, cardFrame, header, kit, nerdFont, space } from './kit'
 import { GLYPH, HEAT_RAMP, HEAT_UNLIT, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, meterShare, motionOn, pace, paceLabel, percent, sentence, clockAt } from './style'
 
 const PANE = 'flightdeck'

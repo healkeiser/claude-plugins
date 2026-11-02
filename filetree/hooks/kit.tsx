@@ -6,6 +6,7 @@
 import type { ElementConstructor, EngineInterface, RenderChildren, RenderElement, SvgProps } from 'claude-code'
 
 import { GLYPH, ROLE, cellWidth, heat, heatHex, heatRuns, meter, padCells, sentence, wholePct } from './style'
+import { gField, gFieldSpacer, gIcon, gIconButton, gRule, gTabs, type IconName } from './app'
 
 /** The elements a surface draws with, as `$.ui.resolve(e)` returns them. */
 export type Els = ReturnType<EngineInterface['ui']['resolve']>
@@ -39,6 +40,8 @@ export type Action = {
   /** A press; a promise it returns is awaited by the surface. */
   onPress?: () => unknown
   node?: RenderChildren
+  /** On a graphical surface: the outline icon it is drawn as, an icon button as the app's panels head theirs. */
+  icon?: IconName
 }
 
 /**
@@ -127,9 +130,16 @@ export function header(
   // action's words stand grey before the actions, cut to the row.
   if (!k.isTerm) {
     return (
-      <Box key="kit-header" flexDirection="row" alignItems="center" gap="sm" flexShrink={0}>
-        <Text wrap="truncate-end">{sentence(o.title)}</Text>
-        {o.detail ? <Text dimColor wrap="truncate-start">{o.detail}</Text> : null}
+      <Box key="kit-header" flexDirection="column" gap="sm" flexShrink={0}>
+      <Box key="kit-header-row" flexDirection="row" alignItems="center" gap="sm" flexShrink={0}>
+        <Box flexShrink={0}>
+          <Text dimColor>{sentence(o.title)}</Text>
+        </Box>
+        {o.detail ? (
+          <Box flexShrink={1} overflow="hidden">
+            <Text wrap="truncate-start">{o.detail}</Text>
+          </Box>
+        ) : null}
         {o.status ?? null}
         <Box flexGrow={1} />
         {o.hint ? (
@@ -137,7 +147,15 @@ export function header(
             <Text dimColor wrap="truncate-end">{o.hint}</Text>
           </Box>
         ) : null}
-        {actions.map(a => a.node ?? <Button key={a.id} label={a.label} {...(a.isOn ? { variant: 'primary' as const } : {})} onPress={a.onPress ?? (() => undefined)} />)}
+        <Box flexDirection="row" alignItems="center" flexShrink={0}>
+          {actions.map(a =>
+            a.icon
+              ? gIconButton(k, { key: a.id, icon: a.icon, label: a.label, ...(a.isOn ? { isOn: true } : {}), ...(a.action ? { action: a.action } : {}), onPress: a.onPress ?? (() => undefined) })
+              : (a.node ?? <Button key={a.id} label={a.label} {...(a.isOn ? { variant: 'primary' as const } : {})} onPress={a.onPress ?? (() => undefined)} />),
+          )}
+        </Box>
+      </Box>
+      {gRule(k, 'kit-header-rule')}
       </Box>
     )
   }
@@ -194,13 +212,11 @@ export const tabsWidth = (items: readonly { label: string }[]): number =>
 export function tabs(k: Kit, o: { items: readonly TabItem[]; active: string | null; onPick: (id: string) => void; role?: string }): RenderChildren {
   const { Box, Text, Button } = k.els
   const role = o.role ?? ROLE.accent
+  if (!k.isTerm) return gTabs(k, o)
   return (
     <Box key="kit-tabs" flexDirection="row" columnGap={SPACE.gap} flexShrink={0}>
       {o.items.map(t => {
         const isActive = t.id === o.active
-        if (!k.isTerm) {
-          return <Button key={`tab-${t.id}`} label={sentence(t.label)} {...(isActive ? { variant: 'primary' as const } : {})} onPress={() => o.onPick(t.id)} />
-        }
         return (
           <Button key={`tab-${t.id}`} plain {...(t.hotkey ? { hotkey: t.hotkey } : {})} onPress={() => o.onPick(t.id)}>
             {isActive ? <Text inverse weight="bold">{` ${sentence(t.label)} `}</Text> : <Text dimColor>{` ${sentence(t.label)} `}</Text>}
@@ -239,22 +255,30 @@ export function search(
   const { Box, Text, Button, Input } = k.els
   const id = o.id ?? 'search'
   const isLive = o.value !== ''
-  // A graphical surface draws its own field: no frame, no glyph, the count beside it.
+  // A graphical surface: the app's filter field (Files: "Filter, or ? to search in files"), as wide as
+  // the pane, its search icon inside. The surface's Input has a width of its own and no icon, so the
+  // field is drawn under it (gField) and the Input sits in it on the same fill.
   if (!k.isTerm) {
     return (
-      <Box key={`${id}-bar`} flexDirection="row" alignItems="center" gap="sm" flexShrink={0}>
-        <Box flexGrow={1}>
-          <Input
-            key={id}
-            placeholder={sentence(o.placeholder)}
-            value={o.value}
-            submitLabel={sentence(o.submitLabel ?? 'jump')}
-            {...(o.autoFocus ? { autoFocus: true } : {})}
-            onInput={(v: string) => o.onInput(v)}
-            onSubmit={(v: string) => o.onSubmit?.(v)}
-          />
+      <Box key={`${id}-bar`} position="relative" flexDirection="row" flexShrink={0} marginBottom="sm">
+        {gFieldSpacer(k, `${id}-room`)}
+        <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row">
+          {gField(k, `${id}-field`)}
         </Box>
-        {isLive && o.count ? <Text dimColor size="footnote">{o.count}</Text> : null}
+        <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="center" gap="xs" paddingLeft="sm">
+          {gIcon(k, `${id}-icon`, 'search')}
+          <Box flexGrow={1} flexDirection="column">
+            <Input
+              key={id}
+              placeholder={sentence(o.placeholder)}
+              value={o.value}
+              {...(o.autoFocus ? { autoFocus: true } : {})}
+              onInput={(v: string) => o.onInput(v)}
+              onSubmit={(v: string) => o.onSubmit?.(v)}
+            />
+          </Box>
+          {isLive && o.count ? <Box flexShrink={0} paddingRight="sm"><Text dimColor size="footnote">{o.count}</Text></Box> : null}
+        </Box>
       </Box>
     )
   }
@@ -509,211 +533,3 @@ export async function nerdFont($: EngineInterface): Promise<'ok' | 'stale' | 'mi
     return 'missing'
   }
 }
-
-// ---------------------------------------------------------------- graphical surfaces
-
-// The desktop app, VS Code and mobile draw in their own type. There a pane is drawn as the app draws its
-// own panels, part for part: the Environment panel for sections (a plain title, the same size and weight
-// as its rows; rows of one line, an outline icon in a grey column, the label, a grey detail after it, the
-// value right; a hairline between sections), Settings > Usage for limits (the name with its reset under
-// it, a long thin bar, `97% used` right) and the Context panel for a legend (a rounded colour square, the
-// label, the value right). Its colours are the app's own: a usage bar blue, red near its limit, on a faint
-// track; icons and details grey. The terminal keeps the parts above.
-
-/** The app's usage colours: its bars' blue, and the red it turns near a limit. */
-export const APP = { blue: '#257de0', red: '#dc3c3d', track: '#7f7f7f', icon: '#9c9c9c' } as const
-
-/** Whether the surface draws in its own type (desktop, VS Code, mobile) rather than terminal cells. */
-export const isGraphical = (k: Kit): boolean => !k.isTerm
-
-const svgEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-const svgOf = (k: Kit) => ('Svg' in k.els ? (k.els as unknown as { Svg: ElementConstructor<SvgProps> }).Svg : null)
-
-/** A hairline as the Environment panel draws between its sections: 1px, faint, the pane's width. */
-export function gDivider(k: Kit, key: string): RenderChildren {
-  const Svg = svgOf(k)
-  if (!Svg) return null
-  return (
-    <Svg
-      key={key}
-      source={`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="1"><rect width="100%" height="1" fill="${APP.track}" fill-opacity="0.25"/></svg>`}
-      alt="Separator"
-      height={1}
-    />
-  )
-}
-
-/** A pane on a graphical surface: its sections one under the other, a hairline between each two. */
-export function gPane(k: Kit, ...children: RenderChildren[]): RenderElement {
-  const { Box } = k.els
-  const shown = children.filter(c => c !== null && c !== undefined && c !== false)
-  return (
-    <Box key="g-pane" flexDirection="column" gap="md" paddingY="sm">
-      {shown.flatMap((c, i) => (i ? [gDivider(k, `g-rule-${i}`), c] : [c]))}
-    </Box>
-  )
-}
-
-/**
- * A section as the Environment panel heads one: its title plain, the rows' size and weight, a muted tag
- * beside it, a meta right; its rows under.
- */
-export function gSection(
-  k: Kit,
-  o: { key: string; title: string; tag?: string; meta?: RenderChildren },
-  ...children: RenderChildren[]
-): RenderChildren {
-  const { Box, Text } = k.els
-  return (
-    <Box key={o.key} flexDirection="column" gap="sm">
-      <Box flexDirection="row" alignItems="center" gap="sm">
-        <Text wrap="truncate-end">{sentence(o.title)}</Text>
-        {o.tag ? <Text dimColor wrap="truncate-end">{o.tag}</Text> : null}
-        <Box flexGrow={1} />
-        {o.meta === undefined ? null : typeof o.meta === 'string' ? <Text dimColor wrap="truncate-end">{o.meta}</Text> : o.meta}
-      </Box>
-      {children.filter(c => c !== null && c !== undefined && c !== false)}
-    </Box>
-  )
-}
-
-/** Outline icons in the Environment panel's manner (Lucide's shapes, ISC licence), 24 units square. */
-const ICON = {
-  model: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>',
-  effort: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
-  mode: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
-  branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
-  cost: '<circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/>',
-  timer: '<path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/>',
-  edit: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
-  error: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
-  agent: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
-  tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
-  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
-} as const
-export type IconName = keyof typeof ICON
-
-/** An outline icon, 16px, in the grey the Environment panel draws its icons in. */
-export function gIcon(k: Kit, key: string, name: IconName, color: string = APP.icon): RenderChildren {
-  const Svg = svgOf(k)
-  if (!Svg) return null
-  return (
-    <Svg
-      key={key}
-      source={`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg>`}
-      alt={name}
-      width={16}
-      height={16}
-    />
-  )
-}
-
-/** A thin bar with round ends, as wide as its box: `segments` (shares of the whole, 0 to 1, each a hex colour) over a faint track. */
-export function gBar(k: Kit, o: { key: string; alt: string; segments: readonly { share: number; color: string }[] }): RenderChildren {
-  const Svg = svgOf(k)
-  if (!Svg) return null
-  let x = 0
-  const rects = o.segments
-    .filter(sg => sg.share > 0)
-    .map(sg => {
-      const w = Math.max(1.2, Math.min(100 - x, sg.share * 100))
-      const r = `<rect x="${x.toFixed(2)}%" width="${w.toFixed(2)}%" height="6" fill="${sg.color}"/>`
-      x += w
-      return r
-    })
-    .join('')
-  const source =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="6"><title>${svgEsc(o.alt)}</title>` +
-    `<defs><clipPath id="c"><rect width="100%" height="6" rx="3"/></clipPath></defs>` +
-    `<g clip-path="url(#c)"><rect width="100%" height="6" fill="${APP.track}" fill-opacity="0.2"/>${rects}</g></svg>`
-  return <Svg key={o.key} source={source} alt={o.alt} height={6} />
-}
-
-/** A usage reading's colour, as the app's: blue, red from 80%. */
-export const usageColor = (pct: number): string => (pct >= 80 ? APP.red : APP.blue)
-
-/**
- * A chart row as Settings > Usage draws one: the name, a grey line under it, a coloured note under that,
- * the chart (a bar, a sparkline) in the middle as wide as is left, the value right in grey or a colour.
- */
-export function gChartRow(
-  k: Kit,
-  o: { key: string; label: string; sub?: string; note?: string; noteColor?: string; chart: RenderChildren; value: string; valueColor?: string },
-): RenderChildren {
-  const { Box, Text } = k.els
-  return (
-    <Box key={o.key} flexDirection="row" alignItems="center" gap="lg">
-      <Box flexDirection="column" width="36%" flexShrink={0}>
-        <Text wrap="truncate-end">{o.label}</Text>
-        {o.sub ? <Text dimColor size="footnote" wrap="truncate-end">{o.sub}</Text> : null}
-        {o.note ? <Text size="footnote" wrap="wrap" {...(o.noteColor ? { color: o.noteColor } : { dimColor: true })}>{o.note}</Text> : null}
-      </Box>
-      <Box flexGrow={1} flexShrink={1} overflow="hidden">
-        {o.chart}
-      </Box>
-      <Box flexShrink={0} justifyContent="flex-end">
-        <Text size="footnote" tabular wrap="truncate-end" {...(o.valueColor ? { color: o.valueColor } : { dimColor: true })}>
-          {o.value}
-        </Text>
-      </Box>
-    </Box>
-  )
-}
-
-/**
- * A usage row as Settings > Usage draws one: the name, a grey line under it (when it resets), a long thin
- * bar in the middle, `97% used` right in grey. `note` adds a coloured line (a forecast) under the grey one.
- */
-export function gUsage(k: Kit, o: { key: string; label: string; sub?: string; note?: string; noteColor?: string; pct: number }): RenderChildren {
-  const used = `${wholePct(o.pct)}% used`
-  return gChartRow(k, {
-    ...o,
-    value: used,
-    chart: gBar(k, { key: `${o.key}-bar`, alt: `${o.label}: ${used}${o.sub ? `, ${o.sub}` : ''}`, segments: [{ share: Math.min(1, Math.max(0, o.pct / 100)), color: usageColor(o.pct) }] }),
-  })
-}
-
-/**
- * A row as the Environment panel draws one, on one line: an icon (or another lead) in its own column,
- * the label, a grey detail after it, the value right in grey (or a colour), digits of one width.
- */
-export function gRow(
-  k: Kit,
-  o: { key: string; label: string; sub?: string; value?: string; valueColor?: string; lead?: RenderChildren; icon?: IconName },
-): RenderChildren {
-  const { Box, Text } = k.els
-  const lead = o.icon ? gIcon(k, `${o.key}-icon`, o.icon) : o.lead
-  return (
-    <Box key={o.key} flexDirection="row" alignItems="center" gap="md">
-      {lead ? (
-        <Box flexShrink={0} alignItems="center" justifyContent="center">
-          {lead}
-        </Box>
-      ) : null}
-      <Box flexGrow={1} flexShrink={1} overflow="hidden">
-        <Text wrap="truncate-end">
-          {o.label}
-          {o.sub ? <Text dimColor>{` · ${o.sub}`}</Text> : null}
-        </Text>
-      </Box>
-      {o.value ? (
-        <Box flexShrink={0}>
-          <Text tabular {...(o.valueColor ? { color: o.valueColor } : { dimColor: true })}>
-            {o.value}
-          </Text>
-        </Box>
-      ) : null}
-    </Box>
-  )
-}
-
-/** A colour swatch as the Context panel's legend draws one: a small rounded square. */
-export function gSwatch(k: Kit, key: string, color: string, alt = 'swatch'): RenderChildren {
-  const Svg = svgOf(k)
-  if (!Svg) return null
-  return <Svg key={key} source={`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" rx="2.5" fill="${color}"/></svg>`} alt={alt} width={10} height={10} />
-}
-
-/** A legend row as the Context panel draws one: its swatch, the label, the value right in grey. */
-export const gLegend = (k: Kit, o: { key: string; color: string; label: string; value: string }): RenderChildren =>
-  gRow(k, { key: o.key, lead: gSwatch(k, `${o.key}-sw`, o.color, o.label), label: o.label, value: o.value })

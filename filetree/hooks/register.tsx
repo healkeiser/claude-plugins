@@ -1,4 +1,4 @@
-import { type EngineInterface, type HookStream, type ProcessSpawnResult, type Register, type RenderElement, type RenderSurface, type Timer, update } from 'claude-code'
+import { type ElementConstructor, type EngineInterface, type SvgProps, type HookStream, type ProcessSpawnResult, type Register, type RenderElement, type RenderSurface, type Timer, update } from 'claude-code'
 import { herdrError, herdrOpenCommand, herdrPane, isBinaryPath, LINUX_LAUNCH, openCommand, openWithCommand, type Target, terminalTarget, tmuxCommand, tmuxOpenCommand, words } from './open'
 import type { ButtonProps } from './button'
 import { CACHE_KEEP, cacheName, CLEAN, coderFor, EXIT_FAILED, EXIT_LOCKED, EXIT_MISSING, fitCells, PNG_DIRECT_BYTES, PNG_DIRECT_PIXELS, pictureKind, pngSize, POLICY, POSTER } from './peek'
@@ -14,7 +14,9 @@ import { CELL_PROBE, colorOf, GHOSTTY_ARGS, parseGhostty, type TermColors } from
 import type { ZoneProps } from './zone'
 import { ADD_COLOR, DEL_COLOR, type Palette, parsePalette } from './palette'
 import { CHEVRON_CLOSED, CHEVRON_OPEN, fileIcon, GIT_COLOR } from './icons'
+import { CDS, gIcon, type IconName } from './app'
 import { SPACE, footer as kitFooter, header as kitHeader, kit, nerdFont, search as kitSearch, space } from './kit'
+import { type AppRow, appRow, spinner } from './appTree'
 import { canRamp, cellWidth, GLYPH, motionOn } from './style'
 import { bump, decay, heatOf, heatSegs, heatWidth, merge, rollHeat } from './heat'
 import { blockDiff, changeMarks, compareView, type MdBlock, mdBlocks, mdWindow, tally, WIDE_COLUMNS } from './compare'
@@ -58,6 +60,8 @@ const DOUBLE_MS = 450
 const SHORTCUTS_MS = 10_000
 const FIND_LIMIT = 200
 const ROWS_BUDGET = 80_000
+// The desktop's native rows, with the header, search and branch row, under a pane's 100,000 characters.
+const APP_ROWS_BUDGET = 88_000
 const READ_REVEAL_LIMIT = 12
 const SEARCH_REVEAL_LIMIT = 60
 const ACTIVITY_TTL_MS = 45_000
@@ -1790,6 +1794,11 @@ async function toggle($: EngineInterface, n: FileNode): Promise<void> {
   void watchTree($)
 }
 
+// When each folder was first drawn open on the desktop: its chevron turns there, once.
+const openedAt = new Map<string, number>()
+/** A header button's hint as the name of the action: sentence case. */
+const sentenceHint = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
 async function press($: EngineInterface, n: FileNode): Promise<void> {
   const now = await $.clock.now()
   const isDouble = lastPress.key === n.id && now - lastPress.at < DOUBLE_MS
@@ -2359,6 +2368,7 @@ export const register: Register = (on, options) => {
       { id: 'collapse', label: unicode ? '⊟' : '\u{eac5}', dim: true, hint: 'collapse all' },
       ...(nativeScroll ? [] : [{ id: 'split', label: unicode ? '⊡' : splitAt === 'top' ? '\u{ebf6}' : '\u{ec01}', dim: !t.split, hint: t.split ? 'hide preview' : 'show preview' }]),
     ]
+    const ICONS: Record<string, IconName> = { unselect: 'clear', up: 'up', cwd: 'locate', refresh: 'refresh', hidden: t.showHidden ? 'eye' : 'eyeOff', size: 'columns', hot: 'flame', collapse: 'collapse' }
     const wordButtons = plainButtons.map(b => ({ ...b, label: WORDS[b.id] ?? b.label }))
     const wordWidth = wordButtons.reduce((w, b) => w + b.label.length + 1, 1)
     const buttons = glyphSetting === 'text' && e.props.bodyColumns - wordWidth >= 8 ? wordButtons : plainButtons
@@ -2482,6 +2492,104 @@ export const register: Register = (on, options) => {
             ))}
             {rootCounts.length === 0 && totals[0] === 0 && totals[1] === 0 && <Text color="success"> ✓ clean</Text>}
           </Box>
+        </Box>
+      )
+    }
+
+    const isApp = e.surface === 'desktop'
+    const appTree = () => {
+      let size = 0
+      const out: RenderElement[] = []
+      for (const r of shown) {
+        const n = r.node
+        const own = t.git[n.id]
+        const status = own ?? (underAny(dirname(n.id), untracked, t.root) ? '?' : undefined)
+        const isIgnored = !status && underAny(n.id, ignored, t.root)
+        const gitColor = status === 'D' ? CDS.git.removed : status === 'U' ? CDS.git.conflicting : status === 'A' ? CDS.git.added : status === '?' ? CDS.git.added : status === 'R' ? CDS.git.merged : status ? CDS.git.modified : undefined
+        const loc = t.diff[n.id]
+        const dirCounts = n.kind === 'dir' ? t.counts[n.id] : undefined
+        const badges: AppRow['badges'] = []
+        if (loc && loc[0] > 0) badges.push({ text: `+${loc[0]}`, color: CDS.git.added })
+        if (loc && loc[1] > 0) badges.push({ text: `−${loc[1]}`, color: CDS.git.removed })
+        if (dirCounts && dirCounts[0] + dirCounts[1] + dirCounts[2] > 0) badges.push({ text: String(dirCounts[0] + dirCounts[1] + dirCounts[2]), color: CDS.git.modified })
+        else if (status) badges.push({ text: status, ...(gitColor ? { color: gitColor } : {}) })
+        const heated = (n.kind === 'dir' ? rolled.dirs[n.id] : rolled.files[n.id]) ?? 0
+        if (heated > 0) badges.unshift({ text: `${heated}×`, color: TONES.orange?.solid ?? '#f97316' })
+        const meta =
+          t.column === 'size'
+            ? n.kind === 'dir' ? (n.id in t.dirSizes ? formatSize(t.dirSizes[n.id] ?? -1) : '') : formatSize(n.size)
+            : t.column === 'loc'
+              ? locCache.has(n.id) ? formatLoc(locCache.get(n.id) ?? 0) : ''
+              : n.kind === 'file' ? (showAge ? age(n.mtime, now) : stamp(n.mtime)) : ''
+        if (r.open && !openedAt.has(n.id)) openedAt.set(n.id, now)
+        if (!r.open) openedAt.delete(n.id)
+        const lit = bright.has(n.id) || dimmed.has(n.id)
+        const row: AppRow = {
+          id: n.id,
+          name: n.name,
+          depth: r.depth,
+          kind: n.kind === 'dir' ? 'dir' : n.kind === 'link' ? 'link' : 'file',
+          isOpen: r.open,
+          isOpening: r.open && now - (openedAt.get(n.id) ?? 0) < 400,
+          isSelected: n.id === t.cursor,
+          ...(gitColor ? { color: gitColor } : {}),
+          ...(status === 'D' && n.kind !== 'dir' ? { isGone: true } : {}),
+          ...(isIgnored || n.hidden ? { isDim: true } : {}),
+          ...(lit ? { pulse: TONES[t.flashTones[n.id] ?? 'orange']?.solid ?? '#f97316' } : {}),
+          ...(meta ? { meta } : {}),
+          badges,
+        }
+        const el = appRow(k, row, async () => {
+          const cur = await get($)
+          const node = cur.nodes.find(x => x.id === n.id)
+          if (node) await press($, node)
+        })
+        size += JSON.stringify(el).length
+        if (size > APP_ROWS_BUDGET) {
+          out.push(
+            <Box key="app-more" paddingX="sm">
+              <Text dimColor>{`${shown.length - out.length} more rows: collapse folders or search`}</Text>
+            </Box>,
+          )
+          break
+        }
+        out.push(el as RenderElement)
+      }
+      return out
+    }
+    // The branch as the Environment panel draws its own: the branch icon, the name, the upstream grey,
+    // then the changes right (or Clean), and a running git action with the app's spinner.
+    const appBranch = () => {
+      if (!t.top || !t.branch) return null
+      const b = t.branch
+      const { Svg } = elements as unknown as { Svg: ElementConstructor<SvgProps> }
+      const running = latest?.state === 'running' ? latest : undefined
+      return (
+        <Box key="app-branch" flexDirection="row" alignItems="center" gap="sm" paddingX="sm" paddingY="xs" flexShrink={0}>
+          {gIcon(k, 'app-branch-icon', 'branch')}
+          <Box flexShrink={1} overflow="hidden">
+            <Text wrap="truncate-end">
+              {b.head}
+              {b.upstream ? <Text dimColor>{` · ${b.upstream}`}</Text> : null}
+              {b.ahead > 0 ? <Text dimColor>{` · ${b.ahead} to push`}</Text> : null}
+              {b.behind > 0 ? <Text dimColor>{` · ${b.behind} to pull`}</Text> : null}
+            </Text>
+          </Box>
+          <Box flexGrow={1} />
+          {running ? (
+            <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={0}>
+              <Svg source={spinner()} alt={`${running.label} running`} width={14} height={14} isInteractive />
+              <Text dimColor size="footnote">{`${running.label}…`}</Text>
+            </Box>
+          ) : totals[0] || totals[1] ? (
+            <Text size="footnote" tabular>
+              {totals[0] ? <Text color={CDS.git.added}>{`+${totals[0]}`}</Text> : null}
+              {totals[0] && totals[1] ? ' ' : null}
+              {totals[1] ? <Text color={CDS.git.removed}>{`−${totals[1]}`}</Text> : null}
+            </Text>
+          ) : (
+            <Text dimColor size="footnote">Clean</Text>
+          )}
         </Box>
       )
     }
@@ -2736,27 +2844,38 @@ export const register: Register = (on, options) => {
           role: theme.accent,
           detail: header,
           hint: hint(buttons),
-          actions: buttons.map(b => ({ id: b.id, label: b.label, node: button(b) })),
+          actions: buttons.map(b =>
+            isApp && ICONS[b.id]
+              ? { id: b.id, label: sentenceHint(b.hint), icon: ICONS[b.id]!, ...(b.dim ? {} : { isOn: true }), onPress: () => pressHeader($, b.id) }
+              : { id: b.id, label: b.label, node: button(b) },
+          ),
         })}
         {space(k, 'gap-head')}
         {/* The search bar right under the header, on the same rows as in every pane. */}
         {kitSearch(k, {
           id: 'q',
           value: t.query,
-          placeholder: 'search',
+          placeholder: isApp ? 'Filter files' : 'search',
           isBare: !searchGap,
           onInput: v => void search($, v),
           onSubmit: v => void jump($, v).then(() => $.clock.after(100, park)),
           onClear: () => void search($, ''),
         })}
         {splitAt === 'top' ? split : null}
-        {branchRow()}
+        {isApp ? appBranch() : branchRow()}
         {!t.top && showHints && <Text {...mutedText}>{unicode ? '± ' : '\u{e702} '}no git repo, git status starts after git init</Text>}
-        <Client
-          key="rows"
-          module="./rows.tsx"
-          props={{ rows: specs, active: t.cursor, ...rowColors, pointer, ...(bar ? { bar } : {}) } satisfies RowsProps}
-        />
+        {isApp ? (
+          <Box key="app-tree" flexDirection="column">
+            {rows.length === 0 ? <Text dimColor>{t.hot ? 'No edits yet' : 'Empty folder'}</Text> : null}
+            {appTree()}
+          </Box>
+        ) : (
+          <Client
+            key="rows"
+            module="./rows.tsx"
+            props={{ rows: specs, active: t.cursor, ...rowColors, pointer, ...(bar ? { bar } : {}) } satisfies RowsProps}
+          />
+        )}
         <Box flexGrow={1} />
         {splitAt === 'bottom' ? split : null}
         {(footer || latest || shortcutsShown || shortcutsSetting === 'auto') && (
