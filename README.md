@@ -146,7 +146,7 @@ Set them with `/plugin`, the mod's Configure entry.
 
 Your prompts as cards: blue for a prompt, purple for a slash command.
 
-**A queue for what you type while Claude works.** Send a prompt with `ctrl+x enter` (Claude Code's *queue* key) and it waits above the prompt instead of in Claude Code's own queue, where you can reorder it (`↑ ↓`), take it back to edit, drop it (`✕`), or `hold` the whole queue. The next one goes when the turn ends; after you interrupt Claude, the queue holds until you resume it. It survives a restart, held.
+**A queue for what you type while Claude works** (off by default: set `queue` to `postcard`). Send a prompt with `ctrl+x enter` (Claude Code's *queue* key) and it waits above the prompt instead of in Claude Code's own queue, where you can reorder it (`↑ ↓`), take it back to edit, drop it (`✕`), or `hold` the whole queue. The next one goes when the turn ends; after you interrupt Claude, the queue holds until you resume it. It survives a restart, held.
 
 <p align="center"><img src="docs/images/queue.png" alt="postcard: the queue above the prompt, one prompt waiting"></p>
 
@@ -164,7 +164,7 @@ Your prompts as cards: blue for a prompt, purple for a slash command.
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
-| `queue` | `postcard` `engine` | `postcard` | postcard: a prompt you send with `ctrl+x enter` while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
+| `queue` | `postcard` `engine` | `engine` | postcard: a prompt you send with `ctrl+x enter` while Claude works waits in a queue above the prompt, where you can reorder, edit, remove or hold it; the next one is sent when the turn ends, and the queue holds after an interrupt. |
 | `glyphs` | `auto` `plain` `text` `nerd` | `auto` | auto: Nerd Font icons in a terminal with a Nerd Font (3.2 or newer), the Unicode glyphs elsewhere. |
 
 Set them with `/plugin`, the mod's Configure entry.

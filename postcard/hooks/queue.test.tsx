@@ -60,7 +60,7 @@ test('what postcard queues: words, not slash commands, @file mentions or pasted 
   expect(moveQueued(q, 'b', 1).map(x => x.id)).toEqual(['a', 'c', 'b'])
 })
 
-test('a prompt queued with ctrl+x enter while Claude works waits in the queue above the prompt, then goes when the turn ends, in order', async ($, on) => {
+test('a prompt queued with ctrl+x enter while Claude works waits in the queue above the prompt, then goes when the turn ends, in order', { options: { queue: 'postcard' } }, async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'fix it', turnId: 'T1' })
   const one = await $.prompt.submit(queued('and the lexer', 'T1'))
@@ -84,7 +84,7 @@ test('a prompt queued with ctrl+x enter while Claude works waits in the queue ab
   expect((seen.store.queue as { items: { text: string }[] }).items.map(x => x.text)).toEqual(['and the lexer'])
 })
 
-test('after an interrupt the queue holds; resume sends the next at once when Claude is idle; edit takes one back to the box', async ($, on) => {
+test('after an interrupt the queue holds; resume sends the next at once when Claude is idle; edit takes one back to the box', { options: { queue: 'postcard' } }, async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'go', turnId: 'T2' })
   await $.prompt.submit(queued('first', 'T2'))
@@ -103,14 +103,14 @@ test('after an interrupt the queue holds; resume sends the next at once when Cla
   await pane.unmount()
 })
 
-test('queue: engine leaves every prompt to Claude Code', { options: { queue: 'engine' } }, async ($, on) => {
+test('by default postcard holds no prompt: ctrl+x enter goes to Claude Code as without the mod', async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'go', turnId: 'T3' })
   await $.prompt.submit(queued('later', 'T3'))
   expect(seen.submitted).toEqual(['later'])
 })
 
-test('a queued prompt leaves the prompt box empty, but never wipes something else typed there', async ($, on) => {
+test('a queued prompt leaves the prompt box empty, but never wipes something else typed there', { options: { queue: 'postcard' } }, async ($, on) => {
   // The engine leaves a dropped prompt in the box: here it still holds it.
   const seen = engine(on, 'and the lexer')
   const { clock } = seen
@@ -133,7 +133,7 @@ test('a prompt the queue sent is left to the engine, which names the plugin that
   expect(await texts(ui)).toEqual(['engine row'])
 })
 
-test('a prompt typed before the one just sent has started its turn waits too; one sent later, once idle, goes', async ($, on) => {
+test('a prompt typed before the one just sent has started its turn waits too; one sent later, once idle, goes', { options: { queue: 'postcard' } }, async ($, on) => {
   const seen = engine(on)
   const { clock } = seen
   // Sent while idle: through to the engine. Its turn has not started yet (its hooks run).
@@ -147,7 +147,7 @@ test('a prompt typed before the one just sent has started its turn waits too; on
   expect(seen.submitted).toEqual(['first', 'third'])
 })
 
-test('Enter and send-now while Claude works stay with Claude Code: send-now interrupts, and its prompt must run next', async ($, on) => {
+test('Enter and send-now while Claude works stay with Claude Code: send-now interrupts, and its prompt must run next', { options: { queue: 'postcard' } }, async ($, on) => {
   const seen = engine(on)
   await $.turn.start({ text: 'go', turnId: 'T6' })
   const now = await $.prompt.submit(typed('stop, do this instead', 'T6'))
@@ -158,7 +158,7 @@ test('Enter and send-now while Claude works stay with Claude Code: send-now inte
   expect(seen.toasts).toEqual([])
 })
 
-test('off the terminal postcard holds no prompt and draws no queue or pane: the app keeps its own', async ($, on) => {
+test('off the terminal postcard holds no prompt and draws no queue or pane: the app keeps its own', { options: { queue: 'postcard' } }, async ($, on) => {
   const seen = engine(on)
   // Beneath postcard: a session starts (its command registry answers too).
   on('session.start', (_, e) => ({ cwd: e.cwd }) as never)

@@ -246,7 +246,8 @@ export const register: Register = (on, options) => {
   const firstSeen = new Map<string, string | null>()
   const ids = () => [...prompts.keys()]
 
-  const isOurQueue = options?.queue !== 'engine'
+  // Opt-in: only `queue: postcard` holds a prompt. By default every prompt is Claude Code's, untouched.
+  const isOurQueue = options?.queue === 'postcard'
   // Whether this session draws in a terminal (session.start): postcard runs there only. Elsewhere it
   // draws nothing and holds no prompt, since a queue it could not show would hide what was typed.
   let onTerminal = true
@@ -311,7 +312,7 @@ export const register: Register = (on, options) => {
     hasNerd = (await nerdFont($).catch(() => 'missing' as const)) === 'ok'
     // A queue left by an earlier session comes back held: nothing is sent without the person.
     const saved = (await $.store.get(QUEUE_STORE).catch(() => undefined)) as Partial<PromptsQueue> | undefined
-    if (saved && Array.isArray(saved.items) && saved.items.length) {
+    if (isOurQueue && saved && Array.isArray(saved.items) && saved.items.length) {
       const items = saved.items.filter((x): x is QueuedPrompt => typeof x?.id === 'string' && typeof x?.text === 'string' && typeof x?.at === 'number')
       if (items.length) await update($, queue, () => ({ items, isHeld: true }))
     }
@@ -357,7 +358,9 @@ export const register: Register = (on, options) => {
       await update($, sent, s => ({ ...s, turnId: null, opener: '' }))
       // The queue: after an interrupt it holds, so the person decides what comes next; else the next goes.
       const q = await read($, queue)
-      if (q.items.length && e.isAborted && !q.isHeld) {
+      if (!isOurQueue) {
+        // No queue of postcard's: nothing to send.
+      } else if (q.items.length && e.isAborted && !q.isHeld) {
         await setQueue($, x => ({ ...x, isHeld: true }))
         $.ui.toast('Queue held after the interrupt: resume it above the prompt.')
       } else if (q.items.length && !q.isHeld) await sendNext($)
