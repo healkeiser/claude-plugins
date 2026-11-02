@@ -403,6 +403,32 @@ export function footer(
   )
 }
 
+/** Whether a tree of `contentRows` overflows a window of `bodyRows`, so a pane keeps a column for `scrollbar`. */
+export const isScrollable = (contentRows: number, bodyRows: number): boolean => contentRows > bodyRows
+
+/**
+ * A pane's scrollbar, as filetree's: a thumb of `GLYPH.thumb` in the accent, no track (a mouse selection
+ * picks up a blank column, not a border), its length the share of the tree in view. The engine scrolls
+ * the pane's tree itself (`props.scroll`): this lies over the tree's last column at the window's top
+ * (`position: absolute`, `top` the offset), so it stays in view. The pane's root is `position: relative`
+ * and leaves that column free. Null when the tree fits.
+ */
+export function scrollbar(k: Kit, o: { offset: number; bodyRows: number; contentRows: number; role?: string }): RenderChildren {
+  if (!isScrollable(o.contentRows, o.bodyRows) || o.bodyRows < 2) return null
+  const { Box, Text } = k.els
+  const max = o.contentRows - o.bodyRows
+  const offset = Math.max(0, Math.min(max, o.offset))
+  const size = Math.max(1, Math.round((o.bodyRows * o.bodyRows) / o.contentRows))
+  const pos = Math.round((offset / max) * (o.bodyRows - size))
+  return (
+    <Box key="kit-scrollbar" position="absolute" top={offset} right={0} width={1} height={o.bodyRows} flexDirection="column">
+      {Array.from({ length: o.bodyRows }, (_, i) => (
+        <Text key={`sb${i}`} color={o.role ?? ROLE.accent}>{i >= pos && i < pos + size ? GLYPH.thumb : ' '}</Text>
+      ))}
+    </Box>
+  )
+}
+
 /** `rows` blank rows (the spacing scale's unit between blocks). */
 export function space(k: Kit, key: string, rows: number = SPACE.block): RenderChildren {
   const { Box } = k.els

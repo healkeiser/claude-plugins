@@ -43,6 +43,8 @@ export const GLYPH = {
   half: '╸',
   track: '─',
   bar: '│',
+  /** A scrollbar's thumb (filetree's, the kit's `scrollbar`): no track, so a selection picks up blanks. */
+  thumb: '┃',
   external: '↗︎',
   warn: '⚠︎',
   info: 'ℹ︎',

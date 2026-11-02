@@ -91,7 +91,7 @@ import {
   jumpTo,
 } from './core'
 import type { Config, Panel } from './core'
-import { SPACE, cardFrame, header, isTerminal, kit, nerdFont, space } from './kit'
+import { SPACE, cardFrame, header, isScrollable, isTerminal, kit, nerdFont, scrollbar, space } from './kit'
 import { GLYPH, LIMIT_WINDOW_MS, ROLE, ascii, glyphSet, glyphTree, canRamp, forecast, forecastLabel, heatHex, heatRuns, motionOn, pace, paceLabel, percent, sentence } from './style'
 
 const PANE = 'flightdeck'
@@ -811,6 +811,20 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // The pane's height in rows, for its scrollbar: the engine's exact count, which every `ui.scroll` carries.
+  // After each change of layout (a card expanded, a panel shown, a resize) the drawing asks for it at once,
+  // by scrolling to a marker at the window's top that is already in view (`nearest`: nothing moves), so the
+  // bar shows on the change itself, not at the next wheel. Until the first answer, the drawing's estimate.
+  let measured: number | null = null
+  let probedFor = ''
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (measured !== e.contentRows) {
+      measured = e.contentRows
+      void $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     // The desktop app, VS Code and mobile draw their own UI: flightdeck leaves them the pane.
     if (!isTerminal(e.surface)) return next(e)
@@ -840,7 +854,11 @@ export const register: Register = (on, options) => {
     const isRamp = await readRamp($)
     const k = kit(els, { ramp: isRamp, ascii: cfg.ascii })
     // The body's own width, down to the narrowest dock Claude Code seats (24): a wider drawing is cut off at the frame.
-    const W = Math.max(24, e.props.bodyColumns)
+    // A tree taller than the pane keeps its last column for the scrollbar, where a column is spare: at the
+    // narrowest dock (24) every column is a block's, and the pane scrolls without one.
+    const windowRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
+    const barCols = e.props.bodyColumns > 24 && measured !== null && isScrollable(measured, windowRows) ? 1 : 0
+    const W = Math.max(24, e.props.bodyColumns) - barCols
     const layout = v.layout ?? cfg.layout
     const isWide = layout === 'wide' || (layout === 'auto' && W >= 110)
     const colW = isWide ? Math.floor((W - 2) / 2) : W
@@ -1612,8 +1630,17 @@ export const register: Register = (on, options) => {
       4 +
       panels.length +
       2
-    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
+    const bodyRows = windowRows
     const nLog = logRows(bodyRows, used)
+    // The tree's rows as laid out: what `used` counts, and the session log's panel (its rows, a head, a border).
+    const drawnRows = used + nLog + 3
+    const tall = measured ?? drawnRows
+    // What decides the tree's height: when it changes, ask the engine for the exact count (see `measured`).
+    const layoutKey = [drawnRows, W, bodyRows, v.expanded ?? '', v.gateOpen ? 1 : 0, panels.join(','), cards.length, lp.length, ib.length, Math.min(nLog, lines.length)].join('|')
+    if (layoutKey !== probedFor) {
+      probedFor = layoutKey
+      $.clock.after(0, () => void $.ui.scroll({ to: { key: 'fd-window' }, in: PANE, block: 'nearest' }).catch(() => undefined))
+    }
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)
     const colorOf = (l: LogLine) =>
       l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'gate' ? C.gate : l.who === 'you' ? C.text : C.agent
@@ -1794,6 +1821,7 @@ export const register: Register = (on, options) => {
     const badges = [inboxBadge, showArchitect ? { spans: [{ text: cfg.architectLabel, color: C.arch, bold: true }, { text: advising ? ' advising' : ' on call', dim: true }] } : null].filter(x => x !== null)
     // The kit's pane layout: a blank row, the header, a blank row, then the content.
     return drawn(
+      <Box position="relative" flexDirection="row" width={W + barCols}>
       <Box flexDirection="column" width={W} paddingTop={SPACE.top}>
         {header(k, {
           title: 'Flightdeck',
@@ -1815,6 +1843,10 @@ export const register: Register = (on, options) => {
           ))}
         </Box>
         {body}
+      </Box>
+      {/* A cell at the window's top, always in view: what the height probe scrolls to, moving nothing. */}
+      <Box key="fd-window" position="absolute" top={e.props.scroll?.offset ?? 0} left={0} width={0} height={1} />
+      {barCols ? scrollbar(k, { offset: e.props.scroll?.offset ?? 0, bodyRows, contentRows: tall, role: C.main }) : null}
       </Box>
     )
   }).catch(($, e, next) => {

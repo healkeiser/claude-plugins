@@ -1371,7 +1371,8 @@ test('blocks sit edge to edge; a connector only runs on the upper block\'s botto
       const tree = await ui.drawn()
       for (const f of gapsOf(tree)) failures.push(`${label} ${cols}: ${f}`)
       if (!JSON.stringify(tree).includes('"block-log"')) failures.push(`${label} ${cols}: no blocks found`)
-      expect((tree as Drawn).props?.paddingTop).toBe(1)
+      // The pane's column (under a root that also holds the scrollbar) opens with the kit's blank row.
+      expect(((tree as Drawn).children ?? []).filter(isDrawn)[0]?.props?.paddingTop).toBe(1)
       await ui.unmount()
     }
   }
@@ -1906,4 +1907,42 @@ test('the tools panel times each call, flags a slow run and failures, and leaves
   expect(textsIn(keyed(rows, 'tool-Read')).map(textOf)).toEqual(['Read', '1', 'avg', '0.2s', 'max', '0.2s'])
   expect(await ui.find({ text: /^2 calls$/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a pane taller than its window keeps a scrollbar in view: a thumb at the window, its column kept free', { timeoutMs: 60_000 }, async ($, on) => {
+  // Beneath flightdeck: the engine moves the window (nothing to move here).
+  on('ui.scroll', () => ({}) as never)
+  await busySession($, on)
+  const scrolled = (offset: number) => ({ ...pane(60), surface: 'terminal' as const, props: { ...pane(60).props, scroll: { offset, bodyRows: 12 } } })
+  const barOf = (tree: unknown): Drawn | undefined => {
+    let found: Drawn | undefined
+    const walk = (n: unknown) => {
+      if (!isDrawn(n) || found) return
+      if (n.props?.key === 'kit-scrollbar') found = n
+      ;(n.children ?? []).forEach(walk)
+    }
+    walk(tree)
+    return found
+  }
+  // The engine reports the tree's height with each scroll (the drawing asks for one after a change of
+  // layout): taller than the 12-row window, so the next drawing keeps the column and draws the bar.
+  const ui = await $.ui.mount(scrolled(0))
+  await $.ui.scroll({ component: 'Pane', requestId: 'flightdeck', by: 9, offset: 9, bodyRows: 12, contentRows: 80, origin: { kind: 'person' } } as never)
+  await ui.unmount()
+  const at = await $.ui.mount(scrolled(9))
+  const bar = barOf(await at.drawn())
+  expect(bar?.props?.position).toBe('absolute')
+  expect(bar?.props?.top).toBe(9)
+  expect(bar?.props?.height).toBe(12)
+  expect(JSON.stringify(bar)).toContain('┃')
+  // The blocks leave the scrollbar its column: the content is one column narrower than the pane.
+  expect((((await at.drawn()) as Drawn).children ?? []).filter(isDrawn)[0]?.props?.width).toBe(59)
+  await at.unmount()
+  // A pane whose tree fits draws none.
+  const roomy = await $.ui.mount({ ...pane(60), surface: 'terminal', props: { ...pane(60).props, scroll: { offset: 0, bodyRows: 300 } } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'flightdeck', by: 0, offset: 0, bodyRows: 300, contentRows: 80, origin: { kind: 'person' } } as never)
+  await roomy.unmount()
+  const fits = await $.ui.mount({ ...pane(60), surface: 'terminal', props: { ...pane(60).props, scroll: { offset: 0, bodyRows: 300 } } })
+  expect(barOf(await fits.drawn())).toBeUndefined()
+  await fits.unmount()
 })

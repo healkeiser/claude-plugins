@@ -17,6 +17,7 @@ Every pane and band draws its chrome through `kit.tsx`; a mod draws only its own
 | `search` | A rounded card, three rows: `⌕` and the field, the match count and a `×` clear button while there is a query; the border and `⌕` turn accent while it holds one. | Files, Prompts |
 | `bar`, `pct`, `pctColor` | The heat-ramp meter and its right-aligned percentage (Formatting). Every fill meter takes it, flightdeck's context `mix` too: its categories are named in the legend below it, not coloured in the bar. | Pulse, Flightdeck |
 | `card`, `cardFrame` | Rounded border in the role colour (`bold` for a viewed one, dimmed for a finished one), `paddingX` 1; `card` adds the title bold in the role colour with a status right. | every card: postcard's prompts and commands, gloss's callouts and `Next`, flightdeck's blocks and agent cards, the Pulse card |
+| `scrollbar` | A pane taller than its window: a thumb of `┃` in the pane's role colour, no track, its length the share in view, in a column the pane keeps free (none at the narrowest dock, 24). The engine scrolls the pane's tree itself; the bar lies over it at the window's top (`position: absolute`, `top` the offset), so it stays in view. Its size is the engine's exact count of the tree's rows, which every `ui.scroll` carries: after each change of layout (a card expanded, a panel shown, a resize) the pane asks for it at once, scrolling to a marker already at the window's top (`nearest`, so nothing moves), and the bar shows on the change itself. | Flightdeck (Files draws its own, the same, in its rows) |
 | `footer` | One row: key hints read as the engine draws a hotkey button (`o: open`: the key in the accent, the colon and action dim) left, a lead (Files' activity chip), then a label and a status right, the status cut from its start so a path keeps its end. | Files |
 
 **Pane layout**, the same in every pane, top to bottom: `SPACE.top` (1) blank row, the header, `SPACE.block` (1) blank row, then the search bar, then the tabs, then the body. So a search bar sits on the same rows in every pane, and it filters whichever tab is open (the Prompts pane: your prompts, or Claude's shell commands). A band card without a search bar has its tabs there instead, one blank row under them. The search card's border is its own air: what follows it comes directly.
@@ -77,6 +78,7 @@ All single-cell, text presentation. A glyph a terminal may draw as a colour emoj
 | `╸` | half a meter cell, the last lit one |
 | `▁▂▃▄▅▆▇█` | sparkline levels, low to high (flightdeck's trends; `glyphs: text` draws `_.:-=+*#`, flightdeck's `SPARK_ASCII`, as `ASCII` in `style.ts` has none) |
 | `│` `╭` `╮` `╰` `╯` `┬` `┴` | borders, quote bars, connectors |
+| `┃` | a scrollbar's thumb |
 | `↗︎` | opens outside (a link to the origin) |
 | `⚠︎` | warning callout |
 | `ℹ︎` | note callout |
